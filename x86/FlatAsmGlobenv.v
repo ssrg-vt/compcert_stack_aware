@@ -75,35 +75,35 @@ Local Unset Case Analysis Schemes.
   focusing on symbol names and their associated blocks.  They do not
   contain mappings from blocks to function or variable definitions. *)
 
-(* Module Senv. *)
+Module Senv.
 
-(* Record t: Type := mksenv { *)
-(*   (** Operations *) *)
-(*   find_symbol: ident -> option block; *)
-(*   public_symbol: ident -> bool; *)
-(*   invert_symbol: block -> option ident; *)
-(*   block_is_volatile: block -> option bool; *)
-(*   nextblock: block; *)
-(*   (** Properties *) *)
-(*   find_symbol_injective: *)
-(*     forall id1 id2 b, find_symbol id1 = Some b -> find_symbol id2 = Some b -> id1 = id2; *)
-(*   invert_find_symbol: *)
-(*     forall id b, invert_symbol b = Some id -> find_symbol id = Some b; *)
-(*   find_invert_symbol: *)
-(*     forall id b, find_symbol id = Some b -> invert_symbol b = Some id; *)
-(*   public_symbol_exists: *)
-(*     forall id, public_symbol id = true -> exists b, find_symbol id = Some b; *)
-(*   find_symbol_below: *)
-(*     forall id b, find_symbol id = Some b -> Plt b nextblock; *)
-(*   block_is_volatile_below: *)
-(*     forall b, block_is_volatile b = Some true -> Plt b nextblock *)
-(* }. *)
+Record t: Type := mksenv {
+  (** Operations *)
+  find_symbol: ident -> option Z;
+  public_symbol: ident -> bool;
+  invert_symbol: Z -> option ident;
+  (* block_is_volatile: block -> option bool; *)
+  (* nextblock: block; *)
+  (** Properties *)
+  (* find_symbol_injective: *)
+  (*   forall id1 id2 b, find_symbol id1 = Some b -> find_symbol id2 = Some b -> id1 = id2; *)
+  (* invert_find_symbol: *)
+  (*   forall id b, invert_symbol b = Some id -> find_symbol id = Some b; *)
+  (* find_invert_symbol: *)
+  (*   forall id b, find_symbol id = Some b -> invert_symbol b = Some id; *)
+  (* public_symbol_exists: *)
+  (*   forall id, public_symbol id = true -> exists b, find_symbol id = Some b; *)
+  (* find_symbol_below: *)
+  (*   forall id b, find_symbol id = Some b -> Plt b nextblock; *)
+  (* block_is_volatile_below: *)
+  (*   forall b, block_is_volatile b = Some true -> Plt b nextblock *)
+}.
 
-(* Definition symbol_address (ge: t) (id: ident) (ofs: ptrofs) : val := *)
-(*   match find_symbol ge id with *)
-(*   | Some b => Vptr b ofs *)
-(*   | None => Vundef *)
-(*   end. *)
+Definition symbol_address (ge: t) (id: ident) (ofs: Z) : option Z :=
+  match find_symbol ge id with
+  | Some b => Some (b + ofs)
+  | None => None
+  end.
 
 (* Theorem shift_symbol_address: *)
 (*   forall ge id ofs delta, *)
@@ -139,7 +139,7 @@ Local Unset Case Analysis Schemes.
 (*   /\ (forall id, public_symbol se2 id = public_symbol se1 id) *)
 (*   /\ (forall b, block_is_volatile se2 b = block_is_volatile se1 b). *)
 
-(* End Senv. *)
+End Senv.
 
 Module Genv.
 
@@ -682,21 +682,21 @@ Definition block_is_volatile (ge: t) (ofs: Z) : option bool :=
 (*   discriminate. *)
 (* Qed. *)
 
-(* (** ** Coercing a global environment into a symbol environment *) *)
+(** ** Coercing a global environment into a symbol environment *)
 
-(* Definition to_senv (ge: t) : Senv.t := *)
-(*  @Senv.mksenv *)
-(*     (find_symbol ge) *)
-(*     (public_symbol ge) *)
-(*     (invert_symbol ge) *)
-(*     (block_is_volatile ge) *)
-(*     ge.(genv_next) *)
-(*     ge.(genv_vars_inj) *)
-(*     (invert_find_symbol ge) *)
-(*     (find_invert_symbol ge) *)
-(*     (public_symbol_exists ge) *)
-(*     ge.(genv_symb_range) *)
-(*     (block_is_volatile_below ge). *)
+Definition to_senv (ge: t) : Senv.t :=
+ @Senv.mksenv
+    (find_symbol ge)
+    (public_symbol ge)
+    (invert_symbol ge).
+    (* (block_is_volatile ge) *)
+    (* ge.(genv_next) *)
+    (* ge.(genv_vars_inj) *)
+    (* (invert_find_symbol ge) *)
+    (* (find_invert_symbol ge) *)
+    (* (public_symbol_exists ge) *)
+    (* ge.(genv_symb_range) *)
+    (* (block_is_volatile_below ge). *)
 
 End GENV.
 
@@ -2349,9 +2349,8 @@ End GENV.
 
 End Genv.
 
-(* Coercion Genv.to_senv: Genv.t >-> Senv.t. *)
+Coercion Genv.to_senv: Genv.t >-> Senv.t.
 
-(* Definition is_function_ident {F V} (ge: Genv.t F V) (vf: val) (i: ident) : Prop := *)
-(*   exists b o, *)
-(*     vf = Vptr b o /\ Genv.find_symbol ge i = Some b. *)
-
+Definition is_function_ident {F V} (ge: Genv.t F V) (vf: val) (i: ident) : Prop :=
+  exists b o,
+    vf = Vptr b (Ptrofs.repr o) /\ Genv.find_symbol ge i = Some o.

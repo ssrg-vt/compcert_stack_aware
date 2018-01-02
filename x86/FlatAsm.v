@@ -3,7 +3,8 @@
 Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Smallstep.
 Require Import Locations Stacklayout Conventions EraseArgs.
-Require Import Sect FlatAsmGlobenv.
+Require Import Sect FlatAsmGlobenv FlatAsmExtcalls.
+Require Globalenvs.
 
 (** * Abstract syntax *)
 
@@ -279,10 +280,6 @@ Inductive instruction: Type :=
   | Psqrtsd (rd: freg) (r1: freg)
   | Psubl_ri (rd: ireg) (n: int)
   | Psubq_ri (rd: ireg) (n: int64).
-
-
-(* The block id of the flat memory *)
-Definition mem_block := 1%positive.
 
 Definition instr_with_info:Type := instruction * sect_block.
 Definition code := list instr_with_info.
@@ -1279,22 +1276,24 @@ Definition loc_external_result (sg: signature) : rpair preg :=
 Inductive state {memory_model_ops: Mem.MemoryModelOps mem}: Type :=
   | State: regset -> mem -> state.
 
+Definition dummy_senv := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit nil).
+
 Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} 
   (smap: section_map) (ge: genv) : state -> trace -> state -> Prop :=
 | exec_step_internal:
-    forall b ofs f i rs m rs' m',
-      rs PC = Vptr b ofs ->
-      Genv.find_funct_offset ge (Ptrofs.unsigned ofs) = Some (Internal f) ->
-      find_instr smap (Ptrofs.unsigned ofs) (fn_code f) = Some i ->
+    forall ofs f i rs m rs' m',
+      rs PC = Vptr mem_block (Ptrofs.repr ofs) ->
+      Genv.find_funct_offset ge ofs = Some (Internal f) ->
+      find_instr smap ofs (fn_code f) = Some i ->
       exec_instr smap ge f i rs m = Next rs' m' ->
       step smap ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
-    forall b ofs f ef args res rs m vargs t vres rs' m' sz,
-      rs PC = Vptr b ofs ->
-      Genv.find_funct_offset ge (Ptrofs.unsigned ofs) = Some (Internal f) ->
-      find_instr smap (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res, (_,_,sz)) ->
-      eval_builtin_args ge rs (rs RSP) m args vargs ->
-      external_call ef ge vargs m t vres m' ->
+    forall ofs f ef args res rs m vargs t vres rs' m' sz sid sstart,
+      rs PC = Vptr mem_block (Ptrofs.repr ofs) ->
+      Genv.find_funct_offset ge ofs = Some (Internal f) ->
+      find_instr smap ofs f.(fn_code) = Some (Pbuiltin ef args res, (sid,sstart,sz)) ->
+      eval_builtin_args preg ge rs (rs RSP) m args vargs ->
+        external_call ef dummy_senv vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         no_rsp_builtin_preg res ->
         rs' = nextinstr_nf
@@ -1302,9 +1301,9 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) sz ->
         step smap ge (State rs m) t (State rs' m')
 | exec_step_external:
-    forall b ef args res rs m t rs' m',
-      rs PC = Vptr b Ptrofs.zero ->
-      Genv.find_funct_ptr ge b = Some (External ef) ->
+    forall ofs ef args res rs m t rs' m',
+      rs PC = Vptr mem_block (Ptrofs.repr ofs) ->
+      Genv.find_funct_offset ge ofs = Some (External ef) ->
       extcall_arguments rs m (ef_sig ef) args ->
       forall (* CompCertX: BEGIN additional conditions for calling convention *)
         (* (STACK: *)
@@ -1318,10 +1317,10 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
         (RA_NOT_VUNDEF: rs RA <> Vundef)
       ,      (* CompCertX: END additional conditions for calling convention *)
-        external_call ef ge args m t res m' ->
+        external_call ef dummy_senv args m t res m' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
-        step ge (State rs m) t (State rs' m').
+        step smap ge (State rs m) t (State rs' m').
 
 End RELSEM.
 
@@ -1612,3 +1611,5 @@ Definition instr_to_string (i:instruction) : string :=
   (* | Psubq_ri rd n. *)
   | _ => "Unknown instruction"
   end.
+
+

@@ -101,7 +101,7 @@ BACKEND=\
   Asm.v Asmgen.v Asmgenproof0.v Asmgenproof1.v Asmgenproof.v \
   Inlining.v Inliningspec.v Inliningproof.v \
   AsmFacts.v RawAsmgen.v AsmExpand.v RockSaltAsm.v RockSaltAsmGen.v\
-  Sect.v FlatAsmGlobenv.v
+  Sect.v FlatAsmGlobenv.v FlatAsmExtcalls.v
 
 #  Tailcall.v Tailcallproof.v \
 
