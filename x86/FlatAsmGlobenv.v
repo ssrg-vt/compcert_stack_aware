@@ -234,6 +234,7 @@ Definition block_is_volatile (ge: t) (ofs: Z) : option bool :=
   | Some gv => Some (gv.(gvar_volatile))
   end.
 
+
 (** ** Constructing the global environment *)
 
 (* Program Definition add_global (ge: t) (idg: ident * option (globdef F V)) : t := *)

@@ -309,7 +309,7 @@ Definition get_sect_size (s:section) :=
 
 (* Translate a label to an offset in the flat memory space *)
 Definition label_to_ofs (smap: section_map) (l:label): option Z :=
-  match smap (fst l) with
+  match PTree.get (fst l) smap with
   | None => None
   | Some sofs => Some (Z.add sofs (snd l))
   end.
@@ -318,7 +318,7 @@ Definition label_to_ofs (smap: section_map) (l:label): option Z :=
 Definition instr_ofs (smap: section_map) (i:instr_with_info): option Z :=
   let (_,bi) := i in
   let '(sid,ofs,_) := bi in
-  match smap sid with
+  match PTree.get sid smap  with
   | None => None
   | Some sofs => Some (Z.add sofs ofs)
   end.
@@ -341,7 +341,7 @@ Fixpoint gen_instrs_map (sects_map: section_map) (c:code): option instrs_map :=
 
 (* The flat Asm program *)
 Record program : Type := {
-  prog_defs: list (ident * option (globdef fundef unit));
+  prog_defs: list (ident * option (globdef fundef unit) * sect_block);
   prog_public: list ident;
   prog_main: ident;
   sects: list section; (* The list of section and their starting offsets *)
@@ -359,12 +359,12 @@ Fixpoint find_sect (id:sect_id) (l:list section) : option section :=
   end.
              
 
-Definition program_of_program (p: program) : AST.program fundef unit :=
-  {| AST.prog_defs := p.(prog_defs);
-     AST.prog_public := p.(prog_public);
-     AST.prog_main := p.(prog_main) |}.
+(* Definition program_of_program (p: program) : AST.program fundef unit := *)
+(*   {| AST.prog_defs := p.(prog_defs); *)
+(*      AST.prog_public := p.(prog_public); *)
+(*      AST.prog_main := p.(prog_main) |}. *)
 
-Coercion program_of_program: program >-> AST.program.
+(* Coercion program_of_program: program >-> AST.program. *)
 
 
 (** * Operational semantics *)
@@ -1324,18 +1324,66 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
 
 End RELSEM.
 
-(** Execution of whole programs. *)
+(** Initialization of the global environment *)
+Definition get_gdef_offset (smap: section_map) (gdef: ident * option (globdef fundef unit) * sect_block) : option Z :=
+  let '(gid,_,sb) := gdef in 
+  let '(sid,ss,_) := sb in
+  match (PTree.get sid smap) with
+  | None => None
+  | Some ofs => Some (ofs+ss)
+  end.
 
-Inductive initial_state {F V} (p: AST.program F V): state -> Prop :=
+Definition update_symb_mapping (smap: section_map) (symb_mapping: PTree.t Z) 
+  (gdef: ident * option (globdef fundef unit) * sect_block) : option (PTree.t Z) :=
+  let '(gid,_,sb) := gdef in
+  let '(sid,ss,_) := sb in
+  match (PTree.get sid smap) with
+  | None => None
+  | Some ofs => Some (PTree.set gid (ofs+ss) symb_mapping)
+  end.
+
+Definition add_global (smap:section_map) (ge:genv) (idg: ident * option (globdef fundef unit) * sect_block) : option genv :=
+  match (get_gdef_offset smap idg) with
+  | None => None
+  | Some ofs =>
+    let '(gid,gdef,_) := idg in
+    Some (Genv.mkgenv
+            (Genv.genv_public ge)
+            (PTree.set gid ofs (Genv.genv_symb ge))
+            (match gdef with Some g => ZTree.set ofs g (Genv.genv_defs ge) | _ => (Genv.genv_defs ge) end))
+  end.
+
+Fixpoint add_globals (smap:section_map) (ge:genv) (gl: list (ident * option (globdef fundef unit) * sect_block)) : option genv :=
+  match gl with
+  | nil => Some ge
+  | (idg::gl') => 
+    match (add_global smap ge idg) with
+    | None => None
+    | Some ge' => add_globals smap ge' gl'
+    end
+  end.
+
+Definition empty_genv (pub: list ident): genv :=
+  Genv.mkgenv pub (PTree.empty _) (PTree.empty _).
+  
+Definition globalenv (p: program) : option genv :=
+  add_globals p.(sects_map) (empty_genv p.(prog_public)) p.(prog_defs).
+
+(** Initialization of the memory *)
+Definition mem_block_size : Z :=
+  if Archi.ptr64 then two_power_nat 64 else two_power_nat 32.
+
+(** Execution of whole programs. *)
+Inductive initial_state {F V} (p: AST.program F V): globids_mapping -> state -> Prop :=
   | initial_state_intro: forall m0,
       Genv.init_mem p = Some m0 ->
-      let ge := Genv.globalenv p in
+      globalenv p = Some ge ->
       let rs0 :=
         (Pregmap.init Vundef)
         # PC <- (Genv.symbol_address ge p.(prog_main) Ptrofs.zero)
         # RA <- Vnullptr
         # RSP <- Vnullptr in
-      initial_state p (State rs0 m0).
+      initial_state smap p (State rs0 m0).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m r,
