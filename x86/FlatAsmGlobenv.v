@@ -47,24 +47,6 @@ Local Open Scope error_monad_scope.
 
 Set Implicit Arguments.
 
-(** Auxiliary function for initialization of global variables. *)
-
-Section WITHMEMORYMODELOPS.
-Context `{memory_model_ops: Mem.MemoryModelOps}.
-
-Function store_zeros (m: mem) (b: block) (p: Z) (n: Z) {wf (Zwf 0) n}: option mem :=
-  if zle n 0 then Some m else
-    match Mem.store Mint8unsigned m b p Vzero with
-    | Some m' => store_zeros m' b (p + 1) (n - 1)
-    | None => None
-    end.
-Proof.
-  intros. red. omega.
-  apply Zwf_well_founded.
-Qed.
-
-End WITHMEMORYMODELOPS.
-
 (* To avoid useless definitions of inductors in extracted code. *)
 Local Unset Elimination Schemes.
 Local Unset Case Analysis Schemes.
@@ -234,8 +216,9 @@ Definition block_is_volatile (ge: t) (ofs: Z) : option bool :=
   | Some gv => Some (gv.(gvar_volatile))
   end.
 
-
 (** ** Constructing the global environment *)
+
+
 
 (* Program Definition add_global (ge: t) (idg: ident * option (globdef F V)) : t := *)
 (*   @mkgenv *)

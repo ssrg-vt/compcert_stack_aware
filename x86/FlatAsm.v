@@ -285,6 +285,7 @@ Definition instr_with_info:Type := instruction * sect_block.
 Definition code := list instr_with_info.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info; range:sect_block}.
 Definition fundef := AST.fundef function.
+Definition gdef := (globdef fundef unit).
 
 (* Instruction with its offset in the section it resides and its size *)
 
@@ -314,6 +315,14 @@ Definition label_to_ofs (smap: section_map) (l:label): option Z :=
   | Some sofs => Some (Z.add sofs (snd l))
   end.
 
+(* Get the offset of a region in a section *)
+Definition get_sect_block_ofs (smap:section_map) (sb:sect_block) : option Z :=
+  let '(sid,ss,_) := sb in
+  match PTree.get sid smap with
+  | None => None
+  | Some ofs => Some (ss+ofs)
+  end.
+
 (* Get the offset of an instruction in the flat memory space *)
 Definition instr_ofs (smap: section_map) (i:instr_with_info): option Z :=
   let (_,bi) := i in
@@ -341,7 +350,7 @@ Fixpoint gen_instrs_map (sects_map: section_map) (c:code): option instrs_map :=
 
 (* The flat Asm program *)
 Record program : Type := {
-  prog_defs: list (ident * option (globdef fundef unit) * sect_block);
+  prog_defs: list (ident * option gdef * sect_block);
   prog_public: list ident;
   prog_main: ident;
   sects: list section; (* The list of section and their starting offsets *)
@@ -1325,16 +1334,8 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
 End RELSEM.
 
 (** Initialization of the global environment *)
-Definition get_gdef_offset (smap: section_map) (gdef: ident * option (globdef fundef unit) * sect_block) : option Z :=
-  let '(gid,_,sb) := gdef in 
-  let '(sid,ss,_) := sb in
-  match (PTree.get sid smap) with
-  | None => None
-  | Some ofs => Some (ofs+ss)
-  end.
-
 Definition update_symb_mapping (smap: section_map) (symb_mapping: PTree.t Z) 
-  (gdef: ident * option (globdef fundef unit) * sect_block) : option (PTree.t Z) :=
+  (gdef: ident * option gdef * sect_block) : option (PTree.t Z) :=
   let '(gid,_,sb) := gdef in
   let '(sid,ss,_) := sb in
   match (PTree.get sid smap) with
@@ -1342,18 +1343,18 @@ Definition update_symb_mapping (smap: section_map) (symb_mapping: PTree.t Z)
   | Some ofs => Some (PTree.set gid (ofs+ss) symb_mapping)
   end.
 
-Definition add_global (smap:section_map) (ge:genv) (idg: ident * option (globdef fundef unit) * sect_block) : option genv :=
-  match (get_gdef_offset smap idg) with
+Definition add_global (smap:section_map) (ge:genv) (idg: ident * option gdef * sect_block) : option genv :=
+  let '(gid,gdef,sb) := idg in
+  match (get_sect_block_ofs smap sb) with
   | None => None
   | Some ofs =>
-    let '(gid,gdef,_) := idg in
     Some (Genv.mkgenv
             (Genv.genv_public ge)
             (PTree.set gid ofs (Genv.genv_symb ge))
             (match gdef with Some g => ZTree.set ofs g (Genv.genv_defs ge) | _ => (Genv.genv_defs ge) end))
   end.
 
-Fixpoint add_globals (smap:section_map) (ge:genv) (gl: list (ident * option (globdef fundef unit) * sect_block)) : option genv :=
+Fixpoint add_globals (smap:section_map) (ge:genv) (gl: list (ident * option gdef * sect_block)) : option genv :=
   match gl with
   | nil => Some ge
   | (idg::gl') => 
@@ -1373,17 +1374,96 @@ Definition globalenv (p: program) : option genv :=
 Definition mem_block_size : Z :=
   if Archi.ptr64 then two_power_nat 64 else two_power_nat 32.
 
+Section WITHGE.
+
+Variable ge:genv.
+
+Definition store_init_data (m: mem) (p: Z) (id: init_data) : option mem :=
+  match id with
+  | Init_int8 n => Mem.store Mint8unsigned m mem_block p (Vint n)
+  | Init_int16 n => Mem.store Mint16unsigned m mem_block p (Vint n)
+  | Init_int32 n => Mem.store Mint32 m mem_block p (Vint n)
+  | Init_int64 n => Mem.store Mint64 m mem_block p (Vlong n)
+  | Init_float32 n => Mem.store Mfloat32 m mem_block p (Vsingle n)
+  | Init_float64 n => Mem.store Mfloat64 m mem_block p (Vfloat n)
+  | Init_addrof symb ofs =>
+      match Genv.find_symbol ge symb with
+      | None => None
+      | Some o => Mem.store Mptr m mem_block p (Vptr mem_block (Ptrofs.add (Ptrofs.repr o) ofs))
+      end
+  | Init_space n => Some m
+  end.
+
+Fixpoint store_init_data_list (m: mem) (b: block) (p: Z) (idl: list init_data)
+                              {struct idl}: option mem :=
+  match idl with
+  | nil => Some m
+  | id :: idl' =>
+      match store_init_data m p id with
+      | None => None
+      | Some m' => store_init_data_list m' b (p + init_data_size id) idl'
+      end
+  end.
+
+Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * sect_block): option mem :=
+  let '(id, gdef, sb) := idg in
+  let '(_,_,sz) := sb in
+  match (get_sect_block_ofs smap sb) with
+  | None => None
+  | Some ofs => 
+    match gdef with
+    | None =>
+      Some m
+    | Some (Gfun f) =>
+      Mem.drop_perm m mem_block ofs (ofs+sz) Nonempty
+    | Some (Gvar v) =>
+      let init := v.(gvar_init) in
+      let isz := init_data_list_size init in
+      if zeq isz sz then  
+        match Globalenvs.store_zeros m mem_block ofs sz with
+        | None => None
+        | Some m1 =>
+          match store_init_data_list m1 mem_block ofs init with
+          | None => None
+          | Some m2 => Mem.drop_perm m2 mem_block ofs (ofs+sz) (Globalenvs.Genv.perm_globvar v)
+          end
+        end
+      else
+        None
+    end
+  end.
+
+Fixpoint alloc_globals (smap:section_map) (m: mem) (gl: list (ident * option gdef * sect_block))
+                       {struct gl} : option mem :=
+  match gl with
+  | nil => Some m
+  | g :: gl' =>
+      match alloc_global smap m g with
+      | None => None
+      | Some m' => alloc_globals smap m' gl'
+      end
+  end.
+
+End WITHGE.
+
+Definition init_mem (p: program) :=
+  match (globalenv p) with
+  | None => None
+  | Some ge => alloc_globals ge p.(sects_map) Mem.empty p.(prog_defs)
+  end.
+
 (** Execution of whole programs. *)
-Inductive initial_state {F V} (p: AST.program F V): globids_mapping -> state -> Prop :=
-  | initial_state_intro: forall m0,
-      Genv.init_mem p = Some m0 ->
+Inductive initial_state (p: program): state -> Prop :=
+  | initial_state_intro: forall m0 start_ofs ge,
+      init_mem p = Some m0 ->
       globalenv p = Some ge ->
+      Senv.symbol_address ge p.(prog_main) 0 = Some start_ofs ->
       let rs0 :=
         (Pregmap.init Vundef)
-        # PC <- (Genv.symbol_address ge p.(prog_main) Ptrofs.zero)
+        # PC <- (Vptr mem_block (Ptrofs.repr start_ofs))
         # RA <- Vnullptr
         # RSP <- Vnullptr in
-      initial_state smap p (State rs0 m0).
+      initial_state p (State rs0 m0).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m r,
@@ -1394,7 +1474,10 @@ Inductive final_state: state -> int -> Prop :=
 Local Existing Instance mem_accessors_default.
 
 Definition semantics (p: program) :=
-  Semantics step (initial_state p) final_state (Genv.globalenv p).
+  match (globalenv p) with
+  | None => None
+  | Some ge => Some (Semantics_gen (step p.(sects_map)) (initial_state p) final_state ge dummy_senv)
+  end.
 
 (** Determinacy of the [Asm] semantics. *)
 
@@ -1420,40 +1503,40 @@ Proof.
   intros. eapply C; eauto.
 Qed.
 
-Lemma semantics_determinate: forall p, determinate (semantics p).
-Proof.
-Ltac Equalities :=
-  match goal with
-  | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] =>
-      rewrite H1 in H2; inv H2; Equalities
-  | _ => idtac
-  end.
-  intros; constructor; simpl; intros.
-- (* determ *)
-  inv H; inv H0; Equalities.
-+ split. constructor. auto.
-+ discriminate.
-+ discriminate.
-+ assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0.
-  exploit external_call_determ. eexact H5. eexact H12. intros [A B].
-  split. auto. intros. destruct B; auto. subst. auto.
-+ assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
-  exploit external_call_determ. eexact H4. eexact H10. intros [A B].
-  split. auto. intros. destruct B; auto. subst. auto.
-- (* trace length *)
-  red; intros; inv H; simpl.
-  omega.
-  eapply external_call_trace_length; eauto.
-  eapply external_call_trace_length; eauto.
-- (* initial states *)
-  inv H; inv H0. f_equal. congruence.
-- (* final no step *)
-  assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
-  { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. }
-  inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
-- (* final states *)
-  inv H; inv H0. congruence.
-Qed.
+(* Lemma semantics_determinate: forall p sem, semantics p = Some sem -> determinate sem. *)
+(* Proof. *)
+(* Ltac Equalities := *)
+(*   match goal with *)
+(*   | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] => *)
+(*       rewrite H1 in H2; inv H2; Equalities *)
+(*   | _ => idtac *)
+(*   end. *)
+(*   intros; constructor; simpl; intros. *)
+(* - (* determ *) *)
+(*   inv H; inv H0; Equalities. *)
+(* + split. constructor. auto. *)
+(* + discriminate. *)
+(* + discriminate. *)
+(* + assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0. *)
+(*   exploit external_call_determ. eexact H5. eexact H12. intros [A B]. *)
+(*   split. auto. intros. destruct B; auto. subst. auto. *)
+(* + assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0. *)
+(*   exploit external_call_determ. eexact H4. eexact H10. intros [A B]. *)
+(*   split. auto. intros. destruct B; auto. subst. auto. *)
+(* - (* trace length *) *)
+(*   red; intros; inv H; simpl. *)
+(*   omega. *)
+(*   eapply external_call_trace_length; eauto. *)
+(*   eapply external_call_trace_length; eauto. *)
+(* - (* initial states *) *)
+(*   inv H; inv H0. f_equal. congruence. *)
+(* - (* final no step *) *)
+(*   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs). *)
+(*   { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. } *)
+(*   inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto. *)
+(* - (* final states *) *)
+(*   inv H; inv H0. congruence. *)
+(* Qed. *)
 
 End WITHEXTERNALCALLS.
 
@@ -1615,9 +1698,6 @@ Definition instr_to_string (i:instruction) : string :=
   | Pmovsd_fm_a rd a => "Pmovsd_fm_a" (**r like [Pmovsd_fm], using [Many64] chunk *)
   | Pmovsd_mf_a a r1 => "Pmovsd_mf_a" (**r like [Pmovsd_mf], using [Many64] chunk *)
   (* (** Pseudo-instructions *) *)
-  | Plabel l => "Plabel"
-  | Pallocframe frame ofs_ra ofs_link => "Pallocframe"
-  | Pfreeframe sz ofs_ra ofs_link => "Pfreeframe"
   | Pbuiltin ef args res => "Pbuiltin"
   (* (** Instructions not generated by [Asmgen] -- TO CHECK *) *)
   (* | Padcl_ri rd (n: int) *)
