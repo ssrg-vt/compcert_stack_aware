@@ -2401,14 +2401,13 @@ Lemma stack_inject_incr:
     (forall b b' delta,
         f b = None ->
         f' b = Some (b', delta) ->
-        ~ in_stack s1 b /\ ~ in_stack s2 b'
-        (* /\ forall f2 fi, *)
-        (*     In f2 s2 -> *)
-        (*     In (b', fi) (frame_adt_blocks f2) -> *)
-        (*     forall o k pp, *)
-        (*       p b o k pp -> *)
-        (*       inject_perm_condition pp -> *)
-        (*       frame_public fi (o + delta) *)) ->
+        ~ in_stack s1 b 
+        /\ forall fi,
+            in_stack' s2 (b', fi) ->
+            forall o k pp,
+              p b o k pp ->
+              inject_perm_condition pp ->
+              frame_public fi (o + delta)) ->
     stack_inject f g p s1 s2 ->
     stack_inject f' g p s1 s2.
 Proof.
@@ -2441,21 +2440,7 @@ Proof.
     destruct (f b1) as [[b2' delta']|] eqn:FB.
     exploit INCR. eauto. rewrite SOME. inversion 1; subst.
     eauto.
-    generalize (NEW _ _ _ FB SOME). intros (NIN1 & NIN2). apply in_stack'_in_stack in INS; congruence. 
-Qed.
-
-Lemma stack_injection_incr:
-  forall f f' g (p: block -> Z -> perm_kind -> permission -> Prop) s1 s2,
-    inject_incr f f' ->
-    (forall b b' delta,
-        f b = None ->
-        f' b = Some (b', delta) ->
-        ~ in_stack s1 b /\ ~ in_stack s2 b') ->
-    stack_inject f g p s1 s2 ->
-    stack_inject f' g p s1 s2.
-Proof.
-  intros f f' g p s1 s2 H H0 SI.
-  eapply stack_inject_incr; eauto.
+    generalize (NEW _ _ _ FB SOME). intros (NIN1 & NIN2). eapply NIN2 in INS; eauto.
 Qed.
 
 Lemma norepet_1:
