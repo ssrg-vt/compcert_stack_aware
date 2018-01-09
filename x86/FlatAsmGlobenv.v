@@ -61,9 +61,9 @@ Module Senv.
 
 Record t: Type := mksenv {
   (** Operations *)
-  find_symbol: ident -> option Z;
+  find_symbol: ident -> option ptrofs;
   public_symbol: ident -> bool;
-  invert_symbol: Z -> option ident;
+  invert_symbol: ptrofs -> option ident;
   (* block_is_volatile: block -> option bool; *)
   (* nextblock: block; *)
   (** Properties *)
@@ -81,9 +81,9 @@ Record t: Type := mksenv {
   (*   forall b, block_is_volatile b = Some true -> Plt b nextblock *)
 }.
 
-Definition symbol_address (ge: t) (id: ident) (ofs: Z) : option Z :=
+Definition symbol_address (ge: t) (id: ident) (ofs: ptrofs) : option ptrofs :=
   match find_symbol ge id with
-  | Some b => Some (b + ofs)
+  | Some b => Some (Ptrofs.add b ofs)
   | None => None
   end.
 
@@ -136,7 +136,7 @@ Variable V: Type.  (**r The type of information attached to variables *)
 
 Record t: Type := mkgenv {
   genv_public: list ident;              (**r which symbol names are public *)
-  genv_symb: PTree.t Z;                 (**r mapping symbol -> offset *)
+  genv_symb: PTree.t ptrofs;                 (**r mapping symbol -> offset *)
   genv_defs: ZTree.t (globdef F V);     (**r mapping offset -> definition *)
   (* genv_vars_inj: forall id1 id2 b, *)
   (*   PTree.get id1 genv_symb = Some b -> PTree.get id2 genv_symb = Some b -> id1 = id2 *)
@@ -146,16 +146,16 @@ Record t: Type := mkgenv {
 
 (** [find_symbol ge id] returns the offset associated with the given name, if any *)
 
-Definition find_symbol (ge: t) (id: ident) : option Z :=
-  PTree.get id ge.(genv_symb).
+Definition find_symbol (ge: t) (id: ident) : option ptrofs :=
+  PTree.get id (genv_symb ge).
 
 (** [symbol_offset ge id ofs] returns an offset into the flat memory associated
   with [id], at byte offset [ofs].  [Vundef] is returned if no offset is associated
   to [id]. *)
 
-Definition symbol_offset (ge: t) (id: ident) (ofs: Z) : option Z :=
+Definition symbol_offset (ge: t) (id: ident) (ofs: ptrofs) : option ptrofs :=
   match find_symbol ge id with
-  | Some o => Some (o + ofs)
+  | Some o => Some (Ptrofs.add o ofs)
   | None => None
   end.
 
@@ -169,13 +169,13 @@ Definition public_symbol (ge: t) (id: ident) : bool :=
 
 (** [find_def ge ofs] returns the global definition associated with the given offset. *)
 
-Definition find_def (ge: t) (ofs: Z) : option (globdef F V) :=
-  ZTree.get ofs ge.(genv_defs).
+Definition find_def (ge: t) (ofs: ptrofs) : option (globdef F V) :=
+  ZTree.get (Ptrofs.unsigned ofs) (genv_defs ge).
 
 (** [find_funct_ptr ge ofs] returns the function description associated with
     the given offset. *)
 
-Definition find_funct_offset (ge: t) (ofs: Z) : option F :=
+Definition find_funct_offset (ge: t) (ofs: ptrofs) : option F :=
   match find_def ge ofs with Some (Gfun f) => Some f | _ => None end.
 
 (* Definition find_in_funct_offset (ge: t) (ofs: Z) : option F := *)
@@ -190,27 +190,27 @@ Definition find_funct_offset (ge: t) (ofs: Z) : option F :=
 
 Definition find_funct (ge: t) (v: val) : option F :=
   match v with
-  | Vptr b ofs => find_funct_offset ge (Ptrofs.unsigned ofs)
+  | Vptr b ofs => find_funct_offset ge ofs
   | _ => None
   end.
 
 (** [invert_symbol ge ofs] returns the name associated with the given offset, if any *)
 
-Definition invert_symbol (ge: t) (ofs: Z) : option ident :=
+Definition invert_symbol (ge: t) (ofs: ptrofs) : option ident :=
   PTree.fold
-    (fun res id ofs' => if zeq ofs ofs' then Some id else res)
+    (fun res id ofs' => if Ptrofs.eq ofs ofs' then Some id else res)
     ge.(genv_symb) None.
 
 (** [find_var_info ge ofs] returns the information attached to the variable
    at the offset [ofs]. *)
 
-Definition find_var_info (ge: t) (ofs: Z) : option (globvar V) :=
+Definition find_var_info (ge: t) (ofs: ptrofs) : option (globvar V) :=
   match find_def ge ofs with Some (Gvar v) => Some v | _ => None end.
 
 (** [block_is_volatile ge ofs] returns [true] if [ofs] points to a global variable
   of volatile type, [false] otherwise. *)
 
-Definition block_is_volatile (ge: t) (ofs: Z) : option bool :=
+Definition block_is_volatile (ge: t) (ofs: ptrofs) : option bool :=
   match find_var_info ge ofs with
   | None => None
   | Some gv => Some (gv.(gvar_volatile))
@@ -2337,4 +2337,4 @@ Coercion Genv.to_senv: Genv.t >-> Senv.t.
 
 Definition is_function_ident {F V} (ge: Genv.t F V) (vf: val) (i: ident) : Prop :=
   exists b o,
-    vf = Vptr b (Ptrofs.repr o) /\ Genv.find_symbol ge i = Some o.
+    vf = Vptr b o /\ b = mem_block /\ Genv.find_symbol ge i = Some o.

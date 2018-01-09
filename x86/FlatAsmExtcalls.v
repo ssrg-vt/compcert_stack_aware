@@ -35,11 +35,11 @@ Inductive eval_builtin_arg: builtin_arg A -> val -> Prop :=
   | eval_BA_addrstack: forall ofs,
       eval_builtin_arg (BA_addrstack ofs) (Val.offset_ptr sp ofs)
   | eval_BA_loadglobal: forall chunk id ofs v o,
-      Senv.symbol_address ge id (Ptrofs.unsigned ofs) = Some o ->
+      Senv.symbol_address ge id ofs = Some o ->
       Mem.loadv chunk m (flatptr o) = Some v ->
       eval_builtin_arg (BA_loadglobal chunk id ofs) v
   | eval_BA_addrglobal: forall id ofs o,
-      (Senv.symbol_address ge id (Ptrofs.unsigned ofs)) = Some o -> 
+      (Senv.symbol_address ge id ofs) = Some o -> 
       eval_builtin_arg (BA_addrglobal id ofs) (flatptr o)
   | eval_BA_splitlong: forall hi lo vhi vlo,
       eval_builtin_arg hi vhi -> eval_builtin_arg lo vlo ->

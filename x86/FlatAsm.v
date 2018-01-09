@@ -53,7 +53,8 @@ Notation SP := RSP (only parsing).
 
 (** ** Instruction set. *)
 
-Definition label:Type := sect_id * Z.
+(** A label points to an offset in a section *)
+Definition label:Type := ident * ptrofs.
 
 (** General form of an addressing mode. *)
 
@@ -287,53 +288,20 @@ Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_fram
 Definition fundef := AST.fundef function.
 Definition gdef := (globdef fundef unit).
 
-(* Instruction with its offset in the section it resides and its size *)
-
-Inductive section : Type :=
-| StackSection : forall (id:sect_id) (sz:Z), section
-| DataSection  : forall (id:sect_id) (sz:Z), section
-| CodeSection  : forall (id:sect_id) (sz:Z) (c:code), section.
-
-Definition get_sect_id (s:section) :=
-  match s with
-  | StackSection id _ => id
-  | DataSection id _ => id
-  | CodeSection id _ _ => id
-  end.
-
-Definition get_sect_size (s:section) :=
-  match s with
-  | StackSection _ sz => sz
-  | DataSection _ sz => sz
-  | CodeSection _ sz _ => sz
-  end.
-
 (* Translate a label to an offset in the flat memory space *)
-Definition label_to_ofs (smap: section_map) (l:label): option Z :=
+Definition label_to_ofs (smap: section_map) (l:label): option ptrofs :=
   match PTree.get (fst l) smap with
   | None => None
-  | Some sofs => Some (Z.add sofs (snd l))
-  end.
-
-(* Get the offset of a region in a section *)
-Definition get_sect_block_ofs (smap:section_map) (sb:sect_block) : option Z :=
-  let '(sid,ss,_) := sb in
-  match PTree.get sid smap with
-  | None => None
-  | Some ofs => Some (ss+ofs)
+  | Some sofs => Some (Ptrofs.add sofs (snd l))
   end.
 
 (* Get the offset of an instruction in the flat memory space *)
-Definition instr_ofs (smap: section_map) (i:instr_with_info): option Z :=
-  let (_,bi) := i in
-  let '(sid,ofs,_) := bi in
-  match PTree.get sid smap  with
-  | None => None
-  | Some sofs => Some (Z.add sofs ofs)
-  end.
+Definition instr_ofs (smap: section_map) (i:instr_with_info): option ptrofs :=
+  let (_,bi) := i in get_sect_block_ofs smap bi.
+
 
 (* Generate a mapping from offsets in the flat memory space to instructions *)
-Definition instrs_map := Z -> option instr_with_info.
+Definition instrs_map := ptrofs -> option instr_with_info.
 Fixpoint gen_instrs_map (sects_map: section_map) (c:code): option instrs_map :=
   match c with
   | nil => Some (fun ofs => None)
@@ -343,30 +311,23 @@ Fixpoint gen_instrs_map (sects_map: section_map) (c:code): option instrs_map :=
     | Some imap =>
       match instr_ofs sects_map i with
       | None => None
-      | Some iofs => Some (fun ofs => if zeq ofs iofs then Some i else (imap ofs))
+      | Some iofs => Some (fun ofs => if Ptrofs.eq ofs iofs then Some i else (imap ofs))
       end
     end
   end.
+
 
 (* The flat Asm program *)
 Record program : Type := {
   prog_defs: list (ident * option gdef * sect_block);
   prog_public: list ident;
   prog_main: ident;
-  sects: list section; (* The list of section and their starting offsets *)
   sects_map : section_map;
-  stack_sect: sect_id; (* The stack section id *)
-  data_sect: sect_id;  (* The data section id *)
-  code_sect : sect_id; (* The code section id *)
+  stack_sect: section; (* The stack section *)
+  data_sect: section;  (* The data section *)
+  code_sect : section * code; (* The code section *)
 }.
 
-Fixpoint find_sect (id:sect_id) (l:list section) : option section :=
-  match l with
-  | nil => None
-  | s::l' => if peq id (get_sect_id s) then Some s 
-            else find_sect id l'
-  end.
-             
 
 (* Definition program_of_program (p: program) : AST.program fundef unit := *)
 (*   {| AST.prog_defs := p.(prog_defs); *)
@@ -453,7 +414,7 @@ Section RELSEM.
 (*   | i :: il => if zeq pos 0 then Some i else find_instr (pos - 1) il *)
 (*   end. *)
 
-Fixpoint find_instr (smap: section_map) (ofs: Z) (c: code) : option instr_with_info :=
+Fixpoint find_instr (smap: section_map) (ofs: ptrofs) (c: code) : option instr_with_info :=
   match gen_instrs_map smap c with
   | None => None
   | Some imap => imap ofs
@@ -495,9 +456,9 @@ Context {F V : Type}.
 Variable ge: Genv.t F V.
 
 Definition symbol_address id ofs :=
-  match (Genv.symbol_offset ge id (Ptrofs.unsigned ofs)) with
+  match (Genv.symbol_offset ge id ofs) with
   | None => Vundef
-  | Some o => Vptr mem_block (Ptrofs.repr o)
+  | Some o => Vptr mem_block o
   end.
   
 (** Evaluating an addressing mode *)
@@ -679,10 +640,10 @@ Inductive outcome {memory_model_ops: Mem.MemoryModelOps mem}: Type :=
   [nextinstr_nf] is a variant of [nextinstr] that sets condition flags
   to [Vundef] in addition to incrementing the [PC]. *)
 
-Definition nextinstr (rs: regset) (isz:Z) :=
-  rs#PC <- (Val.offset_ptr rs#PC (Ptrofs.repr isz)).
+Definition nextinstr (rs: regset) (isz:ptrofs) :=
+  rs#PC <- (Val.offset_ptr rs#PC isz).
 
-Definition nextinstr_nf (rs: regset) (isz:Z) : regset :=
+Definition nextinstr_nf (rs: regset) (isz:ptrofs) : regset :=
   nextinstr (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs) isz.
 
 Definition goto_label (sects_map: section_map) (f: function) (lbl: label) (rs: regset) (m: mem) :=
@@ -695,7 +656,7 @@ Definition goto_label (sects_map: section_map) (f: function) (lbl: label) (rs: r
       (* The label points to an instruction in the current function *)
       match (imap lofs) with
       | None => Stuck
-      | Some _ => Next (rs#PC <- (Vptr mem_block (Ptrofs.repr lofs))) m
+      | Some _ => Next (rs#PC <- (Vptr mem_block lofs)) m
       end
     end
   end.
@@ -707,8 +668,8 @@ mode. *)
 
 Class MemAccessors
       `{!Mem.MemoryModelOps mem}
-      (exec_load: forall F V: Type, Genv.t F V -> memory_chunk -> mem -> addrmode -> regset -> preg -> Z -> outcome)
-      (exec_store: forall F V: Type, Genv.t F V -> memory_chunk -> mem -> addrmode -> regset -> preg -> list preg -> Z -> outcome)
+      (exec_load: forall F V: Type, Genv.t F V -> memory_chunk -> mem -> addrmode -> regset -> preg -> ptrofs -> outcome)
+      (exec_store: forall F V: Type, Genv.t F V -> memory_chunk -> mem -> addrmode -> regset -> preg -> list preg -> ptrofs -> outcome)
 : Prop := {}.
 
 Section MEM_ACCESSORS_DEFAULT.
@@ -718,7 +679,7 @@ care about kernel vs. user mode, and uses its memory model to define
 its memory accessors. *)
 
 Definition exec_load {F V} (ge: Genv.t F V) (chunk: memory_chunk) (m: mem)
-                     (a: addrmode) (rs: regset) (rd: preg) (sz:Z):=
+                     (a: addrmode) (rs: regset) (rd: preg) (sz:ptrofs):=
   match Mem.loadv chunk m (eval_addrmode ge a rs) with
   | Some v => Next (nextinstr_nf (rs#rd <- v) sz) m
   | None => Stuck
@@ -726,7 +687,7 @@ Definition exec_load {F V} (ge: Genv.t F V) (chunk: memory_chunk) (m: mem)
 
 Definition exec_store {F V} (ge: Genv.t F V) (chunk: memory_chunk) (m: mem)
                       (a: addrmode) (rs: regset) (r1: preg)
-                      (destroyed: list preg) (sz:Z) :=
+                      (destroyed: list preg) (sz:ptrofs) :=
   match Mem.storev chunk m (eval_addrmode ge a rs) (rs r1) with
   | Some m' =>
     Next (nextinstr_nf (undef_regs destroyed rs) sz) m'
@@ -792,7 +753,7 @@ Definition check_top_frame (m: mem) (stk: block) (sz: Z) (oldsp: val) ofs_link o
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (smap:section_map) (ge: Genv.t F V) (f: function) (ii: instr_with_info) (rs: regset) (m: mem) : outcome :=
   let (i,blk) := ii in
-  let '(_,_,sz) := blk in
+  let sz := sect_block_size blk in
   match i with
   (** Moves *)
   | Pmov_rr rd r1 =>
@@ -1117,7 +1078,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
     match (label_to_ofs smap l) with
     | None => Stuck
     | Some ofs => 
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Vptr mem_block (Ptrofs.repr ofs))) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Vptr mem_block ofs)) m
     end
   | Pcall_r r sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) m
@@ -1291,27 +1252,27 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
   (smap: section_map) (ge: genv) : state -> trace -> state -> Prop :=
 | exec_step_internal:
     forall ofs f i rs m rs' m',
-      rs PC = Vptr mem_block (Ptrofs.repr ofs) ->
+      rs PC = Vptr mem_block ofs ->
       Genv.find_funct_offset ge ofs = Some (Internal f) ->
       find_instr smap ofs (fn_code f) = Some i ->
       exec_instr smap ge f i rs m = Next rs' m' ->
       step smap ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
-    forall ofs f ef args res rs m vargs t vres rs' m' sz sid sstart,
-      rs PC = Vptr mem_block (Ptrofs.repr ofs) ->
+    forall ofs f ef args res rs m vargs t vres rs' m' blk,
+      rs PC = Vptr mem_block ofs ->
       Genv.find_funct_offset ge ofs = Some (Internal f) ->
-      find_instr smap ofs f.(fn_code) = Some (Pbuiltin ef args res, (sid,sstart,sz)) ->
+      find_instr smap ofs f.(fn_code) = Some (Pbuiltin ef args res, blk) ->
       eval_builtin_args preg ge rs (rs RSP) m args vargs ->
         external_call ef dummy_senv vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         no_rsp_builtin_preg res ->
         rs' = nextinstr_nf
                 (set_res res vres
-                         (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) sz ->
+                         (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) (sect_block_size blk) ->
         step smap ge (State rs m) t (State rs' m')
 | exec_step_external:
     forall ofs ef args res rs m t rs' m',
-      rs PC = Vptr mem_block (Ptrofs.repr ofs) ->
+      rs PC = Vptr mem_block ofs ->
       Genv.find_funct_offset ge ofs = Some (External ef) ->
       extcall_arguments rs m (ef_sig ef) args ->
       forall (* CompCertX: BEGIN additional conditions for calling convention *)
@@ -1334,14 +1295,14 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
 End RELSEM.
 
 (** Initialization of the global environment *)
-Definition update_symb_mapping (smap: section_map) (symb_mapping: PTree.t Z) 
-  (gdef: ident * option gdef * sect_block) : option (PTree.t Z) :=
-  let '(gid,_,sb) := gdef in
-  let '(sid,ss,_) := sb in
-  match (PTree.get sid smap) with
-  | None => None
-  | Some ofs => Some (PTree.set gid (ofs+ss) symb_mapping)
-  end.
+(* Definition update_symb_mapping (smap: section_map) (symb_mapping: PTree.t ptrofs)  *)
+(*   (gdef: ident * option gdef * sect_block) : option (PTree.t Z) := *)
+(*   let '(gid,_,sb) := gdef in *)
+(*   let '(sid,ss,_) := sb in *)
+(*   match (PTree.get sid smap) with *)
+(*   | None => None *)
+(*   | Some ofs => Some (PTree.set gid (ofs+ss) symb_mapping) *)
+(*   end. *)
 
 Definition add_global (smap:section_map) (ge:genv) (idg: ident * option gdef * sect_block) : option genv :=
   let '(gid,gdef,sb) := idg in
@@ -1351,7 +1312,7 @@ Definition add_global (smap:section_map) (ge:genv) (idg: ident * option gdef * s
     Some (Genv.mkgenv
             (Genv.genv_public ge)
             (PTree.set gid ofs (Genv.genv_symb ge))
-            (match gdef with Some g => ZTree.set ofs g (Genv.genv_defs ge) | _ => (Genv.genv_defs ge) end))
+            (match gdef with Some g => ZTree.set (Ptrofs.unsigned ofs) g (Genv.genv_defs ge) | _ => (Genv.genv_defs ge) end))
   end.
 
 Fixpoint add_globals (smap:section_map) (ge:genv) (gl: list (ident * option gdef * sect_block)) : option genv :=
@@ -1365,7 +1326,7 @@ Fixpoint add_globals (smap:section_map) (ge:genv) (gl: list (ident * option gdef
   end.
 
 Definition empty_genv (pub: list ident): genv :=
-  Genv.mkgenv pub (PTree.empty _) (PTree.empty _).
+  Genv.mkgenv pub (PTree.empty _) (ZTree.empty _).
   
 Definition globalenv (p: program) : option genv :=
   add_globals p.(sects_map) (empty_genv p.(prog_public)) p.(prog_defs).
@@ -1389,7 +1350,7 @@ Definition store_init_data (m: mem) (p: Z) (id: init_data) : option mem :=
   | Init_addrof symb ofs =>
       match Genv.find_symbol ge symb with
       | None => None
-      | Some o => Mem.store Mptr m mem_block p (Vptr mem_block (Ptrofs.add (Ptrofs.repr o) ofs))
+      | Some o => Mem.store Mptr m mem_block p (Vptr mem_block (Ptrofs.add o ofs))
       end
   | Init_space n => Some m
   end.
@@ -1407,10 +1368,11 @@ Fixpoint store_init_data_list (m: mem) (b: block) (p: Z) (idl: list init_data)
 
 Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * sect_block): option mem :=
   let '(id, gdef, sb) := idg in
-  let '(_,_,sz) := sb in
+  let sz := Ptrofs.unsigned (sect_block_size sb) in
   match (get_sect_block_ofs smap sb) with
   | None => None
   | Some ofs => 
+    let ofs := Ptrofs.signed ofs in
     match gdef with
     | None =>
       Some m
@@ -1457,10 +1419,10 @@ Inductive initial_state (p: program): state -> Prop :=
   | initial_state_intro: forall m0 start_ofs ge,
       init_mem p = Some m0 ->
       globalenv p = Some ge ->
-      Senv.symbol_address ge p.(prog_main) 0 = Some start_ofs ->
+      Senv.symbol_address ge p.(prog_main) Ptrofs.zero = Some start_ofs ->
       let rs0 :=
         (Pregmap.init Vundef)
-        # PC <- (Vptr mem_block (Ptrofs.repr start_ofs))
+        # PC <- (Vptr mem_block start_ofs)
         # RA <- Vnullptr
         # RSP <- Vnullptr in
       initial_state p (State rs0 m0).
@@ -1511,7 +1473,18 @@ Qed.
 (*       rewrite H1 in H2; inv H2; Equalities *)
 (*   | _ => idtac *)
 (*   end. *)
-(*   intros; constructor; simpl; intros. *)
+(*   intros. unfold semantics in H. *)
+(*   destruct (globalenv p); inversion H; clear H. subst sem. *)
+(*   set (sem :=  *)
+(*          {| *)
+(*            Smallstep.state := state; *)
+(*            genvtype := genv; *)
+(*            Smallstep.step := step (sects_map p); *)
+(*            Smallstep.initial_state := initial_state p; *)
+(*            Smallstep.final_state := final_state; *)
+(*            Smallstep.globalenv := g; *)
+(*            symbolenv := dummy_senv |}) in *. *)
+(*   constructor; simpl; intros. *)
 (* - (* determ *) *)
 (*   inv H; inv H0; Equalities. *)
 (* + split. constructor. auto. *)
