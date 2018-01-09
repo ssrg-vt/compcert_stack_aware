@@ -131,6 +131,7 @@ Section GENV.
 
 Variable F: Type.  (**r The type of function descriptions *)
 Variable V: Type.  (**r The type of information attached to variables *)
+Variable I: Type.  (**r The type of instructions *)
 
 (** The type of global environments. *)
 
@@ -138,6 +139,8 @@ Record t: Type := mkgenv {
   genv_public: list ident;              (**r which symbol names are public *)
   genv_symb: PTree.t ptrofs;                 (**r mapping symbol -> offset *)
   genv_defs: ZTree.t (globdef F V);     (**r mapping offset -> definition *)
+  genv_instrs_map: ZTree.t I;           (**r mapping offset -> instructions *)
+  genv_is_instr_internal : ptrofs -> bool;       (**r checking if pc points to an internal instruction *)
   (* genv_vars_inj: forall id1 id2 b, *)
   (*   PTree.get id1 genv_symb = Some b -> PTree.get id2 genv_symb = Some b -> id1 = id2 *)
 }.
@@ -194,6 +197,9 @@ Definition find_funct (ge: t) (v: val) : option F :=
   | _ => None
   end.
 
+Definition find_instr (ge: t) (ofs:ptrofs) : option I :=
+  ZTree.get (Ptrofs.unsigned ofs) (genv_instrs_map ge).
+
 (** [invert_symbol ge ofs] returns the name associated with the given offset, if any *)
 
 Definition invert_symbol (ge: t) (ofs: ptrofs) : option ident :=
@@ -215,6 +221,7 @@ Definition block_is_volatile (ge: t) (ofs: ptrofs) : option bool :=
   | None => None
   | Some gv => Some (gv.(gvar_volatile))
   end.
+
 
 (** ** Constructing the global environment *)
 
@@ -2335,6 +2342,6 @@ End Genv.
 
 Coercion Genv.to_senv: Genv.t >-> Senv.t.
 
-Definition is_function_ident {F V} (ge: Genv.t F V) (vf: val) (i: ident) : Prop :=
+Definition is_function_ident {F V I} (ge: Genv.t F V I) (vf: val) (i: ident) : Prop :=
   exists b o,
     vf = Vptr b o /\ b = mem_block /\ Genv.find_symbol ge i = Some o.

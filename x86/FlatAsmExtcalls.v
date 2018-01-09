@@ -1,3 +1,8 @@
+(* ******************* *)
+(* Author: Yuting Wang *)
+(* Date:   Jan 9, 2018 *)
+(* ******************* *)
+
 Require Import Axioms Coqlib Errors Maps AST Linking.
 Require Import Integers Floats Values Memory.
 Require Import FlatAsmGlobenv Sect.

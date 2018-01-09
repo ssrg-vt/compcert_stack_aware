@@ -1,3 +1,8 @@
+(* ******************* *)
+(* Author: Yuting Wang *)
+(* Date:   Jan 9, 2018 *)
+(* ******************* *)
+
 Require Import Coqlib Maps Integers Values AST.
 
 (* A section occupies a region of memory *)
@@ -22,7 +27,22 @@ Definition section_map := PTree.t ptrofs.
 Definition get_sect_block_ofs (smap:section_map) (sb:sect_block) : option ptrofs :=
   match PTree.get (sect_block_id sb) smap with
   | None => None
-  | Some ofs => Some (Ptrofs.add ofs (sect_block_size sb))
+  | Some ofs => Some (Ptrofs.add ofs (sect_block_start sb))
+  end.
+
+(* Get the range of a section *)
+Definition get_section_range (smap:section_map) (s:section) : option (ptrofs * ptrofs) :=
+  match PTree.get (section_id s) smap with
+  | None => None
+  | Some ofs => Some (ofs, Ptrofs.add ofs (section_size s))
+  end.
+
+(* Get the range of a block *)
+Definition get_sect_block_range (smap:section_map) (sb:sect_block) : option (ptrofs * ptrofs) :=
+  match PTree.get (sect_block_id sb) smap with
+  | None => None
+  | Some ofs => Some (Ptrofs.add ofs (sect_block_start sb), 
+                      Ptrofs.add ofs (Ptrofs.add (sect_block_start sb) (sect_block_size sb)))
   end.
 
 
