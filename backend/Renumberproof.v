@@ -165,10 +165,10 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (REACH: reach f pc),
       match_states (State stk f sp pc rs m)
                    (State stk' (transf_function f) sp (renum_pc (pnum f) pc) rs m)
-  | match_callstates: forall stk f args m stk' sz
+  | match_callstates: forall stk f args m stk' sz tail
         (STACKS: list_forall2 match_frames stk stk'),
-      match_states (Callstate stk f args m sz)
-                   (Callstate stk' (transf_fundef f) args m sz)
+      match_states (Callstate stk f args m sz tail)
+                   (Callstate stk' (transf_fundef f) args m sz tail)
   | match_returnstates: forall stk v m stk'
         (STACKS: list_forall2 match_frames stk stk'),
       match_states (Returnstate stk v m)

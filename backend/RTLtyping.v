@@ -894,11 +894,11 @@ Inductive wt_state: state -> Prop :=
         (WT_RS: wt_regset env rs),
       wt_state (State s f sp pc rs m)
   | wt_state_call:
-      forall s f args m sz,
+      forall s f args m sz tail,
       wt_stackframes s (funsig f) ->
       wt_fundef f ->
       Val.has_type_list args (sig_args (funsig f)) ->
-      wt_state (Callstate s f args m sz)
+      wt_state (Callstate s f args m sz tail)
   | wt_state_return:
       forall s v m sg,
       wt_stackframes s sg ->
@@ -965,7 +965,7 @@ Proof.
     discriminate.
   econstructor; eauto.
   inv WTI. apply wt_stackframes_change_sig with (fn_sig f); auto.
-  inv WTI. rewrite <- H8. apply wt_regset_list. auto.
+  inv WTI. rewrite <- H7. apply wt_regset_list. auto.
   (* Ibuiltin *)
   econstructor; eauto. eapply wt_exec_Ibuiltin; eauto.
   (* Icond *)
@@ -976,7 +976,7 @@ Proof.
   econstructor; eauto.
   inv WTI; simpl. auto. unfold proj_sig_res; rewrite H3. auto.
   (* internal function *)
-  simpl in *. inv H7.
+  simpl in *. inv H8.
   econstructor; eauto.
   inv H2. apply wt_init_regs; auto. rewrite wt_params0. auto.
   (* external function *)

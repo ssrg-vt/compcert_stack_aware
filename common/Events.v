@@ -772,7 +772,7 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
     forall ge args m1 t res m2,
       sem ge args m1 t res m2 ->
       forall b o k p,
-        in_frames (Mem.stack_adt m1) b ->
+        in_stack (Mem.stack_adt m1) b ->
         Mem.perm m2 b o k p <-> Mem.perm m1 b o k p;
 
   ec_perm_unchanged:
@@ -1195,7 +1195,7 @@ Inductive extcall_free_sem (ge: Senv.t):
       Mem.load Mptr m b (Ptrofs.unsigned lo - size_chunk Mptr) = Some (Vptrofs sz) ->
       Ptrofs.unsigned sz > 0 ->
       Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz) = Some m' ->
-      ~ in_frames (Mem.stack_adt m) b ->
+      ~ in_stack (Mem.stack_adt m) b ->
       extcall_free_sem ge (Vptr b lo :: nil) m E0 Vundef m'.
 
 

@@ -55,6 +55,9 @@ Program Definition inject_perm_all: InjectPerm :=
     inject_perm_condition := fun p => True
   |}.
 
+Close Scope nat_scope.
+Open Scope Z_scope.
+
 Hint Resolve
   Mem.valid_not_valid_diff
   Mem.perm_implies

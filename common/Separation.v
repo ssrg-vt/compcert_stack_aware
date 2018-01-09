@@ -775,9 +775,8 @@ Proof.
   - red; intros. apply Zdivides_trans with 8; auto. 
     exists (8 / align_chunk chunk). destruct chunk; reflexivity.
   - intros. elim FRESH2. eapply Mem.valid_block_inject_2; eauto.
-  - intros f2 fi IFS IFB. erewrite Mem.alloc_stack_blocks in IFS. 2: eauto.
-    exfalso; apply FRESH2. apply Mem.in_frames_valid. eapply in_frames_in_frame; eauto.
-    eapply in_frame_blocks_in_frame; eauto.
+  - intros fi IFS o k pp PERM IPC. erewrite Mem.alloc_stack_blocks in IFS. 2: eauto.
+    exfalso; apply FRESH2. apply Mem.in_frames_valid. eapply in_stack'_in_stack; eauto.
   - intros (j' & INJ' & J1 & J2 & J3).
     exists j'; split; auto.
     rewrite <- ! sep_assoc.
@@ -1058,10 +1057,10 @@ Lemma record_stack_block_parallel_rule:
     j b = Some (b', delta) ->
     m_invar_stack P = false ->
     m2 |= minjection j g m1 ** P ->
-    forall (NIN: ~ in_frames (Mem.stack_adt m2) b') fa finone
+    forall (NIN: ~ in_stack (Mem.stack_adt m2) b') fa finone
       (* (PUB: forall o, frame_perm finone o = Public) *),
       frame_adt_blocks fa = (b,finone)::nil ->
-      frame_adt_size fa = n ->
+      frame_adt_size fa = Z.max 0 n ->
       Mem.record_stack_blocks m1 fa m1' ->
       (forall o, 0 <= o < frame_size finone -> Mem.perm m1 b o Cur Writable) ->
       (forall (ofs : Z) (k : perm_kind) (p : permission),
@@ -1072,8 +1071,10 @@ Lemma record_stack_block_parallel_rule:
     (forall bb delta0, j bb = Some (b', delta0) -> bb = b) ->
     forall fa',
       fa' = {| frame_adt_blocks := (b',fi)::nil;
-               frame_adt_size := n;
-               frame_adt_blocks_norepet := norepet_1 _
+               frame_adt_size := Z.max 0 n;
+               frame_adt_blocks_norepet := norepet_1 _;
+               frame_adt_size_pos:= Z.le_max_l _ _
+
             |} ->
     exists m2',
       Mem.record_stack_blocks m2 fa' m2' /\
@@ -1096,7 +1097,7 @@ Proof.
   - intros. unfold in_frame. subst. simpl in *. intros [B|[]]. subst. congruence.
   - red; unfold in_frame; simpl. subst; simpl. intros ? [B|[]]. subst. simpl in *; eapply Mem.valid_block_inject_2; eauto. 
   - subst; simpl in *; intros ? ? [B|[]]. inv B. eauto.
-  - intros. subst. simpl in *. unfold in_frame; rewrite fablocks. simpl. 
+  - intros. subst. simpl in *. unfold in_frame, get_frame_blocks. setoid_rewrite fablocks. simpl. 
     split; intros [B|[]]; left; subst. congruence. eapply UNIQ in H. auto.
   - subst; simpl in *; congruence. 
   - eauto.
@@ -1120,7 +1121,7 @@ Lemma record_stack_block_parallel_rule_2:
     j b = Some (b', delta) ->
     m_invar_stack P = false ->
     m2 |= minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** P ->
-    forall (NIN: ~ in_frames (Mem.stack_adt m2) b') sz,
+    forall (NIN: ~ in_stack (Mem.stack_adt m2) b') sz,
       Mem.record_stack_blocks m1 (make_singleton_frame_adt b sz n) m1' ->
       (forall o, 0 <= o < sz -> Mem.perm m1 b o Cur Writable) ->
       (forall (ofs : Z) (k : perm_kind) (p : permission),
@@ -1135,8 +1136,8 @@ Lemma record_stack_block_parallel_rule_2:
 Proof.
   intros m1 m1' m2 j P fi b b' delta n H H0 H1 NIN sz H2 H3 H4 H5 H6.
   edestruct record_stack_block_parallel_rule as (m2' & RSB & INJ); eauto.
-  reflexivity.
-  simpl. auto.
+  reflexivity. reflexivity.
+  simpl. eauto.
   exists m2'; split; eauto.
   eapply sep_imp; eauto.
   red; simpl; intros.
@@ -1160,7 +1161,7 @@ Lemma push_frame_parallel_rule
     forall fa finone,
       frame_adt_blocks fa = (b1,finone)::nil ->
       frame_size finone = sz1 ->
-      frame_adt_size fa = n ->
+      frame_adt_size fa = Z.max 0 n ->
     Mem.record_stack_blocks m1' fa m1'' ->
     (8 | delta) ->
     lo = delta ->
@@ -1176,8 +1177,9 @@ Lemma push_frame_parallel_rule
       (* frame_adt_blocks fa' = (b2,fi)::nil /\ *)
       (* frame_adt_size fa' = n /\ *)
       Mem.record_stack_blocks m2_1' {| frame_adt_blocks := (b2,fi)::nil;
-                                       frame_adt_size := n;
-                                       frame_adt_blocks_norepet := norepet_1 _
+                                       frame_adt_size := Z.max 0 n;
+                                       frame_adt_blocks_norepet := norepet_1 _;
+                                       frame_adt_size_pos := Z.le_max_l _ _
                                     |} m2'
       /\ m2' |= range b2 0 lo ** range b2 hi (frame_size fi)
             ** minjection j' (fun n => if Nat.eq_dec n O then Some O else option_map S (g (pred n))) m1''
@@ -1197,7 +1199,7 @@ Proof.
     intros INF; apply Mem.in_frames_valid in INF;
       (eapply Mem.fresh_block_alloc; [|eauto]); eauto.
   - apply fablocks.
-  - reflexivity.
+  - eauto. 
   - eauto.
   - rewrite fasize1. intros.
     eapply Mem.perm_implies. eapply Mem.perm_alloc_2. eauto. auto. constructor.

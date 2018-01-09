@@ -172,7 +172,7 @@ Inductive state `{memory_model_ops: Mem.MemoryModelOps} : Type :=
              (f: fundef)              (**r function to call *)
              (args: list val)         (**r arguments to the call *)
              (m: mem)                (**r memory state *)
-             (sz: Z),
+             (sz: Z) (tailcall: bool),
       state
   | Returnstate:
       forall (stack: list stackframe) (**r call stack *)
@@ -244,17 +244,16 @@ Inductive step : state -> trace -> state -> Prop :=
         find_function ros rs = Some fd ->
         funsig fd = sig ->
         step (State s f sp pc rs m)
-             E0 (Callstate (Stackframe res f sp pc' rs :: s) fd rs##args m (fn_stack_requirements id))
+             E0 (Callstate (Stackframe res f sp pc' rs :: s) fd rs##args m (fn_stack_requirements id) false)
   | exec_Itailcall:
-      forall s f stk pc rs m sig ros args fd m' m'' id
+      forall s f stk pc rs m sig ros args fd m' id
         (RIF: ros_is_function ros rs id),
       (fn_code f)!pc = Some(Itailcall sig ros args) ->
       find_function ros rs = Some fd ->
       funsig fd = sig ->
       Mem.free m stk 0 f.(fn_stacksize) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State s f (Vptr stk Ptrofs.zero) pc rs m)
-        E0 (Callstate s fd rs##args m'' (fn_stack_requirements id))
+        E0 (Callstate s fd rs##args m' (fn_stack_requirements id) true)
   | exec_Ibuiltin:
       forall s f sp pc rs m ef args res pc' vargs t vres m',
       (fn_code f)!pc = Some(Ibuiltin ef args res pc') ->
@@ -285,10 +284,10 @@ Inductive step : state -> trace -> state -> Prop :=
       step (State s f (Vptr stk Ptrofs.zero) pc rs m)
         E0 (Returnstate s (regmap_optget or Vundef rs) m'')
   | exec_function_internal:
-      forall s f args m m' stk m'' sz,
+      forall tail s f args m m' stk m'' sz,
         Mem.alloc m 0 f.(fn_stacksize) = (m', stk) ->
-        Mem.record_stack_blocks m' (make_singleton_frame_adt stk (fn_stacksize f) sz) m'' ->
-      step (Callstate s (Internal f) args m sz)
+        Mem.record_stack_blocks tail m' (make_singleton_frame_adt stk (fn_stacksize f) sz) m'' ->
+      step (Callstate s (Internal f) args m sz tail)
         E0 (State s
                   f
                   (Vptr stk Ptrofs.zero)
@@ -298,7 +297,7 @@ Inductive step : state -> trace -> state -> Prop :=
   | exec_function_external:
       forall s ef args res t m m' sz,
       external_call ef ge args m t res m' ->
-      step (Callstate s (External ef) args m sz)
+      step (Callstate s (External ef) args m sz false)
          t (Returnstate s res m')
   | exec_return:
       forall res f sp pc rs s vres m,
@@ -343,8 +342,8 @@ Inductive initial_state (p: program): state -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks m1 (make_singleton_frame_adt b1 0 0) m2 ->
-      initial_state p (Callstate nil f nil m2 (fn_stack_requirements (prog_main p))).
+      Mem.record_stack_blocks false m1 (make_singleton_frame_adt b1 0 0) m2 ->
+      initial_state p (Callstate nil f nil m2 (fn_stack_requirements (prog_main p)) false).
 
 (** A final state is a [Returnstate] with an empty call stack. *)
 

@@ -398,14 +398,14 @@ Inductive match_states: state -> state -> Prop :=
       match_states (State s f (Vptr sp Ptrofs.zero) pc rs m)
                    (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc rs' m')
   | match_states_call:
-      forall s f args m s' args' m' sz g l j
+      forall s f args m s' args' m' sz g l j tail
         (MS: match_stackframes j l s s')
         (LDargs: Val.inject_list j args args')
         (MLD: Mem.inject j g m m')
         (CFG: compat_frameinj l g)
         (IG: inject_globals ge j),
-      match_states (Callstate s f args m sz)
-                   (Callstate s' (transf_fundef f) args' m' sz)
+      match_states (Callstate s f args m sz tail)
+                   (Callstate s' (transf_fundef f) args' m' sz tail)
   | match_states_return:
       forall s v m s' v' m' g l j
         (MS: match_stackframes j l s s')
@@ -430,7 +430,7 @@ Inductive match_states: state -> state -> Prop :=
 Definition mem_state (s: state) : mem :=
   match s with
     State _ _ _ _ _ m
-  | Callstate _ _ _ m _
+  | Callstate _ _ _ m _ _
   | Returnstate _ _ m => m
   end.
 
@@ -453,7 +453,7 @@ Definition stackblocks_of_stackframe (sf: stackframe) : option (block * Z) :=
 Definition stackframes_state (s: state) : list stackframe :=
   match s with
     State stk _ _ _ _ _
-  | Callstate stk _ _ _ _
+  | Callstate stk _ _ _ _ _
   | Returnstate stk _ _ => stk
   end.
 
