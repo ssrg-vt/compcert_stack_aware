@@ -1465,51 +1465,52 @@ Proof.
   intros. eapply C; eauto.
 Qed.
 
-(* Lemma semantics_determinate: forall p sem, semantics p = Some sem -> determinate sem. *)
-(* Proof. *)
-(* Ltac Equalities := *)
-(*   match goal with *)
-(*   | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] => *)
-(*       rewrite H1 in H2; inv H2; Equalities *)
-(*   | _ => idtac *)
-(*   end. *)
-(*   intros. unfold semantics in H. *)
-(*   destruct (globalenv p); inversion H; clear H. subst sem. *)
-(*   set (sem :=  *)
-(*          {| *)
-(*            Smallstep.state := state; *)
-(*            genvtype := genv; *)
-(*            Smallstep.step := step (sects_map p); *)
-(*            Smallstep.initial_state := initial_state p; *)
-(*            Smallstep.final_state := final_state; *)
-(*            Smallstep.globalenv := g; *)
-(*            symbolenv := dummy_senv |}) in *. *)
-(*   constructor; simpl; intros. *)
-(* - (* determ *) *)
-(*   inv H; inv H0; Equalities. *)
-(* + split. constructor. auto. *)
-(* + discriminate. *)
-(* + discriminate. *)
-(* + assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0. *)
-(*   exploit external_call_determ. eexact H5. eexact H12. intros [A B]. *)
-(*   split. auto. intros. destruct B; auto. subst. auto. *)
-(* + assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0. *)
-(*   exploit external_call_determ. eexact H4. eexact H10. intros [A B]. *)
-(*   split. auto. intros. destruct B; auto. subst. auto. *)
-(* - (* trace length *) *)
-(*   red; intros; inv H; simpl. *)
-(*   omega. *)
-(*   eapply external_call_trace_length; eauto. *)
-(*   eapply external_call_trace_length; eauto. *)
-(* - (* initial states *) *)
-(*   inv H; inv H0. f_equal. congruence. *)
-(* - (* final no step *) *)
-(*   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs). *)
-(*   { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. } *)
-(*   inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto. *)
-(* - (* final states *) *)
-(*   inv H; inv H0. congruence. *)
-(* Qed. *)
+Lemma semantics_determinate: forall p sem, semantics p = Some sem -> determinate sem.
+Proof.
+Ltac Equalities :=
+  match goal with
+  | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] =>
+      rewrite H1 in H2; inv H2; Equalities
+  | _ => idtac
+  end.
+  intros. unfold semantics in H.
+  destruct (globalenv p); inversion H; clear H. subst sem.
+  set (sem :=
+         {|
+           Smallstep.state := state;
+           genvtype := genv;
+           Smallstep.step := step (sects_map p);
+           Smallstep.initial_state := initial_state p;
+           Smallstep.final_state := final_state;
+           Smallstep.globalenv := g;
+           symbolenv := dummy_senv |}) in *.
+  constructor; simpl; intros.
+- (* determ *)
+  inv H; inv H0; Equalities.
++ split. constructor. auto.
++ discriminate.
++ discriminate.
++ assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0.
+  exploit external_call_determ. eexact H5. eexact H12. intros [A B].
+  split. auto. intros. destruct B; auto. subst. auto.
++ assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
+  exploit external_call_determ. eexact H4. eexact H10. intros [A B].
+  split. auto. intros. destruct B; auto. subst. auto.
+- (* trace length *)
+  red; intros; inv H; simpl.
+  omega.
+  eapply external_call_trace_length; eauto.
+  eapply external_call_trace_length; eauto.
+- (* initial states *)
+  inv H; inv H0. assert (start_ofs = start_ofs0) by congruence. subst.
+  f_equal. congruence.
+- (* final no step *)
+  assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
+  { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. }
+  inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
+- (* final states *)
+  inv H; inv H0. congruence.
+Qed.
 
 End WITHEXTERNALCALLS.
 
@@ -1712,5 +1713,3 @@ Definition instr_to_string (i:instruction) : string :=
   (* | Psubq_ri rd n. *)
   | _ => "Unknown instruction"
   end.
-
-
