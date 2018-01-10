@@ -38,6 +38,7 @@ Require Import Zwf.
 Require Import Axioms Coqlib Errors Maps AST Linking.
 Require Import Integers Floats Values Memory.
 Require Import Sect.
+Require Import FlatAsmGlobvar.
 
 Notation "s #1" := (fst s) (at level 9, format "s '#1'") : pair_scope.
 Notation "s #2" := (snd s) (at level 9, format "s '#2'") : pair_scope.
@@ -149,7 +150,7 @@ Record t: Type := mkgenv {
 (** ** Lookup functions *)
 
 (* Translate a label to an offset in the flat memory space *)
-Definition get_label_addr (ge: t) (l:ident*ptrofs): option ptrofs :=
+Definition get_label_addr (ge: t) (l:sect_label): option ptrofs :=
   match PTree.get (fst l) (genv_smap ge) with
   | None => None
   | Some sofs => Some (Ptrofs.add sofs (snd l))
@@ -227,7 +228,7 @@ Definition find_var_info (ge: t) (ofs: ptrofs) : option (globvar V) :=
 Definition block_is_volatile (ge: t) (ofs: ptrofs) : option bool :=
   match find_var_info ge ofs with
   | None => None
-  | Some gv => Some (gv.(gvar_volatile))
+  | Some gv => Some (gvar_volatile V gv)
   end.
 
 

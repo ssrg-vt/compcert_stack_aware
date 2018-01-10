@@ -8,7 +8,7 @@
 Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Smallstep.
 Require Import Locations Stacklayout Conventions EraseArgs.
-Require Import Sect FlatAsmGlobenv FlatAsmExtcalls.
+Require Import Sect FlatAsmGlobenv FlatAsmExtcalls FlatAsmGlobvar.
 Require Asm.
 Require Globalenvs.
 
@@ -48,10 +48,10 @@ Coercion FR: Asm.freg >-> Asm.preg.
 Coercion CR: Asm.crbit >-> Asm.preg.
 
 (** A global location points to an offset in a section *)
-Definition gloc:Type := ident * ptrofs.
+Definition gloc:Type := sect_label.
 (** A label points to an offset in a section. 
     Labels are different from global locations in that they are local to a function *)
-Definition label:Type := ident * ptrofs.
+Definition label:Type := sect_label.
 
 (* (** ** Registers. *) *)
 
@@ -343,7 +343,7 @@ Definition instr_with_info:Type := instruction * sect_block.
 Definition code := list instr_with_info.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info; range:sect_block}.
 Definition fundef := AST.fundef function.
-Definition gdef := (globdef fundef unit).
+Definition gdef := (FlatAsmGlobvar.globdef fundef unit).
 
 (* Generate a mapping from offsets in the flat memory space to instructions *)
 (* Definition instrs_map := ptrofs -> option instr_with_info. *)
@@ -1455,8 +1455,8 @@ Definition store_init_data (m: mem) (p: Z) (id: init_data) : option mem :=
   | Init_int64 n => Mem.store Mint64 m mem_block p (Vlong n)
   | Init_float32 n => Mem.store Mfloat32 m mem_block p (Vsingle n)
   | Init_float64 n => Mem.store Mfloat64 m mem_block p (Vfloat n)
-  | Init_addrof symb ofs =>
-      match Genv.find_symbol ge symb with
+  | Init_addrof gloc ofs =>
+      match Genv.get_label_addr ge gloc with
       | None => None
       | Some o => Mem.store Mptr m mem_block p (Vptr mem_block (Ptrofs.add o ofs))
       end
@@ -1487,7 +1487,7 @@ Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * 
     | Some (Gfun f) =>
       Mem.drop_perm m mem_block ofs (ofs+sz) Nonempty
     | Some (Gvar v) =>
-      let init := v.(gvar_init) in
+      let init := gvar_init unit v in
       let isz := init_data_list_size init in
       if zeq isz sz then  
         match Globalenvs.store_zeros m mem_block ofs sz with
@@ -1495,7 +1495,7 @@ Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * 
         | Some m1 =>
           match store_init_data_list m1 mem_block ofs init with
           | None => None
-          | Some m2 => Mem.drop_perm m2 mem_block ofs (ofs+sz) (Globalenvs.Genv.perm_globvar v)
+          | Some m2 => Mem.drop_perm m2 mem_block ofs (ofs+sz) (perm_globvar v)
           end
         end
       else

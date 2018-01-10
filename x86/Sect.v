@@ -45,6 +45,9 @@ Definition get_sect_block_range (smap:section_map) (sb:sect_block) : option (ptr
                       Ptrofs.add ofs (Ptrofs.add (sect_block_start sb) (sect_block_size sb)))
   end.
 
+(* Label to an offset in a section *)
+Definition sect_label: Type := ident * ptrofs.
+
 
 (* The block id of the flat memory *)
 Definition mem_block := 1%positive.
