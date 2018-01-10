@@ -9,72 +9,120 @@ Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Smallstep.
 Require Import Locations Stacklayout Conventions EraseArgs.
 Require Import Sect FlatAsmGlobenv FlatAsmExtcalls.
+Require Asm.
 Require Globalenvs.
 
 (** * Abstract syntax *)
 
-(** ** Registers. *)
+(* (** ** Registers. *) *)
 
-(** Integer registers. *)
+(* (** Integer registers. *) *)
 
-Inductive ireg: Type :=
-  | RAX | RBX | RCX | RDX | RSI | RDI | RBP | RSP
-  | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15.
+(* Inductive ireg: Type := *)
+(*   | RAX | RBX | RCX | RDX | RSI | RDI | RBP | RSP *)
+(*   | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15. *)
 
-(** Floating-point registers, i.e. SSE2 registers *)
+(* (** Floating-point registers, i.e. SSE2 registers *) *)
 
-Inductive freg: Type :=
-  | XMM0  | XMM1  | XMM2  | XMM3  | XMM4  | XMM5  | XMM6  | XMM7
-  | XMM8  | XMM9  | XMM10 | XMM11 | XMM12 | XMM13 | XMM14 | XMM15.
+(* Inductive freg: Type := *)
+(*   | XMM0  | XMM1  | XMM2  | XMM3  | XMM4  | XMM5  | XMM6  | XMM7 *)
+(*   | XMM8  | XMM9  | XMM10 | XMM11 | XMM12 | XMM13 | XMM14 | XMM15. *)
 
-Lemma ireg_eq: forall (x y: ireg), {x=y} + {x<>y}.
-Proof. decide equality. Defined.
+(* Lemma ireg_eq: forall (x y: ireg), {x=y} + {x<>y}. *)
+(* Proof. decide equality. Defined. *)
 
-Lemma freg_eq: forall (x y: freg), {x=y} + {x<>y}.
-Proof. decide equality. Defined.
+(* Lemma freg_eq: forall (x y: freg), {x=y} + {x<>y}. *)
+(* Proof. decide equality. Defined. *)
 
-(** Bits of the flags register. *)
+(* (** Bits of the flags register. *) *)
 
-Inductive crbit: Type :=
-  | ZF | CF | PF | SF | OF.
+(* Inductive crbit: Type := *)
+(*   | ZF | CF | PF | SF | OF. *)
 
-(** All registers modeled here. *)
+(* (** All registers modeled here. *) *)
 
-Inductive preg: Type :=
-  | PC: preg                            (**r program counter *)
-  | IR: ireg -> preg                    (**r integer register *)
-  | FR: freg -> preg                    (**r XMM register *)
-  | ST0: preg                           (**r top of FP stack *)
-  | CR: crbit -> preg                   (**r bit of the flags register *)
-  | RA: preg.                   (**r pseudo-reg representing return address *)
+(* Inductive preg: Type := *)
+(*   | PC: preg                            (**r program counter *) *)
+(*   | IR: ireg -> preg                    (**r integer register *) *)
+(*   | FR: freg -> preg                    (**r XMM register *) *)
+(*   | ST0: preg                           (**r top of FP stack *) *)
+(*   | CR: crbit -> preg                   (**r bit of the flags register *) *)
+(*   | RA: preg.                   (**r pseudo-reg representing return address *) *)
 
-Coercion IR: ireg >-> preg.
-Coercion FR: freg >-> preg.
-Coercion CR: crbit >-> preg.
+(* (** Conventional names for stack pointer ([SP]) and return address ([RA]) *) *)
 
-(** Conventional names for stack pointer ([SP]) and return address ([RA]) *)
+(* Notation SP := RSP (only parsing). *)
 
-Notation SP := RSP (only parsing).
+(* (** ** Instruction set. *) *)
 
-(** ** Instruction set. *)
+(* (** General form of an addressing mode. *) *)
+
+(* Inductive addrmode: Type := *)
+(*   | Addrmode (base: option ireg) *)
+(*              (ofs: option (ireg * Z)) *)
+(*              (const: Z + ident * ptrofs). *)
+
+(* (** Testable conditions (for conditional jumps and more). *) *)
+
+(* Inductive testcond: Type := *)
+(*   | Cond_e | Cond_ne *)
+(*   | Cond_b | Cond_be | Cond_ae | Cond_a *)
+(*   | Cond_l | Cond_le | Cond_ge | Cond_g *)
+(*   | Cond_p | Cond_np. *)
+
+Definition ireg := Asm.ireg.
+Definition freg := Asm.freg.
+Definition preg := Asm.preg.
+Definition addrmode := Asm.addrmode.
+Definition testcond := Asm.testcond.
+
+Definition RAX := Asm.RAX.
+Definition RBX := Asm.RBX.
+Definition RCX := Asm.RCX.
+Definition RDX := Asm.RDX.
+Definition RSI := Asm.RSI.
+Definition RDI := Asm.RDI.
+Definition RBP := Asm.RBP.
+Definition RSP := Asm.RSP.
+(*   | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15. *)
+
+
+Definition PC := Asm.PC.
+Definition ST0 := Asm.ST0.
+Definition RA := Asm.RA.
+Definition IR := Asm.IR.
+Definition FR := Asm.FR.
+Definition CR := Asm.CR.
+Definition ZF := Asm.ZF.
+Definition CF := Asm.CF.
+Definition PF := Asm.PF.
+Definition SF := Asm.SF.
+Definition OF := Asm.OF.
+
+Coercion IR: Asm.ireg >-> Asm.preg.
+Coercion FR: Asm.freg >-> Asm.preg.
+Coercion CR: Asm.crbit >-> Asm.preg.
+
+
+
+(* Definition Cond_e := Asm.Cond_e. *)
+(* Definition Cond_ne := Asm.Cond_ne. *)
+(* Definition Cond_b := Asm.Cond_b. *)
+(* Definition Cond_be := Asm.Cond_be. *)
+(* Definition Cond_ae := Asm.Cond_ae. *)
+(* Definition Cond_a := Asm.Cond_a. *)
+(* Definition Cond_l := Asm.Cond_l. *)
+(* Definition Cond_le := Asm.Cond_le. *)
+(* Definition Cond_ge := Asm.Cond_ge. *)
+(* Definition Cond_g := Asm.Cond_g. *)
+(* Definition Cond_p := Asm.Cond_p. *)
+(* Definition Cond_np := Asm.Cond_np. *)
+
+Definition undef_regs := Asm.undef_regs.
+
 
 (** A label points to an offset in a section *)
 Definition label:Type := ident * ptrofs.
-
-(** General form of an addressing mode. *)
-
-Inductive addrmode: Type :=
-  | Addrmode (base: option ireg)
-             (ofs: option (ireg * Z))
-             (const: Z + ident * ptrofs).
-
-(** Testable conditions (for conditional jumps and more). *)
-
-Inductive testcond: Type :=
-  | Cond_e | Cond_ne
-  | Cond_b | Cond_be | Cond_ae | Cond_a
-  | Cond_l | Cond_le | Cond_ge | Cond_g
-  | Cond_p | Cond_np.
 
 (** Instructions.  IA32 instructions accept many combinations of
   registers, memory references and immediate constants as arguments.
@@ -339,62 +387,64 @@ Record program : Type := {
 
 (** * Operational semantics *)
 
-Lemma preg_eq: forall (x y: preg), {x=y} + {x<>y}.
-Proof. decide equality. apply ireg_eq. apply freg_eq. decide equality. Defined.
+(* Lemma preg_eq: forall (x y: preg), {x=y} + {x<>y}. *)
+(* Proof. decide equality. apply ireg_eq. apply freg_eq. decide equality. Defined. *)
 
-Module PregEq.
-  Definition t := preg.
-  Definition eq := preg_eq.
-End PregEq.
+(* Module PregEq. *)
+(*   Definition t := preg. *)
+(*   Definition eq := preg_eq. *)
+(* End PregEq. *)
 
-Module Pregmap := EMap(PregEq).
+(* Module Pregmap := EMap(PregEq). *)
 
-Definition regset := Pregmap.t val.
+(* Definition regset := Pregmap.t val. *)
+
+Definition regset := Asm.regset.
 Definition genv := Genv.t fundef unit instr_with_info.
 
 Notation "a # b" := (a b) (at level 1, only parsing) : asm.
-Notation "a # b <- c" := (Pregmap.set b c a) (at level 1, b at next level) : asm.
+Notation "a # b <- c" := (Asm.Pregmap.set b c a) (at level 1, b at next level) : asm.
 
 Open Scope asm.
 
-(** Undefining some registers *)
+(* (** Undefining some registers *) *)
 
-Fixpoint undef_regs (l: list preg) (rs: regset) : regset :=
-  match l with
-  | nil => rs
-  | r :: l' => undef_regs l' rs#r <- Vundef
-  end.
+(* Fixpoint undef_regs (l: list preg) (rs: regset) : regset := *)
+(*   match l with *)
+(*   | nil => rs *)
+(*   | r :: l' => undef_regs l' rs#r <- Vundef *)
+(*   end. *)
 
-(** Assigning a register pair *)
+(* (** Assigning a register pair *) *)
 
-Definition set_pair (p: rpair preg) (v: val) (rs: regset) : regset :=
-  match p with
-  | One r => rs#r <- v
-  | Twolong rhi rlo => rs#rhi <- (Val.hiword v) #rlo <- (Val.loword v)
-  end.
+(* Definition set_pair (p: rpair preg) (v: val) (rs: regset) : regset := *)
+(*   match p with *)
+(*   | One r => rs#r <- v *)
+(*   | Twolong rhi rlo => rs#rhi <- (Val.hiword v) #rlo <- (Val.loword v) *)
+(*   end. *)
 
-Fixpoint no_rsp_pair (b: rpair preg) :=
-  match b with
-    One r => r <> RSP
-  | Twolong hi lo => hi <> RSP /\ lo <> RSP
-  end.
+(* Fixpoint no_rsp_pair (b: rpair preg) := *)
+(*   match b with *)
+(*     One r => r <> RSP *)
+(*   | Twolong hi lo => hi <> RSP /\ lo <> RSP *)
+(*   end. *)
 
 
-(** Assigning the result of a builtin *)
+(* (** Assigning the result of a builtin *) *)
 
-Fixpoint set_res (res: builtin_res preg) (v: val) (rs: regset) : regset :=
-  match res with
-  | BR r => rs#r <- v
-  | BR_none => rs
-  | BR_splitlong hi lo => set_res lo (Val.loword v) (set_res hi (Val.hiword v) rs)
-  end.
+(* Fixpoint set_res (res: builtin_res preg) (v: val) (rs: regset) : regset := *)
+(*   match res with *)
+(*   | BR r => rs#r <- v *)
+(*   | BR_none => rs *)
+(*   | BR_splitlong hi lo => set_res lo (Val.loword v) (set_res hi (Val.hiword v) rs) *)
+(*   end. *)
 
-Fixpoint no_rsp_builtin_preg (b: builtin_res preg) :=
-  match b with
-    BR r => r <> RSP
-  | BR_none => True
-  | BR_splitlong hi lo => no_rsp_builtin_preg lo /\ no_rsp_builtin_preg hi
-  end.
+(* Fixpoint no_rsp_builtin_preg (b: builtin_res preg) := *)
+(*   match b with *)
+(*     BR r => r <> RSP *)
+(*   | BR_none => True *)
+(*   | BR_splitlong hi lo => no_rsp_builtin_preg lo /\ no_rsp_builtin_preg hi *)
+(*   end. *)
 
 Section WITHEXTERNALCALLS.
 Context `{external_calls_prf: ExternalCalls}.
@@ -464,7 +514,7 @@ Definition symbol_address id ofs :=
 (** Evaluating an addressing mode *)
 
 Definition eval_addrmode32 (a: addrmode) (rs: regset) : val :=
-  let '(Addrmode base ofs const) := a in
+  let '(Asm.Addrmode base ofs const) := a in
   Val.add  (match base with
              | None => Vint Int.zero
              | Some r => rs r
@@ -482,7 +532,7 @@ Definition eval_addrmode32 (a: addrmode) (rs: regset) : val :=
             end)).
 
 Definition eval_addrmode64 (a: addrmode) (rs: regset) : val :=
-  let '(Addrmode base ofs const) := a in
+  let '(Asm.Addrmode base ofs const) := a in
   Val.addl (match base with
              | None => Vlong Int64.zero
              | Some r => rs r
@@ -504,126 +554,126 @@ Definition eval_addrmode (a: addrmode) (rs: regset) : val :=
 
 End WITHGE.
 
-(** Performing a comparison *)
+(* (** Performing a comparison *) *)
 
-(** Integer comparison between x and y:
--       ZF = 1 if x = y, 0 if x != y
--       CF = 1 if x <u y, 0 if x >=u y
--       SF = 1 if x - y is negative, 0 if x - y is positive
--       OF = 1 if x - y overflows (signed), 0 if not
--       PF is undefined
-*)
+(* (** Integer comparison between x and y: *)
+(* -       ZF = 1 if x = y, 0 if x != y *)
+(* -       CF = 1 if x <u y, 0 if x >=u y *)
+(* -       SF = 1 if x - y is negative, 0 if x - y is positive *)
+(* -       OF = 1 if x - y overflows (signed), 0 if not *)
+(* -       PF is undefined *)
+(* *) *)
 
-Definition compare_ints (x y: val) (rs: regset) (m: mem): regset :=
-  rs #ZF  <- (Val.cmpu (Mem.valid_pointer m) Ceq x y)
-     #CF  <- (Val.cmpu (Mem.valid_pointer m) Clt x y)
-     #SF  <- (Val.negative (Val.sub x y))
-     #OF  <- (Val.sub_overflow x y)
-     #PF  <- Vundef.
+(* Definition compare_ints (x y: val) (rs: regset) (m: mem): regset := *)
+(*   rs #ZF  <- (Val.cmpu (Mem.valid_pointer m) Ceq x y) *)
+(*      #CF  <- (Val.cmpu (Mem.valid_pointer m) Clt x y) *)
+(*      #SF  <- (Val.negative (Val.sub x y)) *)
+(*      #OF  <- (Val.sub_overflow x y) *)
+(*      #PF  <- Vundef. *)
 
-Definition compare_longs (x y: val) (rs: regset) (m: mem): regset :=
-  rs #ZF  <- (Val.maketotal (Val.cmplu (Mem.valid_pointer m) Ceq x y))
-     #CF  <- (Val.maketotal (Val.cmplu (Mem.valid_pointer m) Clt x y))
-     #SF  <- (Val.negativel (Val.subl x y))
-     #OF  <- (Val.subl_overflow x y)
-     #PF  <- Vundef.
+(* Definition compare_longs (x y: val) (rs: regset) (m: mem): regset := *)
+(*   rs #ZF  <- (Val.maketotal (Val.cmplu (Mem.valid_pointer m) Ceq x y)) *)
+(*      #CF  <- (Val.maketotal (Val.cmplu (Mem.valid_pointer m) Clt x y)) *)
+(*      #SF  <- (Val.negativel (Val.subl x y)) *)
+(*      #OF  <- (Val.subl_overflow x y) *)
+(*      #PF  <- Vundef. *)
 
-(** Floating-point comparison between x and y:
--       ZF = 1 if x=y or unordered, 0 if x<>y
--       CF = 1 if x<y or unordered, 0 if x>=y
--       PF = 1 if unordered, 0 if ordered.
--       SF and 0F are undefined
-*)
+(* (** Floating-point comparison between x and y: *)
+(* -       ZF = 1 if x=y or unordered, 0 if x<>y *)
+(* -       CF = 1 if x<y or unordered, 0 if x>=y *)
+(* -       PF = 1 if unordered, 0 if ordered. *)
+(* -       SF and 0F are undefined *)
+(* *) *)
 
-Definition compare_floats (vx vy: val) (rs: regset) : regset :=
-  match vx, vy with
-  | Vfloat x, Vfloat y =>
-      rs #ZF  <- (Val.of_bool (negb (Float.cmp Cne x y)))
-         #CF  <- (Val.of_bool (negb (Float.cmp Cge x y)))
-         #PF  <- (Val.of_bool (negb (Float.cmp Ceq x y || Float.cmp Clt x y || Float.cmp Cgt x y)))
-         #SF  <- Vundef
-         #OF  <- Vundef
-  | _, _ =>
-      undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs
-  end.
+(* Definition compare_floats (vx vy: val) (rs: regset) : regset := *)
+(*   match vx, vy with *)
+(*   | Vfloat x, Vfloat y => *)
+(*       rs #ZF  <- (Val.of_bool (negb (Float.cmp Cne x y))) *)
+(*          #CF  <- (Val.of_bool (negb (Float.cmp Cge x y))) *)
+(*          #PF  <- (Val.of_bool (negb (Float.cmp Ceq x y || Float.cmp Clt x y || Float.cmp Cgt x y))) *)
+(*          #SF  <- Vundef *)
+(*          #OF  <- Vundef *)
+(*   | _, _ => *)
+(*       undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs *)
+(*   end. *)
 
-Definition compare_floats32 (vx vy: val) (rs: regset) : regset :=
-  match vx, vy with
-  | Vsingle x, Vsingle y =>
-      rs #ZF  <- (Val.of_bool (negb (Float32.cmp Cne x y)))
-         #CF  <- (Val.of_bool (negb (Float32.cmp Cge x y)))
-         #PF  <- (Val.of_bool (negb (Float32.cmp Ceq x y || Float32.cmp Clt x y || Float32.cmp Cgt x y)))
-         #SF  <- Vundef
-         #OF  <- Vundef
-  | _, _ =>
-      undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs
-  end.
+(* Definition compare_floats32 (vx vy: val) (rs: regset) : regset := *)
+(*   match vx, vy with *)
+(*   | Vsingle x, Vsingle y => *)
+(*       rs #ZF  <- (Val.of_bool (negb (Float32.cmp Cne x y))) *)
+(*          #CF  <- (Val.of_bool (negb (Float32.cmp Cge x y))) *)
+(*          #PF  <- (Val.of_bool (negb (Float32.cmp Ceq x y || Float32.cmp Clt x y || Float32.cmp Cgt x y))) *)
+(*          #SF  <- Vundef *)
+(*          #OF  <- Vundef *)
+(*   | _, _ => *)
+(*       undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs *)
+(*   end. *)
 
-(** Testing a condition *)
+(* (** Testing a condition *) *)
 
-Definition eval_testcond (c: testcond) (rs: regset) : option bool :=
-  match c with
-  | Cond_e =>
-      match rs ZF with
-      | Vint n => Some (Int.eq n Int.one)
-      | _ => None
-      end
-  | Cond_ne =>
-      match rs ZF with
-      | Vint n => Some (Int.eq n Int.zero)
-      | _ => None
-      end
-  | Cond_b =>
-      match rs CF with
-      | Vint n => Some (Int.eq n Int.one)
-      | _ => None
-      end
-  | Cond_be =>
-      match rs CF, rs ZF with
-      | Vint c, Vint z => Some (Int.eq c Int.one || Int.eq z Int.one)
-      | _, _ => None
-      end
-  | Cond_ae =>
-      match rs CF with
-      | Vint n => Some (Int.eq n Int.zero)
-      | _ => None
-      end
-  | Cond_a =>
-      match rs CF, rs ZF with
-      | Vint c, Vint z => Some (Int.eq c Int.zero && Int.eq z Int.zero)
-      | _, _ => None
-      end
-  | Cond_l =>
-      match rs OF, rs SF with
-      | Vint o, Vint s => Some (Int.eq (Int.xor o s) Int.one)
-      | _, _ => None
-      end
-  | Cond_le =>
-      match rs OF, rs SF, rs ZF with
-      | Vint o, Vint s, Vint z => Some (Int.eq (Int.xor o s) Int.one || Int.eq z Int.one)
-      | _, _, _ => None
-      end
-  | Cond_ge =>
-      match rs OF, rs SF with
-      | Vint o, Vint s => Some (Int.eq (Int.xor o s) Int.zero)
-      | _, _ => None
-      end
-  | Cond_g =>
-      match rs OF, rs SF, rs ZF with
-      | Vint o, Vint s, Vint z => Some (Int.eq (Int.xor o s) Int.zero && Int.eq z Int.zero)
-      | _, _, _ => None
-      end
-  | Cond_p =>
-      match rs PF with
-      | Vint n => Some (Int.eq n Int.one)
-      | _ => None
-      end
-  | Cond_np =>
-      match rs PF with
-      | Vint n => Some (Int.eq n Int.zero)
-      | _ => None
-      end
-  end.
+(* Definition eval_testcond (c: testcond) (rs: regset) : option bool := *)
+(*   match c with *)
+(*   | Asm.Cond_e => *)
+(*       match rs ZF with *)
+(*       | Vint n => Some (Int.eq n Int.one) *)
+(*       | _ => None *)
+(*       end *)
+(*   | Asm.Cond_ne => *)
+(*       match rs ZF with *)
+(*       | Vint n => Some (Int.eq n Int.zero) *)
+(*       | _ => None *)
+(*       end *)
+(*   | Asm.Cond_b => *)
+(*       match rs CF with *)
+(*       | Vint n => Some (Int.eq n Int.one) *)
+(*       | _ => None *)
+(*       end *)
+(*   | Asm.Cond_be => *)
+(*       match rs CF, rs ZF with *)
+(*       | Vint c, Vint z => Some (Int.eq c Int.one || Int.eq z Int.one) *)
+(*       | _, _ => None *)
+(*       end *)
+(*   | Asm.Cond_ae => *)
+(*       match rs CF with *)
+(*       | Vint n => Some (Int.eq n Int.zero) *)
+(*       | _ => None *)
+(*       end *)
+(*   | Asm.Cond_a => *)
+(*       match rs CF, rs ZF with *)
+(*       | Vint c, Vint z => Some (Int.eq c Int.zero && Int.eq z Int.zero) *)
+(*       | _, _ => None *)
+(*       end *)
+(*   | Asm.Cond_l => *)
+(*       match rs OF, rs SF with *)
+(*       | Vint o, Vint s => Some (Int.eq (Int.xor o s) Int.one) *)
+(*       | _, _ => None *)
+(*       end *)
+(*   | Asm.Cond_le => *)
+(*       match rs OF, rs SF, rs ZF with *)
+(*       | Vint o, Vint s, Vint z => Some (Int.eq (Int.xor o s) Int.one || Int.eq z Int.one) *)
+(*       | _, _, _ => None *)
+(*       end *)
+(*   | Asm.Cond_ge => *)
+(*       match rs OF, rs SF with *)
+(*       | Vint o, Vint s => Some (Int.eq (Int.xor o s) Int.zero) *)
+(*       | _, _ => None *)
+(*       end *)
+(*   | Asm.Cond_g => *)
+(*       match rs OF, rs SF, rs ZF with *)
+(*       | Vint o, Vint s, Vint z => Some (Int.eq (Int.xor o s) Int.zero && Int.eq z Int.zero) *)
+(*       | _, _, _ => None *)
+(*       end *)
+(*   | Asm.Cond_p => *)
+(*       match rs PF with *)
+(*       | Vint n => Some (Int.eq n Int.one) *)
+(*       | _ => None *)
+(*       end *)
+(*   | Asm.Cond_np => *)
+(*       match rs PF with *)
+(*       | Vint n => Some (Int.eq n Int.zero) *)
+(*       | _ => None *)
+(*       end *)
+(*   end. *)
 
 (** The semantics is purely small-step and defined as a function
   from the current state (a register set + a memory state)
@@ -631,9 +681,13 @@ Definition eval_testcond (c: testcond) (rs: regset) : option bool :=
   set and memory state after execution of the instruction at [rs#PC],
   or [Stuck] if the processor is stuck. *)
 
-Inductive outcome {memory_model_ops: Mem.MemoryModelOps mem}: Type :=
-  | Next: regset -> mem -> outcome
-  | Stuck: outcome.
+(* Inductive outcome {memory_model_ops: Mem.MemoryModelOps mem}: Type := *)
+(*   | Next: regset -> mem -> outcome *)
+(*   | Stuck: outcome. *)
+
+Definition outcome := Asm.outcome.
+Definition Stuck := Asm.Stuck.
+Definition Next := Asm.Next.
 
 (** Manipulations over the [PC] register: continuing with the next
   instruction ([nextinstr]) or branching to a label ([goto_label]).
@@ -710,37 +764,43 @@ End MEM_ACCESSORS_DEFAULT.
 *)
 
 
-Definition check_alloc_frame (f: frame_info) ofs_link ofs_ra :=
-  (Nat.eq_dec (length (frame_link f)) 1)
-    && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link f)
-    && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr)
-    && zle 0 (frame_size f).
+(* Definition check_alloc_frame (f: frame_info) ofs_link ofs_ra := *)
+(*   (Nat.eq_dec (length (frame_link f)) 1) *)
+(*     && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link f) *)
+(*     && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) *)
+(*     && zle 0 (frame_size f). *)
 
 
-Definition check_top_frame (m: mem) (stk: block) (sz: Z) (oldsp: val) ofs_link ofs_ra :=
-  match Mem.stack_adt m with
-  | (b,Some fi, n)::r =>
-    if (in_dec peq stk b)
-         && zeq sz (frame_size fi)
-         && zeq n sz
-         && range_eqb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (fun o => frame_readonly_dec fi o)
-         && range_eqb (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) (fun o => frame_readonly_dec fi o)
-         && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link fi)
-         && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr)
-    then
-      match oldsp with
-        Vptr bsp o =>
-        match r with
-          f::r =>
-          if in_dec peq bsp (frame_blocks f) && Ptrofs.eq_dec o Ptrofs.zero then true else false
-        | _ => false 
-        end
-      | Vundef => false
-      | _ => true
-      end
-    else false
-  | _ => false
-  end.
+(* Definition check_top_frame (m: mem) (stk: block) (sz: Z) (oldsp: val) ofs_link ofs_ra := *)
+(*   match Mem.stack_adt m with *)
+(*   | (b,Some fi, n)::r => *)
+(*     if (in_dec peq stk b) *)
+(*          && zeq sz (frame_size fi) *)
+(*          && zeq n sz *)
+(*          && range_eqb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (fun o => frame_readonly_dec fi o) *)
+(*          && range_eqb (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) (fun o => frame_readonly_dec fi o) *)
+(*          && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link fi) *)
+(*          && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) *)
+(*     then *)
+(*       match oldsp with *)
+(*         Vptr bsp o => *)
+(*         match r with *)
+(*           f::r => *)
+(*           if in_dec peq bsp (frame_blocks f) && Ptrofs.eq_dec o Ptrofs.zero then true else false *)
+(*         | _ => false  *)
+(*         end *)
+(*       | Vundef => false *)
+(*       | _ => true *)
+(*       end *)
+(*     else false *)
+(*   | _ => false *)
+(*   end. *)
+
+Definition eval_testcond := Asm.eval_testcond.
+Definition compare_ints := Asm.compare_ints.
+Definition compare_longs := Asm.compare_longs.
+Definition compare_floats := Asm.compare_floats.
+Definition compare_floats32 := Asm.compare_floats32.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (smap:section_map) (ge: Genv.t F V instr_with_info) (ii: instr_with_info) (rs: regset) (m: mem) : outcome :=
   let (i,blk) := ii in
@@ -1167,77 +1227,87 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
 (** Translation of the LTL/Linear/Mach view of machine registers
   to the Asm view.  *)
 
-Definition preg_of (r: mreg) : preg :=
-  match r with
-  | AX => IR RAX
-  | BX => IR RBX
-  | CX => IR RCX
-  | DX => IR RDX
-  | SI => IR RSI
-  | DI => IR RDI
-  | BP => IR RBP
-  | Machregs.R8 => IR R8
-  | Machregs.R9 => IR R9
-  | Machregs.R10 => IR R10
-  | Machregs.R11 => IR R11
-  | Machregs.R12 => IR R12
-  | Machregs.R13 => IR R13
-  | Machregs.R14 => IR R14
-  | Machregs.R15 => IR R15
-  | X0 => FR XMM0
-  | X1 => FR XMM1
-  | X2 => FR XMM2
-  | X3 => FR XMM3
-  | X4 => FR XMM4
-  | X5 => FR XMM5
-  | X6 => FR XMM6
-  | X7 => FR XMM7
-  | X8 => FR XMM8
-  | X9 => FR XMM9
-  | X10 => FR XMM10
-  | X11 => FR XMM11
-  | X12 => FR XMM12
-  | X13 => FR XMM13
-  | X14 => FR XMM14
-  | X15 => FR XMM15
-  | FP0 => ST0
-  end.
+(* Definition preg_of (r: mreg) : preg := *)
+(*   match r with *)
+(*   | AX => IR RAX *)
+(*   | BX => IR RBX *)
+(*   | CX => IR RCX *)
+(*   | DX => IR RDX *)
+(*   | SI => IR RSI *)
+(*   | DI => IR RDI *)
+(*   | BP => IR RBP *)
+(*   | Machregs.R8 => IR R8 *)
+(*   | Machregs.R9 => IR R9 *)
+(*   | Machregs.R10 => IR R10 *)
+(*   | Machregs.R11 => IR R11 *)
+(*   | Machregs.R12 => IR R12 *)
+(*   | Machregs.R13 => IR R13 *)
+(*   | Machregs.R14 => IR R14 *)
+(*   | Machregs.R15 => IR R15 *)
+(*   | X0 => FR XMM0 *)
+(*   | X1 => FR XMM1 *)
+(*   | X2 => FR XMM2 *)
+(*   | X3 => FR XMM3 *)
+(*   | X4 => FR XMM4 *)
+(*   | X5 => FR XMM5 *)
+(*   | X6 => FR XMM6 *)
+(*   | X7 => FR XMM7 *)
+(*   | X8 => FR XMM8 *)
+(*   | X9 => FR XMM9 *)
+(*   | X10 => FR XMM10 *)
+(*   | X11 => FR XMM11 *)
+(*   | X12 => FR XMM12 *)
+(*   | X13 => FR XMM13 *)
+(*   | X14 => FR XMM14 *)
+(*   | X15 => FR XMM15 *)
+(*   | FP0 => ST0 *)
+(*   end. *)
 
 (** Extract the values of the arguments of an external call.
     We exploit the calling conventions from module [Conventions], except that
     we use machine registers instead of locations. *)
 
-Inductive extcall_arg (rs: regset) (m: mem): loc -> val -> Prop :=
-  | extcall_arg_reg: forall r,
-      extcall_arg rs m (R r) (rs (preg_of r))
-  | extcall_arg_stack: forall ofs ty bofs v,
-      bofs = Stacklayout.fe_ofs_arg + 4 * ofs ->
-      Mem.loadv (chunk_of_type ty) m
-                (Val.offset_ptr (rs (IR RSP)) (Ptrofs.repr bofs)) = Some v ->
-      extcall_arg rs m (S Outgoing ofs ty) v.
+(* Inductive extcall_arg (rs: regset) (m: mem): loc -> val -> Prop := *)
+(*   | extcall_arg_reg: forall r, *)
+(*       extcall_arg rs m (R r) (rs (preg_of r)) *)
+(*   | extcall_arg_stack: forall ofs ty bofs v, *)
+(*       bofs = Stacklayout.fe_ofs_arg + 4 * ofs -> *)
+(*       Mem.loadv (chunk_of_type ty) m *)
+(*                 (Val.offset_ptr (rs (IR RSP)) (Ptrofs.repr bofs)) = Some v -> *)
+(*       extcall_arg rs m (S Outgoing ofs ty) v. *)
 
-Inductive extcall_arg_pair (rs: regset) (m: mem): rpair loc -> val -> Prop :=
-  | extcall_arg_one: forall l v,
-      extcall_arg rs m l v ->
-      extcall_arg_pair rs m (One l) v
-  | extcall_arg_twolong: forall hi lo vhi vlo,
-      extcall_arg rs m hi vhi ->
-      extcall_arg rs m lo vlo ->
-      extcall_arg_pair rs m (Twolong hi lo) (Val.longofwords vhi vlo).
+(* Inductive extcall_arg_pair (rs: regset) (m: mem): rpair loc -> val -> Prop := *)
+(*   | extcall_arg_one: forall l v, *)
+(*       extcall_arg rs m l v -> *)
+(*       extcall_arg_pair rs m (One l) v *)
+(*   | extcall_arg_twolong: forall hi lo vhi vlo, *)
+(*       extcall_arg rs m hi vhi -> *)
+(*       extcall_arg rs m lo vlo -> *)
+(*       extcall_arg_pair rs m (Twolong hi lo) (Val.longofwords vhi vlo). *)
 
-Definition extcall_arguments
-    (rs: regset) (m: mem) (sg: signature) (args: list val) : Prop :=
-  list_forall2 (extcall_arg_pair rs m) (loc_arguments sg) args.
+(* Definition extcall_arguments *)
+(*     (rs: regset) (m: mem) (sg: signature) (args: list val) : Prop := *)
+(*   list_forall2 (extcall_arg_pair rs m) (loc_arguments sg) args. *)
 
-Definition loc_external_result (sg: signature) : rpair preg :=
-  map_rpair preg_of (loc_result sg).
+(* Definition loc_external_result (sg: signature) : rpair preg := *)
+(*   map_rpair preg_of (loc_result sg). *)
 
-(** Execution of the instruction at [rs#PC]. *)
+(* (** Execution of the instruction at [rs#PC]. *) *)
 
-Inductive state {memory_model_ops: Mem.MemoryModelOps mem}: Type :=
-  | State: regset -> mem -> state.
+(* Inductive state {memory_model_ops: Mem.MemoryModelOps mem}: Type := *)
+(*   | State: regset -> mem -> state. *)
 
 Definition dummy_senv := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit nil).
+
+Definition state := Asm.state.
+Definition State := Asm.State.
+Definition set_res := Asm.set_res.
+Definition preg_of := Asm.preg_of.
+Definition no_rsp_builtin_preg := Asm.no_rsp_builtin_preg.
+Definition set_pair := Asm.set_pair.
+Definition loc_external_result := Asm.loc_external_result.
+Definition no_rsp_pair := Asm.no_rsp_pair.
+Definition extcall_arguments := Asm.extcall_arguments.
 
 Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} 
   (smap: section_map) (ge: genv ) : state -> trace -> state -> Prop :=
@@ -1453,7 +1523,7 @@ Inductive initial_state (p: program): state -> Prop :=
       globalenv p = Some ge ->
       Senv.symbol_address ge p.(prog_main) Ptrofs.zero = Some start_ofs ->
       let rs0 :=
-        (Pregmap.init Vundef)
+        (Asm.Pregmap.init Vundef)
         # PC <- (Vptr mem_block start_ofs)
         # RA <- Vnullptr
         # RSP <- Vnullptr in
@@ -1473,29 +1543,29 @@ Definition semantics (p: program) :=
   | Some ge => Some (Semantics_gen (step p.(sects_map)) (initial_state p) final_state ge dummy_senv)
   end.
 
-(** Determinacy of the [Asm] semantics. *)
+(* (** Determinacy of the [Asm] semantics. *) *)
 
-Remark extcall_arguments_determ:
-  forall rs m sg args1 args2,
-  extcall_arguments rs m sg args1 -> extcall_arguments rs m sg args2 -> args1 = args2.
-Proof.
-  intros until m.
-  assert (A: forall l v1 v2,
-             extcall_arg rs m l v1 -> extcall_arg rs m l v2 -> v1 = v2).
-  { intros. inv H; inv H0; congruence. }
-  assert (B: forall p v1 v2,
-             extcall_arg_pair rs m p v1 -> extcall_arg_pair rs m p v2 -> v1 = v2).
-  { intros. inv H; inv H0. 
-    eapply A; eauto.
-    f_equal; eapply A; eauto. }
-  assert (C: forall ll vl1, list_forall2 (extcall_arg_pair rs m) ll vl1 ->
-             forall vl2, list_forall2 (extcall_arg_pair rs m) ll vl2 -> vl1 = vl2).
-  {
-    induction 1; intros vl2 EA; inv EA.
-    auto.
-    f_equal; eauto. }
-  intros. eapply C; eauto.
-Qed.
+(* Remark extcall_arguments_determ: *)
+(*   forall rs m sg args1 args2, *)
+(*   extcall_arguments rs m sg args1 -> extcall_arguments rs m sg args2 -> args1 = args2. *)
+(* Proof. *)
+(*   intros until m. *)
+(*   assert (A: forall l v1 v2, *)
+(*              extcall_arg rs m l v1 -> extcall_arg rs m l v2 -> v1 = v2). *)
+(*   { intros. inv H; inv H0; congruence. } *)
+(*   assert (B: forall p v1 v2, *)
+(*              extcall_arg_pair rs m p v1 -> extcall_arg_pair rs m p v2 -> v1 = v2). *)
+(*   { intros. inv H; inv H0.  *)
+(*     eapply A; eauto. *)
+(*     f_equal; eapply A; eauto. } *)
+(*   assert (C: forall ll vl1, list_forall2 (extcall_arg_pair rs m) ll vl1 -> *)
+(*              forall vl2, list_forall2 (extcall_arg_pair rs m) ll vl2 -> vl1 = vl2). *)
+(*   { *)
+(*     induction 1; intros vl2 EA; inv EA. *)
+(*     auto. *)
+(*     f_equal; eauto. } *)
+(*   intros. eapply C; eauto. *)
+(* Qed. *)
 
 Lemma semantics_determinate: forall p sem, semantics p = Some sem -> determinate sem.
 Proof.
@@ -1525,7 +1595,7 @@ Ltac Equalities :=
 + assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0.
   exploit external_call_determ. eexact H5. eexact H12. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
-+ assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
++ assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
   exploit external_call_determ. eexact H5. eexact H12. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 - (* trace length *)
@@ -1546,202 +1616,3 @@ Qed.
 
 End WITHEXTERNALCALLS.
 
-(** Classification functions for processor registers (used in Asmgenproof). *)
-
-Definition data_preg (r: preg) : bool :=
-  match r with
-  | PC => false
-  | IR _ => true
-  | FR _ => true
-  | ST0 => true
-  | CR _ => false
-  | RA => false
-  end.
-
-
-(* Intructions to string *)
-Definition instr_to_string (i:instruction) : string :=
-  match i with 
-  (** Moves *)
-  | Pmov_rr rd r1 => "Pmov_rr"
-  | Pmovl_ri rd n => "Pmovl_ri"
-  | Pmovq_ri rd n => "Pmovq_ri"
-  | Pmov_rs rd id => "Pmov_rs"
-  | Pmovl_rm rd a => "Pmovl_rm"
-  | Pmovq_rm rd a => "Pmovq_rm"
-  | Pmovl_mr a rs => "Pmovl_mr"
-  | Pmovq_mr a rs => "Pmovq_mr"
-  | Pmovsd_ff rd r1 => "Pmovsd_ff"     (**r [movsd] (single 64-bit float) *)
-  | Pmovsd_fi rd n => "Pmovsd_fi"    (**r (pseudo-instruction) *)
-  | Pmovsd_fm rd a => "Pmovsd_fm"
-  | Pmovsd_mf a r1 => "Pmovsd_mf"
-  | Pmovss_fi rd n => "Pmovss_fi"  (**r [movss] (single 32-bit float) *)
-  | Pmovss_fm rd a => "Pmovss_fm"
-  | Pmovss_mf a r1 => "Pmovss_mf"
-  | Pfldl_m a  => "Pfldl_m"               (**r [fld] double precision *)
-  | Pfstpl_m a => "Pfstpl_m"             (**r [fstp] double precision *)
-  | Pflds_m a => "Pflds_m"               (**r [fld] simple precision *)
-  | Pfstps_m a => "Pfstps_m"             (**r [fstp] simple precision *)
-  | Pxchg_rr r1 r2 => "Pxchg_rr"      (**r register-register exchange *)
-  (** Moves with conversion *)
-  | Pmovb_mr a rs => "Pmovb_mr" (**r [mov] (8-bit int) *)
-  | Pmovw_mr a rs => "Pmovw_mr"  (**r [mov] (16-bit int) *)
-  | Pmovzb_rr rd rs => "Pmovzb_rr"    (**r [movzb] (8-bit zero-extension) *)
-  | Pmovzb_rm rd a  => "Pmovzb_rm"
-  | Pmovsb_rr rd rs => "Pmovsb_rr"    (**r [movsb] (8-bit sign-extension) *)
-  | Pmovsb_rm rd a  => "Pmovsb_rm"
-  | Pmovzw_rr rd rs => "Pmovzw_rr"    (**r [movzw] (16-bit zero-extension) *)
-  | Pmovzw_rm rd a  => "Pmovzw_rm"
-  | Pmovsw_rr rd rs => "Pmovsw_rr"    (**r [movsw] (16-bit sign-extension) *)
-  | Pmovsw_rm rd a  => "Pmovsw_rm"
-  | Pmovzl_rr rd rs => "Pmovzl_rr"    (**r [movzl] (32-bit zero-extension) *)
-  | Pmovsl_rr rd rs => "Pmovsl_rr"    (**r [movsl] (32-bit sign-extension) *)
-  | Pmovls_rr rd    => "Pmovls_rr"            (** 64 to 32 bit conversion (pseudo) *)
-  | Pcvtsd2ss_ff rd r1  => "Pcvtsd2ss_ff" (**r conversion to single float *)
-  | Pcvtss2sd_ff rd r1  => "Pcvtss2sd_ff" (**r conversion to double float *)
-  | Pcvttsd2si_rf rd r1 => "Pcvttsd2si_rf" (**r double to signed int *)
-  | Pcvtsi2sd_fr rd r1  => "Pcvtsi2sd_fr" (**r signed int to double *)
-  | Pcvttss2si_rf rd r1 => "Pcvttss2si_rf" (**r single to signed int *)
-  | Pcvtsi2ss_fr rd r1  => "Pcvtsi2ss_fr" (**r signed int to single *)
-  | Pcvttsd2sl_rf rd r1 => "Pcvttsd2sl_rf" (**r double to signed long *)
-  | Pcvtsl2sd_fr rd r1  => "Pcvtsl2sd_fr" (**r signed long to double *)
-  | Pcvttss2sl_rf rd r1 => "Pcvttss2sl_rf" (**r single to signed long *)
-  | Pcvtsl2ss_fr rd r1  => "Pcvtsl2ss_fr" (**r signed long to single *)
-  (* (** Integer arithmetic *) *)
-  | Pleal rd a => "Pleal"
-  | Pleaq rd a => "Pleaq"
-  | Pnegl rd   => "Pnegl"
-  | Pnegq rd   => "Pnegq"
-  | Paddl_ri rd n    => "Paddl_ri"
-  | Paddq_ri rd n    => "Paddq_ri"
-  | Psubl_rr rd r1   => "Psubl_rr"
-  | Psubq_rr rd r1   => "Psubq_rr"
-  | Pimull_rr rd r1  => "Pimull_rr"
-  | Pimulq_rr rd r1  => "Pimulq_rr"
-  | Pimull_ri rd n   => "Pimull_ri"
-  | Pimulq_ri rd n   => "Pimulq_ri"
-  | Pimull_r r1 => "Pimull_r"
-  | Pimulq_r r1 => "Pimulq_r"
-  | Pmull_r r1  => "Pmull_r"
-  | Pmulq_r r1  => "Pmulq_r"
-  | Pcltd => "Pcltd"
-  | Pcqto => "Pcqto"
-  | Pdivl r1  => "Pdivl"
-  | Pdivq r1  => "Pdivq"
-  | Pidivl r1 => "Pidivl"
-  | Pidivq r1 => "Pidivq"
-  | Pandl_rr rd r1 => "Pandl_rr"
-  | Pandq_rr rd r1 => "Pandq_rr"
-  | Pandl_ri rd n => "Pandl_ri"
-  | Pandq_ri rd n => "Pandq_ri"
-  | Porl_rr rd r1 => "Porl_rr"
-  | Porq_rr rd r1 => "Porq_rr"
-  | Porl_ri rd n  => "Porl_ri"
-  | Porq_ri rd n  => "Porq_ri"
-  | Pxorl_r rd    => "Pxorl_r"                (**r [xor] with self = set to zero *)
-  | Pxorq_r rd    => "Pxorq_r"
-  | Pxorl_rr rd r1 => "Pxorl_rr"
-  | Pxorq_rr rd r1 => "Pxorq_rr"
-  | Pxorl_ri rd n  => "Pxorl_ri"
-  | Pxorq_ri rd n  => "Pxorq_ri"
-  | Pnotl rd => "Pnotl"
-  | Pnotq rd => "Pnotq"
-  | Psall_rcl rd       => "Psall_rcl"
-  | Psalq_rcl rd       => "Psalq_rcl"
-  | Psall_ri  rd n     => "Psall_ri"
-  | Psalq_ri  rd n     => "Psalq_ri"
-  | Pshrl_rcl rd       => "Pshrl_rcl"
-  | Pshrq_rcl rd       => "Pshrq_rcl"
-  | Pshrl_ri  rd n     => "Pshrl_ri"
-  | Pshrq_ri  rd n     => "Pshrq_ri"
-  | Psarl_rcl rd       => "Psarl_rcl"
-  | Psarq_rcl rd       => "Psarq_rcl"
-  | Psarl_ri  rd n     => "Psarl_ri"
-  | Psarq_ri  rd n     => "Psarq_ri"
-  | Pshld_ri  rd r1 n  => "Pshld_ri"
-  | Prorl_ri  rd n     => "Prorl_ri" 
-  | Prorq_ri  rd n     => "Prorq_ri" 
-  | Pcmpl_rr  r1 r2    => "Pcmpl_rr" 
-  | Pcmpq_rr  r1 r2    => "Pcmpq_rr" 
-  | Pcmpl_ri  r1 n     => "Pcmpl_ri"
-  | Pcmpq_ri  r1 n     => "Pcmpq_ri" 
-  | Ptestl_rr r1 r2    => "Ptestl_rr"
-  | Ptestq_rr r1 r2    => "Ptestq_rr"
-  | Ptestl_ri r1 n     => "Ptestl_ri"
-  | Ptestq_ri r1 n     => "Ptestq_ri"
-  | Pcmov     c rd r1  => "Pcmov"
-  | Psetcc    c rd     => "Psetcc"      
-  (* (** Floating-point arithmetic *) *)
-  | Paddd_ff   rd r1  => "Paddd_ff"
-  | Psubd_ff   rd r1  => "Psubd_ff"
-  | Pmuld_ff   rd r1  => "Pmuld_ff"
-  | Pdivd_ff   rd r1  => "Pdivd_ff"
-  | Pnegd rd          => "Pnegd rd"
-  | Pabsd rd          => "Pabsd rd"
-  | Pcomisd_ff r1 r2  => "Pcomisd_ff"
-  | Pxorpd_f   rd     => "Pxorpd_f"       (**r [xor] with self = set to zero *)
-  | Padds_ff   rd r1  => "Padds_ff"
-  | Psubs_ff   rd r1  => "Psubs_ff"
-  | Pmuls_ff   rd r1  => "Pmuls_ff"
-  | Pdivs_ff   rd r1  => "Pdivs_ff"
-  | Pnegs rd          => "Pnegs rd"
-  | Pabss rd          => "Pabss rd"
-  | Pcomiss_ff r1 r2  => "Pcomiss_ff"
-  | Pxorps_f   rd     => "Pxorps_f"      (**r [xor] with self = set to zero *)
-  (* (** Branches and calls *) *)
-  | Pjmp_l l  => "Pjmp_l"
-  | Pjmp_s symb sg => "Pjmp_s"
-  | Pjmp_r r sg  => "Pjmp_r"
-  | Pjcc c l => "Pjcc"
-  | Pjcc2 c1 c2 l => "Pjcc2"  (**r pseudo *)
-  | Pjmptbl r tbl => "Pjmptbl"  (**r pseudo *)
-  | Pcall_s symb sg => "Pcall_s"
-  | Pcall_r r sg  => "Pcall_r"
-  | Pret => "Pret"
-  (* (** Saving and restoring registers *) *)
-  | Pmov_rm_a rd a   => "Pmov_rm_a"  (**r like [Pmov_rm], using [Many64] chunk *)
-  | Pmov_mr_a a rs   => "Pmov_mr_a"  (**r like [Pmov_mr], using [Many64] chunk *)
-  | Pmovsd_fm_a rd a => "Pmovsd_fm_a" (**r like [Pmovsd_fm], using [Many64] chunk *)
-  | Pmovsd_mf_a a r1 => "Pmovsd_mf_a" (**r like [Pmovsd_mf], using [Many64] chunk *)
-  (* (** Pseudo-instructions *) *)
-  | Pbuiltin ef args res => "Pbuiltin"
-  (* (** Instructions not generated by [Asmgen] -- TO CHECK *) *)
-  (* | Padcl_ri rd (n: int) *)
-  (* | Padcl_rr rd r2 *)
-  (* | Paddl_mi a (n: int) *)
-  (* | Paddl_rr rd r2 *)
-  (* | Pbsfl rd r1 *)
-  (* | Pbsfq rd r1 *)
-  (* | Pbsrl rd r1 *)
-  (* | Pbsrq rd r1 *)
-  (* | Pbswap64 rd *)
-  (* | Pbswap32 rd *)
-  (* | Pbswap16 rd *)
-  (* | Pcfi_adjust (n: int) *)
-  (* | Pfmadd132 rd (r2: freg) (r3: freg) *)
-  (* | Pfmadd213 rd (r2: freg) (r3: freg) *)
-  (* | Pfmadd231 rd (r2: freg) (r3: freg) *)
-  (* | Pfmsub132 rd (r2: freg) (r3: freg) *)
-  (* | Pfmsub213 rd (r2: freg) (r3: freg) *)
-  (* | Pfmsub231 rd (r2: freg) (r3: freg) *)
-  (* | Pfnmadd132 rd (r2: freg) (r3: freg) *)
-  (* | Pfnmadd213 rd (r2: freg) (r3: freg) *)
-  (* | Pfnmadd231 rd (r2: freg) (r3: freg) *)
-  (* | Pfnmsub132 rd (r2: freg) (r3: freg) *)
-  (* | Pfnmsub213 rd (r2: freg) (r3: freg) *)
-  (* | Pfnmsub231 rd (r2: freg) (r3: freg) *)
-  (* | Pmaxsd rd (r2: freg) *)
-  (* | Pminsd rd (r2: freg) *)
-  (* | Pmovb_rm rd a *)
-  (* | Pmovsq_mr  a (rs: freg) *)
-  (* | Pmovsq_rm rd a *)
-  (* | Pmovsb *)
-  (* | Pmovsw *)
-  (* | Pmovw_rm rd (ad: addrmode) *)
-  (* | Prep_movsl *)
-  (* | Psbbl_rr rd r2 *)
-  (* | Psqrtsd rd r1 *)
-  (* | Psubl_ri rd (n: int) *)
-  (* | Psubq_ri rd n. *)
-  | _ => "Unknown instruction"
-  end.
