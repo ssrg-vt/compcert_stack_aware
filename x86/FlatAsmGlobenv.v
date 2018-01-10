@@ -156,6 +156,13 @@ Definition get_label_addr (ge: t) (l:sect_label): option ptrofs :=
   | Some sofs => Some (Ptrofs.add sofs (snd l))
   end.
 
+Definition get_label_offset (ge: t) (l:sect_label) (ofs:ptrofs) : option ptrofs :=
+  match PTree.get (fst l) (genv_smap ge) with
+  | None => None
+  | Some sofs => Some (Ptrofs.add (Ptrofs.add sofs (snd l)) ofs)
+  end.
+
+
 (** [find_symbol ge id] returns the offset associated with the given name, if any *)
 
 Definition find_symbol (ge: t) (id: ident) : option ptrofs :=

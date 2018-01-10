@@ -1326,7 +1326,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
       rs PC = Vptr mem_block ofs ->
       Genv.genv_is_instr_internal ge ofs = true ->
       Genv.find_instr ge ofs = Some (Pbuiltin ef args res, blk) ->
-      eval_builtin_args preg ge rs (rs RSP) m args vargs ->
+      eval_builtin_args _ _ _ preg ge rs (rs RSP) m args vargs ->
         external_call ef dummy_senv vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         no_rsp_builtin_preg res ->
