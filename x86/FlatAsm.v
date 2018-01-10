@@ -1265,6 +1265,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
     forall ofs ef args res rs m t rs' m',
       rs PC = Vptr mem_block ofs ->
       Genv.genv_is_instr_internal ge ofs = false ->
+      Genv.find_funct_offset ge ofs = Some (External ef) ->
       extcall_arguments rs m (ef_sig ef) args ->
       forall (* CompCertX: BEGIN additional conditions for calling convention *)
         (* (STACK: *)
@@ -1525,7 +1526,7 @@ Ltac Equalities :=
   exploit external_call_determ. eexact H5. eexact H12. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 + assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
-  exploit external_call_determ. eexact H4. eexact H10. intros [A B].
+  exploit external_call_determ. eexact H5. eexact H12. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 - (* trace length *)
   red; intros; inv H; simpl.
