@@ -12,7 +12,46 @@ Require Import Sect FlatAsmGlobenv FlatAsmExtcalls.
 Require Asm.
 Require Globalenvs.
 
+
 (** * Abstract syntax *)
+
+Definition ireg := Asm.ireg.
+Definition freg := Asm.freg.
+Definition preg := Asm.preg.
+Definition testcond := Asm.testcond.
+
+Definition RAX := Asm.RAX.
+Definition RBX := Asm.RBX.
+Definition RCX := Asm.RCX.
+Definition RDX := Asm.RDX.
+Definition RSI := Asm.RSI.
+Definition RDI := Asm.RDI.
+Definition RBP := Asm.RBP.
+Definition RSP := Asm.RSP.
+(*   | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15. *)
+
+
+Definition PC := Asm.PC.
+Definition ST0 := Asm.ST0.
+Definition RA := Asm.RA.
+Definition IR := Asm.IR.
+Definition FR := Asm.FR.
+Definition CR := Asm.CR.
+Definition ZF := Asm.ZF.
+Definition CF := Asm.CF.
+Definition PF := Asm.PF.
+Definition SF := Asm.SF.
+Definition OF := Asm.OF.
+
+Coercion IR: Asm.ireg >-> Asm.preg.
+Coercion FR: Asm.freg >-> Asm.preg.
+Coercion CR: Asm.crbit >-> Asm.preg.
+
+(** A global location points to an offset in a section *)
+Definition gloc:Type := ident * ptrofs.
+(** A label points to an offset in a section. 
+    Labels are different from global locations in that they are local to a function *)
+Definition label:Type := ident * ptrofs.
 
 (* (** ** Registers. *) *)
 
@@ -55,12 +94,12 @@ Require Globalenvs.
 
 (* (** ** Instruction set. *) *)
 
-(* (** General form of an addressing mode. *) *)
+(** General form of an addressing mode. *)
 
-(* Inductive addrmode: Type := *)
-(*   | Addrmode (base: option ireg) *)
-(*              (ofs: option (ireg * Z)) *)
-(*              (const: Z + ident * ptrofs). *)
+Inductive addrmode: Type :=
+  | Addrmode (base: option ireg)
+             (ofs: option (ireg * Z))
+             (const: Z + gloc * ptrofs).
 
 (* (** Testable conditions (for conditional jumps and more). *) *)
 
@@ -70,38 +109,6 @@ Require Globalenvs.
 (*   | Cond_l | Cond_le | Cond_ge | Cond_g *)
 (*   | Cond_p | Cond_np. *)
 
-Definition ireg := Asm.ireg.
-Definition freg := Asm.freg.
-Definition preg := Asm.preg.
-Definition addrmode := Asm.addrmode.
-Definition testcond := Asm.testcond.
-
-Definition RAX := Asm.RAX.
-Definition RBX := Asm.RBX.
-Definition RCX := Asm.RCX.
-Definition RDX := Asm.RDX.
-Definition RSI := Asm.RSI.
-Definition RDI := Asm.RDI.
-Definition RBP := Asm.RBP.
-Definition RSP := Asm.RSP.
-(*   | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15. *)
-
-
-Definition PC := Asm.PC.
-Definition ST0 := Asm.ST0.
-Definition RA := Asm.RA.
-Definition IR := Asm.IR.
-Definition FR := Asm.FR.
-Definition CR := Asm.CR.
-Definition ZF := Asm.ZF.
-Definition CF := Asm.CF.
-Definition PF := Asm.PF.
-Definition SF := Asm.SF.
-Definition OF := Asm.OF.
-
-Coercion IR: Asm.ireg >-> Asm.preg.
-Coercion FR: Asm.freg >-> Asm.preg.
-Coercion CR: Asm.crbit >-> Asm.preg.
 
 
 
@@ -120,9 +127,6 @@ Coercion CR: Asm.crbit >-> Asm.preg.
 
 Definition undef_regs := Asm.undef_regs.
 
-
-(** A label points to an offset in a section *)
-Definition label:Type := ident * ptrofs.
 
 (** Instructions.  IA32 instructions accept many combinations of
   registers, memory references and immediate constants as arguments.
@@ -154,7 +158,7 @@ Inductive instruction: Type :=
   | Pmov_rr (rd: ireg) (r1: ireg)       (**r [mov] (integer) *)
   | Pmovl_ri (rd: ireg) (n: int)
   | Pmovq_ri (rd: ireg) (n: int64)
-  | Pmov_rs (rd: ireg) (id: ident)
+  | Pmov_rs (rd: ireg) (loc: gloc)
   | Pmovl_rm (rd: ireg) (a: addrmode)
   | Pmovq_rm (rd: ireg) (a: addrmode)
   | Pmovl_mr (a: addrmode) (rs: ireg)
@@ -278,12 +282,12 @@ Inductive instruction: Type :=
   | Pxorps_f (rd: freg)	              (**r [xor] with self = set to zero *)
   (** Branches and calls *)
   | Pjmp_l (l: label)
-  | Pjmp_s (symb: ident) (sg: signature)
+  | Pjmp_s (loc: gloc) (sg: signature)
   | Pjmp_r (r: ireg) (sg: signature)
   | Pjcc (c: testcond)(l: label)
   | Pjcc2 (c1 c2: testcond)(l: label)   (**r pseudo *)
   | Pjmptbl (r: ireg) (tbl: list label) (**r pseudo *)
-  | Pcall_s (l: label) (sg: signature)
+  | Pcall_s (loc: gloc) (sg: signature)
   | Pcall_r (r: ireg) (sg: signature)
   | Pret
   (** Saving and restoring registers *)
@@ -340,13 +344,6 @@ Definition code := list instr_with_info.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info; range:sect_block}.
 Definition fundef := AST.fundef function.
 Definition gdef := (globdef fundef unit).
-
-(* Translate a label to an offset in the flat memory space *)
-Definition label_to_ofs (smap: section_map) (l:label): option ptrofs :=
-  match PTree.get (fst l) smap with
-  | None => None
-  | Some sofs => Some (Ptrofs.add sofs (snd l))
-  end.
 
 (* Generate a mapping from offsets in the flat memory space to instructions *)
 (* Definition instrs_map := ptrofs -> option instr_with_info. *)
@@ -505,16 +502,22 @@ Section WITHGE.
 Context {F V I: Type}.
 Variable ge: Genv.t F V I.
 
-Definition symbol_address id ofs :=
-  match (Genv.symbol_offset ge id ofs) with
+(* Definition symbol_address id ofs := *)
+(*   match (Genv.symbol_offset ge id ofs) with *)
+(*   | None => Vundef *)
+(*   | Some o => Vptr mem_block o *)
+(*   end. *)
+
+Definition label_address lbl ofs :=
+  match (Genv.get_label_addr ge lbl) with
   | None => Vundef
-  | Some o => Vptr mem_block o
+  | Some o => Vptr mem_block (Ptrofs.add o ofs)
   end.
   
 (** Evaluating an addressing mode *)
 
 Definition eval_addrmode32 (a: addrmode) (rs: regset) : val :=
-  let '(Asm.Addrmode base ofs const) := a in
+  let '(Addrmode base ofs const) := a in
   Val.add  (match base with
              | None => Vint Int.zero
              | Some r => rs r
@@ -528,11 +531,11 @@ Definition eval_addrmode32 (a: addrmode) (rs: regset) : val :=
              end)
            (match const with
             | inl ofs => Vint (Int.repr ofs)
-            | inr(id, ofs) => symbol_address id ofs
+            | inr(gloc, ofs) => label_address gloc ofs
             end)).
 
 Definition eval_addrmode64 (a: addrmode) (rs: regset) : val :=
-  let '(Asm.Addrmode base ofs const) := a in
+  let '(Addrmode base ofs const) := a in
   Val.addl (match base with
              | None => Vlong Int64.zero
              | Some r => rs r
@@ -546,7 +549,7 @@ Definition eval_addrmode64 (a: addrmode) (rs: regset) : val :=
              end)
            (match const with
             | inl ofs => Vlong (Int64.repr ofs)
-            | inr(id, ofs) => symbol_address id ofs
+            | inr(gloc, ofs) => label_address gloc ofs
             end)).
 
 Definition eval_addrmode (a: addrmode) (rs: regset) : val :=
@@ -700,8 +703,8 @@ Definition nextinstr (rs: regset) (isz:ptrofs) :=
 Definition nextinstr_nf (rs: regset) (isz:ptrofs) : regset :=
   nextinstr (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs) isz.
 
-Definition goto_label (sects_map: section_map) (lbl: label) (rs: regset) (m: mem) :=
-  match (label_to_ofs sects_map lbl) with
+Definition goto_label {F V I} (ge: Genv.t F V I) (lbl: label) (rs: regset) (m: mem) :=
+  match (Genv.get_label_addr ge lbl) with
   | None => Stuck
   | Some lofs => Next (rs#PC <- (Vptr mem_block lofs)) m
   end.
@@ -813,8 +816,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (nextinstr_nf (rs#rd <- (Vint n)) sz) m
   | Pmovq_ri rd n =>
       Next (nextinstr_nf (rs#rd <- (Vlong n)) sz) m
-  | Pmov_rs rd id =>
-      Next (nextinstr_nf (rs#rd <- (symbol_address ge id Ptrofs.zero)) sz) m
+  | Pmov_rs rd gloc =>
+      Next (nextinstr_nf (rs#rd <- (label_address ge gloc Ptrofs.zero)) sz) m
   | Pmovl_rm rd a =>
       exec_load _ _ _ ge Mint32 m a rs rd sz
   | Pmovq_rm rd a =>
@@ -1099,20 +1102,20 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (nextinstr_nf (rs#rd <- (Vsingle Float32.zero)) sz) m
   (** Branches and calls *)
   | Pjmp_l lbl =>
-      goto_label smap lbl rs m
-  | Pjmp_s id sg =>
-      Next (rs#PC <- (symbol_address ge id Ptrofs.zero)) m
+      goto_label ge lbl rs m
+  | Pjmp_s gloc sg =>
+      Next (rs#PC <- (label_address ge gloc Ptrofs.zero)) m
   | Pjmp_r r sg =>
       Next (rs#PC <- (rs r)) m
   | Pjcc cond lbl =>
       match eval_testcond cond rs with
-      | Some true => goto_label smap lbl rs m
+      | Some true => goto_label ge lbl rs m
       | Some false => Next (nextinstr rs sz) m
       | None => Stuck
       end
   | Pjcc2 cond1 cond2 lbl =>
       match eval_testcond cond1 rs, eval_testcond cond2 rs with
-      | Some true, Some true => goto_label smap lbl rs m
+      | Some true, Some true => goto_label ge lbl rs m
       | Some _, Some _ => Next (nextinstr rs sz) m
       | _, _ => Stuck
       end
@@ -1121,12 +1124,12 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | Vint n =>
           match list_nth_z tbl (Int.unsigned n) with
           | None => Stuck
-          | Some lbl => goto_label smap lbl (rs #RAX <- Vundef #RDX <- Vundef) m
+          | Some lbl => goto_label ge lbl (rs #RAX <- Vundef #RDX <- Vundef) m
           end
       | _ => Stuck
       end
-  | Pcall_s l sg =>
-    match (label_to_ofs smap l) with
+  | Pcall_s gloc sg =>
+    match (Genv.get_label_addr ge gloc) with
     | None => Stuck
     | Some ofs => 
       Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Vptr mem_block ofs)) m
@@ -1375,6 +1378,7 @@ Definition add_global (smap:section_map) (ge:genv) (idg: ident * option gdef * s
             (Genv.genv_public ge)
             (PTree.set gid ofs (Genv.genv_symb ge))
             (match gdef with Some g => ZTree.set (Ptrofs.unsigned ofs) g (Genv.genv_defs ge) | _ => (Genv.genv_defs ge) end)
+            (Genv.genv_smap ge)
             (Genv.genv_instrs_map ge)
             (Genv.genv_is_instr_internal ge))
   end.
@@ -1421,15 +1425,17 @@ Definition gen_is_instr_internal (p:program) : option (ptrofs -> bool) :=
     Some (fun ofs => andb (Ptrofs.cmpu Cle s ofs) (Ptrofs.cmpu Clt ofs e))
   end.
 
-Definition empty_genv (pub: list ident) (instrs_map: ZTree.t instr_with_info)
-  (is_instr_internal: ptrofs -> bool): genv :=
-  Genv.mkgenv pub (PTree.empty _) (ZTree.empty _) instrs_map is_instr_internal.
+Definition empty_genv (pub: list ident) 
+                      (smap: section_map)
+                      (instrs_map: ZTree.t instr_with_info)
+                      (is_instr_internal: ptrofs -> bool) : genv :=
+  Genv.mkgenv pub (PTree.empty _) (ZTree.empty _) smap instrs_map is_instr_internal.
 
 
 Definition globalenv (p: program) : option genv :=
   match (gen_instrs_map p, gen_is_instr_internal p) with
   | (Some imap, Some f) => 
-    add_globals p.(sects_map) (empty_genv p.(prog_public) imap f) p.(prog_defs)
+    add_globals p.(sects_map) (empty_genv p.(prog_public) (sects_map p) imap f) p.(prog_defs)
   | (_, _) => None
   end.
 

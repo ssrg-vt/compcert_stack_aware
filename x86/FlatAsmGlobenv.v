@@ -139,6 +139,7 @@ Record t: Type := mkgenv {
   genv_public: list ident;              (**r which symbol names are public *)
   genv_symb: PTree.t ptrofs;                 (**r mapping symbol -> offset *)
   genv_defs: ZTree.t (globdef F V);     (**r mapping offset -> definition *)
+  genv_smap: section_map;               (**r mapping from section ids to their addresses *)
   genv_instrs_map: ZTree.t I;           (**r mapping offset -> instructions *)
   genv_is_instr_internal : ptrofs -> bool;       (**r checking if pc points to an internal instruction *)
   (* genv_vars_inj: forall id1 id2 b, *)
@@ -146,6 +147,13 @@ Record t: Type := mkgenv {
 }.
 
 (** ** Lookup functions *)
+
+(* Translate a label to an offset in the flat memory space *)
+Definition get_label_addr (ge: t) (l:ident*ptrofs): option ptrofs :=
+  match PTree.get (fst l) (genv_smap ge) with
+  | None => None
+  | Some sofs => Some (Ptrofs.add sofs (snd l))
+  end.
 
 (** [find_symbol ge id] returns the offset associated with the given name, if any *)
 
