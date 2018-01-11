@@ -8,7 +8,7 @@
 Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Smallstep.
 Require Import Locations Stacklayout Conventions EraseArgs.
-Require Import Sect FlatAsmGlobenv FlatAsmExtcalls FlatAsmGlobvar.
+Require Import Sect FlatAsmGlobenv FlatAsmBuiltin FlatAsmGlobdef.
 Require Asm.
 Require Globalenvs.
 
@@ -28,7 +28,6 @@ Definition RSI := Asm.RSI.
 Definition RDI := Asm.RDI.
 Definition RBP := Asm.RBP.
 Definition RSP := Asm.RSP.
-(*   | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15. *)
 
 
 Definition PC := Asm.PC.
@@ -47,52 +46,14 @@ Coercion IR: Asm.ireg >-> Asm.preg.
 Coercion FR: Asm.freg >-> Asm.preg.
 Coercion CR: Asm.crbit >-> Asm.preg.
 
+Definition undef_regs := Asm.undef_regs.
+
+
 (** A global location points to an offset in a section *)
 Definition gloc:Type := sect_label.
 (** A label points to an offset in a section. 
     Labels are different from global locations in that they are local to a function *)
 Definition label:Type := sect_label.
-
-(* (** ** Registers. *) *)
-
-(* (** Integer registers. *) *)
-
-(* Inductive ireg: Type := *)
-(*   | RAX | RBX | RCX | RDX | RSI | RDI | RBP | RSP *)
-(*   | R8  | R9  | R10 | R11 | R12 | R13 | R14 | R15. *)
-
-(* (** Floating-point registers, i.e. SSE2 registers *) *)
-
-(* Inductive freg: Type := *)
-(*   | XMM0  | XMM1  | XMM2  | XMM3  | XMM4  | XMM5  | XMM6  | XMM7 *)
-(*   | XMM8  | XMM9  | XMM10 | XMM11 | XMM12 | XMM13 | XMM14 | XMM15. *)
-
-(* Lemma ireg_eq: forall (x y: ireg), {x=y} + {x<>y}. *)
-(* Proof. decide equality. Defined. *)
-
-(* Lemma freg_eq: forall (x y: freg), {x=y} + {x<>y}. *)
-(* Proof. decide equality. Defined. *)
-
-(* (** Bits of the flags register. *) *)
-
-(* Inductive crbit: Type := *)
-(*   | ZF | CF | PF | SF | OF. *)
-
-(* (** All registers modeled here. *) *)
-
-(* Inductive preg: Type := *)
-(*   | PC: preg                            (**r program counter *) *)
-(*   | IR: ireg -> preg                    (**r integer register *) *)
-(*   | FR: freg -> preg                    (**r XMM register *) *)
-(*   | ST0: preg                           (**r top of FP stack *) *)
-(*   | CR: crbit -> preg                   (**r bit of the flags register *) *)
-(*   | RA: preg.                   (**r pseudo-reg representing return address *) *)
-
-(* (** Conventional names for stack pointer ([SP]) and return address ([RA]) *) *)
-
-(* Notation SP := RSP (only parsing). *)
-
-(* (** ** Instruction set. *) *)
 
 (** General form of an addressing mode. *)
 
@@ -100,32 +61,6 @@ Inductive addrmode: Type :=
   | Addrmode (base: option ireg)
              (ofs: option (ireg * Z))
              (const: Z + gloc * ptrofs).
-
-(* (** Testable conditions (for conditional jumps and more). *) *)
-
-(* Inductive testcond: Type := *)
-(*   | Cond_e | Cond_ne *)
-(*   | Cond_b | Cond_be | Cond_ae | Cond_a *)
-(*   | Cond_l | Cond_le | Cond_ge | Cond_g *)
-(*   | Cond_p | Cond_np. *)
-
-
-
-
-(* Definition Cond_e := Asm.Cond_e. *)
-(* Definition Cond_ne := Asm.Cond_ne. *)
-(* Definition Cond_b := Asm.Cond_b. *)
-(* Definition Cond_be := Asm.Cond_be. *)
-(* Definition Cond_ae := Asm.Cond_ae. *)
-(* Definition Cond_a := Asm.Cond_a. *)
-(* Definition Cond_l := Asm.Cond_l. *)
-(* Definition Cond_le := Asm.Cond_le. *)
-(* Definition Cond_ge := Asm.Cond_ge. *)
-(* Definition Cond_g := Asm.Cond_g. *)
-(* Definition Cond_p := Asm.Cond_p. *)
-(* Definition Cond_np := Asm.Cond_np. *)
-
-Definition undef_regs := Asm.undef_regs.
 
 
 (** Instructions.  IA32 instructions accept many combinations of
@@ -343,26 +278,10 @@ Definition instr_with_info:Type := instruction * sect_block.
 Definition code := list instr_with_info.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info; range:sect_block}.
 Definition fundef := AST.fundef function.
-Definition gdef := (FlatAsmGlobvar.globdef fundef unit).
-
-(* Generate a mapping from offsets in the flat memory space to instructions *)
-(* Definition instrs_map := ptrofs -> option instr_with_info. *)
-(* Fixpoint gen_instrs_map (sects_map: section_map) (c:code): option instrs_map := *)
-(*   match c with *)
-(*   | nil => Some (fun ofs => None) *)
-(*   | i::c' => *)
-(*     match (gen_instrs_map sects_map c') with *)
-(*     | None => None *)
-(*     | Some imap => *)
-(*       match instr_ofs sects_map i with *)
-(*       | None => None *)
-(*       | Some iofs => Some (fun ofs => if Ptrofs.eq ofs iofs then Some i else (imap ofs)) *)
-(*       end *)
-(*     end *)
-(*   end. *)
+Definition gdef := (FlatAsmGlobdef.globdef fundef unit).
 
 
-(* The flat Asm program *)
+(* The FlatAsm program *)
 Record program : Type := {
   prog_defs: list (ident * option gdef * sect_block);
   prog_public: list ident;
@@ -374,74 +293,16 @@ Record program : Type := {
 }.
 
 
-(* Definition program_of_program (p: program) : AST.program fundef unit := *)
-(*   {| AST.prog_defs := p.(prog_defs); *)
-(*      AST.prog_public := p.(prog_public); *)
-(*      AST.prog_main := p.(prog_main) |}. *)
-
-(* Coercion program_of_program: program >-> AST.program. *)
-
-
 (** * Operational semantics *)
 
-(* Lemma preg_eq: forall (x y: preg), {x=y} + {x<>y}. *)
-(* Proof. decide equality. apply ireg_eq. apply freg_eq. decide equality. Defined. *)
-
-(* Module PregEq. *)
-(*   Definition t := preg. *)
-(*   Definition eq := preg_eq. *)
-(* End PregEq. *)
-
-(* Module Pregmap := EMap(PregEq). *)
-
-(* Definition regset := Pregmap.t val. *)
-
 Definition regset := Asm.regset.
-Definition genv := Genv.t fundef unit instr_with_info.
+Definition genv := Genv.t fundef instr_with_info.
 
 Notation "a # b" := (a b) (at level 1, only parsing) : asm.
 Notation "a # b <- c" := (Asm.Pregmap.set b c a) (at level 1, b at next level) : asm.
 
+
 Open Scope asm.
-
-(* (** Undefining some registers *) *)
-
-(* Fixpoint undef_regs (l: list preg) (rs: regset) : regset := *)
-(*   match l with *)
-(*   | nil => rs *)
-(*   | r :: l' => undef_regs l' rs#r <- Vundef *)
-(*   end. *)
-
-(* (** Assigning a register pair *) *)
-
-(* Definition set_pair (p: rpair preg) (v: val) (rs: regset) : regset := *)
-(*   match p with *)
-(*   | One r => rs#r <- v *)
-(*   | Twolong rhi rlo => rs#rhi <- (Val.hiword v) #rlo <- (Val.loword v) *)
-(*   end. *)
-
-(* Fixpoint no_rsp_pair (b: rpair preg) := *)
-(*   match b with *)
-(*     One r => r <> RSP *)
-(*   | Twolong hi lo => hi <> RSP /\ lo <> RSP *)
-(*   end. *)
-
-
-(* (** Assigning the result of a builtin *) *)
-
-(* Fixpoint set_res (res: builtin_res preg) (v: val) (rs: regset) : regset := *)
-(*   match res with *)
-(*   | BR r => rs#r <- v *)
-(*   | BR_none => rs *)
-(*   | BR_splitlong hi lo => set_res lo (Val.loword v) (set_res hi (Val.hiword v) rs) *)
-(*   end. *)
-
-(* Fixpoint no_rsp_builtin_preg (b: builtin_res preg) := *)
-(*   match b with *)
-(*     BR r => r <> RSP *)
-(*   | BR_none => True *)
-(*   | BR_splitlong hi lo => no_rsp_builtin_preg lo /\ no_rsp_builtin_preg hi *)
-(*   end. *)
 
 Section WITHEXTERNALCALLS.
 Context `{external_calls_prf: ExternalCalls}.
@@ -449,70 +310,10 @@ Context `{external_calls_prf: ExternalCalls}.
 Section RELSEM.
 
 
-(* Class FindLabels {function instructionx} *)
-(*   (is_label : label -> instructionx -> bool) *)
-(*   (fn_code : function -> list instructionx). *)
-
-(** Looking up instructions in a code sequence by position. *)
-
-(* Fixpoint find_instr `{Hfl: FindLabels} (pos: Z) (c: list instructionx) {struct c} : option instructionx := *)
-(*   match c with *)
-(*   | nil => None *)
-(*   | i :: il => if zeq pos 0 then Some i else find_instr (pos - 1) il *)
-(*   end. *)
-
-(* Fixpoint find_instr (smap: section_map) (ofs: ptrofs) (c: code) : option instr_with_info := *)
-(*   match gen_instrs_map smap c with *)
-(*   | None => None *)
-(*   | Some imap => imap ofs *)
-(*   end. *)
-
-(* (** Position corresponding to a label *) *)
-
-(* Definition is_label (lbl: label) (instr: instruction) : bool := *)
-(*   match instr with *)
-(*   | Plabel lbl' => if peq lbl lbl' then true else false *)
-(*   | _ => false *)
-(*   end. *)
-
-(* Global Instance: FindLabels is_label fn_code. *)
-
-(* Lemma is_label_correct: *)
-(*   forall lbl instr, *)
-(*   if is_label lbl instr then instr = Plabel lbl else instr <> Plabel lbl. *)
-(* Proof. *)
-(*   intros.  destruct instr; simpl; try discriminate. *)
-(*   case (peq lbl l); intro; congruence. *)
-(* Qed. *)
-
-
-(* Section WITH_FIND_LABELS. *)
-(*   Context {function instructionx is_label fn_code} *)
-(*           `{Hfl: FindLabels function instructionx is_label fn_code}. *)
-
-(*   Fixpoint label_pos `{Hfl: FindLabels function instructionx is_label fn_code} (lbl: label) (pos: Z) (c: list instructionx) {struct c} : option Z := *)
-(*   match c with *)
-(*   | nil => None *)
-(*   | instr :: c' => *)
-(*       if is_label lbl instr then Some (pos + 1) else label_pos lbl (pos + 1) c' *)
-(*   end. *)
-
 Section WITHGE.
 
-Context {F V I: Type}.
-Variable ge: Genv.t F V I.
-
-(* Definition symbol_address id ofs := *)
-(*   match (Genv.symbol_offset ge id ofs) with *)
-(*   | None => Vundef *)
-(*   | Some o => Vptr mem_block o *)
-(*   end. *)
-
-Definition label_address lbl ofs :=
-  match (Genv.get_label_addr ge lbl) with
-  | None => Vundef
-  | Some o => Vptr mem_block (Ptrofs.add o ofs)
-  end.
+Context {F I: Type}.
+Variable ge: Genv.t F I.
   
 (** Evaluating an addressing mode *)
 
@@ -531,7 +332,7 @@ Definition eval_addrmode32 (a: addrmode) (rs: regset) : val :=
              end)
            (match const with
             | inl ofs => Vint (Int.repr ofs)
-            | inr(gloc, ofs) => label_address gloc ofs
+            | inr(gloc, ofs) => Genv.get_label_addr ge gloc ofs
             end)).
 
 Definition eval_addrmode64 (a: addrmode) (rs: regset) : val :=
@@ -549,7 +350,7 @@ Definition eval_addrmode64 (a: addrmode) (rs: regset) : val :=
              end)
            (match const with
             | inl ofs => Vlong (Int64.repr ofs)
-            | inr(gloc, ofs) => label_address gloc ofs
+            | inr(gloc, ofs) => Genv.get_label_addr ge gloc ofs
             end)).
 
 Definition eval_addrmode (a: addrmode) (rs: regset) : val :=
@@ -557,136 +358,12 @@ Definition eval_addrmode (a: addrmode) (rs: regset) : val :=
 
 End WITHGE.
 
-(* (** Performing a comparison *) *)
-
-(* (** Integer comparison between x and y: *)
-(* -       ZF = 1 if x = y, 0 if x != y *)
-(* -       CF = 1 if x <u y, 0 if x >=u y *)
-(* -       SF = 1 if x - y is negative, 0 if x - y is positive *)
-(* -       OF = 1 if x - y overflows (signed), 0 if not *)
-(* -       PF is undefined *)
-(* *) *)
-
-(* Definition compare_ints (x y: val) (rs: regset) (m: mem): regset := *)
-(*   rs #ZF  <- (Val.cmpu (Mem.valid_pointer m) Ceq x y) *)
-(*      #CF  <- (Val.cmpu (Mem.valid_pointer m) Clt x y) *)
-(*      #SF  <- (Val.negative (Val.sub x y)) *)
-(*      #OF  <- (Val.sub_overflow x y) *)
-(*      #PF  <- Vundef. *)
-
-(* Definition compare_longs (x y: val) (rs: regset) (m: mem): regset := *)
-(*   rs #ZF  <- (Val.maketotal (Val.cmplu (Mem.valid_pointer m) Ceq x y)) *)
-(*      #CF  <- (Val.maketotal (Val.cmplu (Mem.valid_pointer m) Clt x y)) *)
-(*      #SF  <- (Val.negativel (Val.subl x y)) *)
-(*      #OF  <- (Val.subl_overflow x y) *)
-(*      #PF  <- Vundef. *)
-
-(* (** Floating-point comparison between x and y: *)
-(* -       ZF = 1 if x=y or unordered, 0 if x<>y *)
-(* -       CF = 1 if x<y or unordered, 0 if x>=y *)
-(* -       PF = 1 if unordered, 0 if ordered. *)
-(* -       SF and 0F are undefined *)
-(* *) *)
-
-(* Definition compare_floats (vx vy: val) (rs: regset) : regset := *)
-(*   match vx, vy with *)
-(*   | Vfloat x, Vfloat y => *)
-(*       rs #ZF  <- (Val.of_bool (negb (Float.cmp Cne x y))) *)
-(*          #CF  <- (Val.of_bool (negb (Float.cmp Cge x y))) *)
-(*          #PF  <- (Val.of_bool (negb (Float.cmp Ceq x y || Float.cmp Clt x y || Float.cmp Cgt x y))) *)
-(*          #SF  <- Vundef *)
-(*          #OF  <- Vundef *)
-(*   | _, _ => *)
-(*       undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs *)
-(*   end. *)
-
-(* Definition compare_floats32 (vx vy: val) (rs: regset) : regset := *)
-(*   match vx, vy with *)
-(*   | Vsingle x, Vsingle y => *)
-(*       rs #ZF  <- (Val.of_bool (negb (Float32.cmp Cne x y))) *)
-(*          #CF  <- (Val.of_bool (negb (Float32.cmp Cge x y))) *)
-(*          #PF  <- (Val.of_bool (negb (Float32.cmp Ceq x y || Float32.cmp Clt x y || Float32.cmp Cgt x y))) *)
-(*          #SF  <- Vundef *)
-(*          #OF  <- Vundef *)
-(*   | _, _ => *)
-(*       undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs *)
-(*   end. *)
-
-(* (** Testing a condition *) *)
-
-(* Definition eval_testcond (c: testcond) (rs: regset) : option bool := *)
-(*   match c with *)
-(*   | Asm.Cond_e => *)
-(*       match rs ZF with *)
-(*       | Vint n => Some (Int.eq n Int.one) *)
-(*       | _ => None *)
-(*       end *)
-(*   | Asm.Cond_ne => *)
-(*       match rs ZF with *)
-(*       | Vint n => Some (Int.eq n Int.zero) *)
-(*       | _ => None *)
-(*       end *)
-(*   | Asm.Cond_b => *)
-(*       match rs CF with *)
-(*       | Vint n => Some (Int.eq n Int.one) *)
-(*       | _ => None *)
-(*       end *)
-(*   | Asm.Cond_be => *)
-(*       match rs CF, rs ZF with *)
-(*       | Vint c, Vint z => Some (Int.eq c Int.one || Int.eq z Int.one) *)
-(*       | _, _ => None *)
-(*       end *)
-(*   | Asm.Cond_ae => *)
-(*       match rs CF with *)
-(*       | Vint n => Some (Int.eq n Int.zero) *)
-(*       | _ => None *)
-(*       end *)
-(*   | Asm.Cond_a => *)
-(*       match rs CF, rs ZF with *)
-(*       | Vint c, Vint z => Some (Int.eq c Int.zero && Int.eq z Int.zero) *)
-(*       | _, _ => None *)
-(*       end *)
-(*   | Asm.Cond_l => *)
-(*       match rs OF, rs SF with *)
-(*       | Vint o, Vint s => Some (Int.eq (Int.xor o s) Int.one) *)
-(*       | _, _ => None *)
-(*       end *)
-(*   | Asm.Cond_le => *)
-(*       match rs OF, rs SF, rs ZF with *)
-(*       | Vint o, Vint s, Vint z => Some (Int.eq (Int.xor o s) Int.one || Int.eq z Int.one) *)
-(*       | _, _, _ => None *)
-(*       end *)
-(*   | Asm.Cond_ge => *)
-(*       match rs OF, rs SF with *)
-(*       | Vint o, Vint s => Some (Int.eq (Int.xor o s) Int.zero) *)
-(*       | _, _ => None *)
-(*       end *)
-(*   | Asm.Cond_g => *)
-(*       match rs OF, rs SF, rs ZF with *)
-(*       | Vint o, Vint s, Vint z => Some (Int.eq (Int.xor o s) Int.zero && Int.eq z Int.zero) *)
-(*       | _, _, _ => None *)
-(*       end *)
-(*   | Asm.Cond_p => *)
-(*       match rs PF with *)
-(*       | Vint n => Some (Int.eq n Int.one) *)
-(*       | _ => None *)
-(*       end *)
-(*   | Asm.Cond_np => *)
-(*       match rs PF with *)
-(*       | Vint n => Some (Int.eq n Int.zero) *)
-(*       | _ => None *)
-(*       end *)
-(*   end. *)
 
 (** The semantics is purely small-step and defined as a function
   from the current state (a register set + a memory state)
   to either [Next rs' m'] where [rs'] and [m'] are the updated register
   set and memory state after execution of the instruction at [rs#PC],
   or [Stuck] if the processor is stuck. *)
-
-(* Inductive outcome {memory_model_ops: Mem.MemoryModelOps mem}: Type := *)
-(*   | Next: regset -> mem -> outcome *)
-(*   | Stuck: outcome. *)
 
 Definition outcome := Asm.outcome.
 Definition Stuck := Asm.Stuck.
@@ -703,10 +380,10 @@ Definition nextinstr (rs: regset) (isz:ptrofs) :=
 Definition nextinstr_nf (rs: regset) (isz:ptrofs) : regset :=
   nextinstr (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs) isz.
 
-Definition goto_label {F V I} (ge: Genv.t F V I) (lbl: label) (rs: regset) (m: mem) :=
-  match (Genv.get_label_addr ge lbl) with
+Definition goto_label {F I} (ge: Genv.t F I) (lbl: label) (rs: regset) (m: mem) :=
+  match (Genv.get_label_offset0 ge lbl) with
   | None => Stuck
-  | Some lofs => Next (rs#PC <- (Vptr mem_block lofs)) m
+  | Some lofs => Next (rs#PC <- (flatptr lofs)) m
   end.
 
 (** [CompCertiKOS:test-compcert-param-mem-accessors] For CertiKOS, we
@@ -716,8 +393,8 @@ mode. *)
 
 Class MemAccessors
       `{!Mem.MemoryModelOps mem}
-      (exec_load: forall F V I: Type, Genv.t F V I -> memory_chunk -> mem -> addrmode -> regset -> preg -> ptrofs -> outcome)
-      (exec_store: forall F V I: Type, Genv.t F V I -> memory_chunk -> mem -> addrmode -> regset -> preg -> list preg -> ptrofs -> outcome)
+      (exec_load: forall F I: Type, Genv.t F I -> memory_chunk -> mem -> addrmode -> regset -> preg -> ptrofs -> outcome)
+      (exec_store: forall F I: Type, Genv.t F I -> memory_chunk -> mem -> addrmode -> regset -> preg -> list preg -> ptrofs -> outcome)
 : Prop := {}.
 
 Section MEM_ACCESSORS_DEFAULT.
@@ -726,14 +403,14 @@ Section MEM_ACCESSORS_DEFAULT.
 care about kernel vs. user mode, and uses its memory model to define
 its memory accessors. *)
 
-Definition exec_load {F V I} (ge: Genv.t F V I) (chunk: memory_chunk) (m: mem)
+Definition exec_load {F I} (ge: Genv.t F I) (chunk: memory_chunk) (m: mem)
                      (a: addrmode) (rs: regset) (rd: preg) (sz:ptrofs):=
   match Mem.loadv chunk m (eval_addrmode ge a rs) with
   | Some v => Next (nextinstr_nf (rs#rd <- v) sz) m
   | None => Stuck
   end.
 
-Definition exec_store {F V I} (ge: Genv.t F V I) (chunk: memory_chunk) (m: mem)
+Definition exec_store {F I} (ge: Genv.t F I) (chunk: memory_chunk) (m: mem)
                       (a: addrmode) (rs: regset) (r1: preg)
                       (destroyed: list preg) (sz:ptrofs) :=
   match Mem.storev chunk m (eval_addrmode ge a rs) (rs r1) with
@@ -766,46 +443,13 @@ End MEM_ACCESSORS_DEFAULT.
     but we do not need to model this precisely.
 *)
 
-
-(* Definition check_alloc_frame (f: frame_info) ofs_link ofs_ra := *)
-(*   (Nat.eq_dec (length (frame_link f)) 1) *)
-(*     && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link f) *)
-(*     && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) *)
-(*     && zle 0 (frame_size f). *)
-
-
-(* Definition check_top_frame (m: mem) (stk: block) (sz: Z) (oldsp: val) ofs_link ofs_ra := *)
-(*   match Mem.stack_adt m with *)
-(*   | (b,Some fi, n)::r => *)
-(*     if (in_dec peq stk b) *)
-(*          && zeq sz (frame_size fi) *)
-(*          && zeq n sz *)
-(*          && range_eqb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (fun o => frame_readonly_dec fi o) *)
-(*          && range_eqb (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) (fun o => frame_readonly_dec fi o) *)
-(*          && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link fi) *)
-(*          && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) *)
-(*     then *)
-(*       match oldsp with *)
-(*         Vptr bsp o => *)
-(*         match r with *)
-(*           f::r => *)
-(*           if in_dec peq bsp (frame_blocks f) && Ptrofs.eq_dec o Ptrofs.zero then true else false *)
-(*         | _ => false  *)
-(*         end *)
-(*       | Vundef => false *)
-(*       | _ => true *)
-(*       end *)
-(*     else false *)
-(*   | _ => false *)
-(*   end. *)
-
 Definition eval_testcond := Asm.eval_testcond.
 Definition compare_ints := Asm.compare_ints.
 Definition compare_longs := Asm.compare_longs.
 Definition compare_floats := Asm.compare_floats.
 Definition compare_floats32 := Asm.compare_floats32.
 
-Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (smap:section_map) (ge: Genv.t F V instr_with_info) (ii: instr_with_info) (rs: regset) (m: mem) : outcome :=
+Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge: genv) (ii: instr_with_info) (rs: regset) (m: mem) : outcome :=
   let (i,blk) := ii in
   let sz := sect_block_size blk in
   match i with
@@ -817,60 +461,60 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pmovq_ri rd n =>
       Next (nextinstr_nf (rs#rd <- (Vlong n)) sz) m
   | Pmov_rs rd gloc =>
-      Next (nextinstr_nf (rs#rd <- (label_address ge gloc Ptrofs.zero)) sz) m
+      Next (nextinstr_nf (rs#rd <- (Genv.get_label_addr0 ge gloc)) sz) m
   | Pmovl_rm rd a =>
-      exec_load _ _ _ ge Mint32 m a rs rd sz
+      exec_load _ _ ge Mint32 m a rs rd sz
   | Pmovq_rm rd a =>
-      exec_load _ _ _ ge Mint64 m a rs rd sz
+      exec_load _ _ ge Mint64 m a rs rd sz
   | Pmovl_mr a r1 =>
-      exec_store _ _ _ ge Mint32 m a rs r1 nil sz
+      exec_store _ _ ge Mint32 m a rs r1 nil sz
   | Pmovq_mr a r1 =>
-      exec_store _ _ _ ge Mint64 m a rs r1 nil sz
+      exec_store _ _ ge Mint64 m a rs r1 nil sz
   | Pmovsd_ff rd r1 =>
       Next (nextinstr (rs#rd <- (rs r1)) sz) m
   | Pmovsd_fi rd n =>
       Next (nextinstr (rs#rd <- (Vfloat n)) sz) m
   | Pmovsd_fm rd a =>
-      exec_load _ _ _ ge Mfloat64 m a rs rd  sz
+      exec_load _ _ ge Mfloat64 m a rs rd  sz
   | Pmovsd_mf a r1 =>
-      exec_store _ _ _ ge Mfloat64 m a rs r1 nil sz
+      exec_store _ _ ge Mfloat64 m a rs r1 nil sz
   | Pmovss_fi rd n =>
       Next (nextinstr (rs#rd <- (Vsingle n)) sz) m
   | Pmovss_fm rd a =>
-      exec_load _ _ _ ge Mfloat32 m a rs rd sz
+      exec_load _ _ ge Mfloat32 m a rs rd sz
   | Pmovss_mf a r1 =>
-      exec_store _ _ _ ge Mfloat32 m a rs r1 nil sz
+      exec_store _ _ ge Mfloat32 m a rs r1 nil sz
   | Pfldl_m a =>
-      exec_load _ _ _ ge Mfloat64 m a rs ST0 sz
+      exec_load _ _ ge Mfloat64 m a rs ST0 sz
   | Pfstpl_m a =>
-      exec_store _ _ _ ge Mfloat64 m a rs ST0 (ST0 :: nil) sz
+      exec_store _ _ ge Mfloat64 m a rs ST0 (ST0 :: nil) sz
   | Pflds_m a =>
-      exec_load _ _ _ ge Mfloat32 m a rs ST0 sz
+      exec_load _ _ ge Mfloat32 m a rs ST0 sz
   | Pfstps_m a =>
-      exec_store _ _ _ ge Mfloat32 m a rs ST0 (ST0 :: nil) sz
+      exec_store _ _ ge Mfloat32 m a rs ST0 (ST0 :: nil) sz
   | Pxchg_rr r1 r2 =>
       Next (nextinstr (rs#r1 <- (rs r2) #r2 <- (rs r1)) sz) m
   (** Moves with conversion *)
   | Pmovb_mr a r1 =>
-      exec_store _ _ _ ge Mint8unsigned m a rs r1 nil sz
+      exec_store _ _ ge Mint8unsigned m a rs r1 nil sz
   | Pmovw_mr a r1 =>
-      exec_store _ _ _ ge Mint16unsigned m a rs r1 nil sz
+      exec_store _ _ ge Mint16unsigned m a rs r1 nil sz
   | Pmovzb_rr rd r1 =>
       Next (nextinstr (rs#rd <- (Val.zero_ext 8 rs#r1)) sz) m
   | Pmovzb_rm rd a =>
-      exec_load _ _ _ ge Mint8unsigned m a rs rd sz
+      exec_load _ _ ge Mint8unsigned m a rs rd sz
   | Pmovsb_rr rd r1 =>
       Next (nextinstr (rs#rd <- (Val.sign_ext 8 rs#r1)) sz) m
   | Pmovsb_rm rd a =>
-      exec_load _ _ _ ge Mint8signed m a rs rd sz
+      exec_load _ _ ge Mint8signed m a rs rd sz
   | Pmovzw_rr rd r1 =>
       Next (nextinstr (rs#rd <- (Val.zero_ext 16 rs#r1)) sz) m
   | Pmovzw_rm rd a =>
-      exec_load _ _ _ ge Mint16unsigned m a rs rd sz
+      exec_load _ _ ge Mint16unsigned m a rs rd sz
   | Pmovsw_rr rd r1 =>
       Next (nextinstr (rs#rd <- (Val.sign_ext 16 rs#r1)) sz) m
   | Pmovsw_rm rd a =>
-      exec_load _ _ _ ge Mint16signed m a rs rd sz
+      exec_load _ _ ge Mint16signed m a rs rd sz
   | Pmovzl_rr rd r1 =>
       Next (nextinstr (rs#rd <- (Val.longofintu rs#r1)) sz) m
   | Pmovsl_rr rd r1 =>
@@ -1104,7 +748,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pjmp_l lbl =>
       goto_label ge lbl rs m
   | Pjmp_s gloc sg =>
-      Next (rs#PC <- (label_address ge gloc Ptrofs.zero)) m
+      Next (rs#PC <- (Genv.get_label_addr0 ge gloc)) m
   | Pjmp_r r sg =>
       Next (rs#PC <- (rs r)) m
   | Pjcc cond lbl =>
@@ -1129,10 +773,10 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | _ => Stuck
       end
   | Pcall_s gloc sg =>
-    match (Genv.get_label_addr ge gloc) with
+    match (Genv.get_label_offset0 ge gloc) with
     | None => Stuck
     | Some ofs => 
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Vptr mem_block ofs)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (flatptr ofs)) m
     end
   | Pcall_r r sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) m
@@ -1142,13 +786,13 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (rs#PC <- (rs#RA) #RA <- Vundef) m
   (** Saving and restoring registers *)
   | Pmov_rm_a rd a =>
-      exec_load _ _ _ ge (if Archi.ptr64 then Many64 else Many32) m a rs rd sz
+      exec_load _ _ ge (if Archi.ptr64 then Many64 else Many32) m a rs rd sz
   | Pmov_mr_a a r1 =>
-      exec_store _ _ _ ge (if Archi.ptr64 then Many64 else Many32) m a rs r1 nil sz
+      exec_store _ _ ge (if Archi.ptr64 then Many64 else Many32) m a rs r1 nil sz
   | Pmovsd_fm_a rd a =>
-      exec_load _ _ _ ge Many64 m a rs rd sz
+      exec_load _ _ ge Many64 m a rs rd sz
   | Pmovsd_mf_a a r1 =>
-      exec_store _ _ _ ge Many64 m a rs r1 nil sz
+      exec_store _ _ ge Many64 m a rs r1 nil sz
   (** Pseudo-instructions *)
   (* | Plabel lbl => *)
   (*     Next (nextinstr rs) m *)
@@ -1227,79 +871,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
     => Stuck
   end.
 
-(** Translation of the LTL/Linear/Mach view of machine registers
-  to the Asm view.  *)
-
-(* Definition preg_of (r: mreg) : preg := *)
-(*   match r with *)
-(*   | AX => IR RAX *)
-(*   | BX => IR RBX *)
-(*   | CX => IR RCX *)
-(*   | DX => IR RDX *)
-(*   | SI => IR RSI *)
-(*   | DI => IR RDI *)
-(*   | BP => IR RBP *)
-(*   | Machregs.R8 => IR R8 *)
-(*   | Machregs.R9 => IR R9 *)
-(*   | Machregs.R10 => IR R10 *)
-(*   | Machregs.R11 => IR R11 *)
-(*   | Machregs.R12 => IR R12 *)
-(*   | Machregs.R13 => IR R13 *)
-(*   | Machregs.R14 => IR R14 *)
-(*   | Machregs.R15 => IR R15 *)
-(*   | X0 => FR XMM0 *)
-(*   | X1 => FR XMM1 *)
-(*   | X2 => FR XMM2 *)
-(*   | X3 => FR XMM3 *)
-(*   | X4 => FR XMM4 *)
-(*   | X5 => FR XMM5 *)
-(*   | X6 => FR XMM6 *)
-(*   | X7 => FR XMM7 *)
-(*   | X8 => FR XMM8 *)
-(*   | X9 => FR XMM9 *)
-(*   | X10 => FR XMM10 *)
-(*   | X11 => FR XMM11 *)
-(*   | X12 => FR XMM12 *)
-(*   | X13 => FR XMM13 *)
-(*   | X14 => FR XMM14 *)
-(*   | X15 => FR XMM15 *)
-(*   | FP0 => ST0 *)
-(*   end. *)
-
-(** Extract the values of the arguments of an external call.
-    We exploit the calling conventions from module [Conventions], except that
-    we use machine registers instead of locations. *)
-
-(* Inductive extcall_arg (rs: regset) (m: mem): loc -> val -> Prop := *)
-(*   | extcall_arg_reg: forall r, *)
-(*       extcall_arg rs m (R r) (rs (preg_of r)) *)
-(*   | extcall_arg_stack: forall ofs ty bofs v, *)
-(*       bofs = Stacklayout.fe_ofs_arg + 4 * ofs -> *)
-(*       Mem.loadv (chunk_of_type ty) m *)
-(*                 (Val.offset_ptr (rs (IR RSP)) (Ptrofs.repr bofs)) = Some v -> *)
-(*       extcall_arg rs m (S Outgoing ofs ty) v. *)
-
-(* Inductive extcall_arg_pair (rs: regset) (m: mem): rpair loc -> val -> Prop := *)
-(*   | extcall_arg_one: forall l v, *)
-(*       extcall_arg rs m l v -> *)
-(*       extcall_arg_pair rs m (One l) v *)
-(*   | extcall_arg_twolong: forall hi lo vhi vlo, *)
-(*       extcall_arg rs m hi vhi -> *)
-(*       extcall_arg rs m lo vlo -> *)
-(*       extcall_arg_pair rs m (Twolong hi lo) (Val.longofwords vhi vlo). *)
-
-(* Definition extcall_arguments *)
-(*     (rs: regset) (m: mem) (sg: signature) (args: list val) : Prop := *)
-(*   list_forall2 (extcall_arg_pair rs m) (loc_arguments sg) args. *)
-
-(* Definition loc_external_result (sg: signature) : rpair preg := *)
-(*   map_rpair preg_of (loc_result sg). *)
-
-(* (** Execution of the instruction at [rs#PC]. *) *)
-
-(* Inductive state {memory_model_ops: Mem.MemoryModelOps mem}: Type := *)
-(*   | State: regset -> mem -> state. *)
-
+(** Symbol environments are not used to describe the semantics of FlatAsm. However, we need to provide a dummy one to match the semantics framework of CompCert *)
 Definition dummy_senv := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit nil).
 
 Definition state := Asm.state.
@@ -1319,14 +891,14 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
       rs PC = Vptr mem_block ofs ->
       Genv.genv_is_instr_internal ge ofs = true ->
       Genv.find_instr ge ofs = Some i ->
-      exec_instr smap ge i rs m = Next rs' m' ->
+      exec_instr ge i rs m = Next rs' m' ->
       step smap ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
     forall ofs ef args res rs m vargs t vres rs' m' blk,
       rs PC = Vptr mem_block ofs ->
       Genv.genv_is_instr_internal ge ofs = true ->
       Genv.find_instr ge ofs = Some (Pbuiltin ef args res, blk) ->
-      eval_builtin_args _ _ _ preg ge rs (rs RSP) m args vargs ->
+      eval_builtin_args _ _ preg ge rs (rs RSP) m args vargs ->
         external_call ef dummy_senv vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         no_rsp_builtin_preg res ->
@@ -1360,42 +932,36 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
 End RELSEM.
 
 (** Initialization of the global environment *)
-(* Definition update_symb_mapping (smap: section_map) (symb_mapping: PTree.t ptrofs)  *)
-(*   (gdef: ident * option gdef * sect_block) : option (PTree.t Z) := *)
-(*   let '(gid,_,sb) := gdef in *)
-(*   let '(sid,ss,_) := sb in *)
-(*   match (PTree.get sid smap) with *)
-(*   | None => None *)
-(*   | Some ofs => Some (PTree.set gid (ofs+ss) symb_mapping) *)
-(*   end. *)
-
-Definition add_global (smap:section_map) (ge:genv) (idg: ident * option gdef * sect_block) : option genv :=
+Definition add_global (ge:genv) (idg: ident * option gdef * sect_block) : option genv :=
   let '(gid,gdef,sb) := idg in
-  match (get_sect_block_ofs smap sb) with
+  match (Genv.get_block_offset0 ge sb) with
   | None => None
   | Some ofs =>
-    Some (Genv.mkgenv
-            (Genv.genv_public ge)
-            (PTree.set gid ofs (Genv.genv_symb ge))
-            (match gdef with Some g => ZTree.set (Ptrofs.unsigned ofs) g (Genv.genv_defs ge) | _ => (Genv.genv_defs ge) end)
-            (Genv.genv_smap ge)
-            (Genv.genv_instrs_map ge)
-            (Genv.genv_is_instr_internal ge))
+    match gdef with
+    | None => Some ge
+    | Some (Gvar _) => Some ge
+    | Some (Gfun f) =>
+      Some (Genv.mkgenv
+              (ZTree.set (Ptrofs.unsigned ofs) f (Genv.genv_defs ge))
+              (Genv.genv_smap ge)
+              (Genv.genv_instrs_map ge)
+              (Genv.genv_is_instr_internal ge))
+    end
   end.
 
-Fixpoint add_globals (smap:section_map) (ge:genv) (gl: list (ident * option gdef * sect_block)) : option genv :=
+Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * sect_block)) : option genv :=
   match gl with
   | nil => Some ge
   | (idg::gl') => 
-    match (add_global smap ge idg) with
+    match (add_global ge idg) with
     | None => None
-    | Some ge' => add_globals smap ge' gl'
+    | Some ge' => add_globals ge' gl'
     end
   end.  
 
 (* Get the offset of an instruction in the flat memory space *)
 Definition get_instr_ofs (smap: section_map) (i:instr_with_info): option ptrofs :=
-  let (_,bi) := i in get_sect_block_ofs smap bi.
+  let (_,bi) := i in get_sect_block_offset0 smap bi.
 
 Definition acc_instr_map (smap:section_map) (i:instr_with_info) map : option (ZTree.t instr_with_info) :=
   match (get_instr_ofs smap i) with
@@ -1425,17 +991,16 @@ Definition gen_is_instr_internal (p:program) : option (ptrofs -> bool) :=
     Some (fun ofs => andb (Ptrofs.cmpu Cle s ofs) (Ptrofs.cmpu Clt ofs e))
   end.
 
-Definition empty_genv (pub: list ident) 
-                      (smap: section_map)
+Definition empty_genv (smap: section_map)
                       (instrs_map: ZTree.t instr_with_info)
                       (is_instr_internal: ptrofs -> bool) : genv :=
-  Genv.mkgenv pub (PTree.empty _) (ZTree.empty _) smap instrs_map is_instr_internal.
+  Genv.mkgenv (ZTree.empty _) smap instrs_map is_instr_internal.
 
 
 Definition globalenv (p: program) : option genv :=
   match (gen_instrs_map p, gen_is_instr_internal p) with
   | (Some imap, Some f) => 
-    add_globals p.(sects_map) (empty_genv p.(prog_public) (sects_map p) imap f) p.(prog_defs)
+    add_globals (empty_genv (sects_map p) imap f) p.(prog_defs)
   | (_, _) => None
   end.
 
@@ -1456,9 +1021,9 @@ Definition store_init_data (m: mem) (p: Z) (id: init_data) : option mem :=
   | Init_float32 n => Mem.store Mfloat32 m mem_block p (Vsingle n)
   | Init_float64 n => Mem.store Mfloat64 m mem_block p (Vfloat n)
   | Init_addrof gloc ofs =>
-      match Genv.get_label_addr ge gloc with
+      match Genv.get_label_offset0 ge gloc with
       | None => None
-      | Some o => Mem.store Mptr m mem_block p (Vptr mem_block (Ptrofs.add o ofs))
+      | Some o => Mem.store Mptr m mem_block p (flatptr (Ptrofs.add o ofs))
       end
   | Init_space n => Some m
   end.
@@ -1477,7 +1042,7 @@ Fixpoint store_init_data_list (m: mem) (b: block) (p: Z) (idl: list init_data)
 Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * sect_block): option mem :=
   let '(id, gdef, sb) := idg in
   let sz := Ptrofs.unsigned (sect_block_size sb) in
-  match (get_sect_block_ofs smap sb) with
+  match (get_sect_block_offset0 smap sb) with
   | None => None
   | Some ofs => 
     let ofs := Ptrofs.signed ofs in
@@ -1519,15 +1084,31 @@ End WITHGE.
 Definition init_mem (p: program) :=
   match (globalenv p) with
   | None => None
-  | Some ge => alloc_globals ge p.(sects_map) Mem.empty p.(prog_defs)
+  | Some ge => 
+    let im := fst (Mem.alloc Mem.empty 0 mem_block_size) in
+    alloc_globals ge p.(sects_map) im p.(prog_defs)
   end.
 
 (** Execution of whole programs. *)
+Fixpoint get_main_block (main:ident) (l: list (ident * option gdef * sect_block)) : option sect_block :=
+  match l with
+  | nil => None
+  | (id,_,sb)::l' =>
+    if peq main id then Some sb 
+    else  get_main_block main l'
+  end.
+
+Definition get_main_fun_offset (p:program) : option ptrofs :=
+  match get_main_block (prog_main p) (prog_defs p) with
+  | None => None
+  | Some sb => get_sect_block_offset0 (sects_map p) sb
+  end.
+
 Inductive initial_state (p: program): state -> Prop :=
   | initial_state_intro: forall m0 start_ofs ge,
       init_mem p = Some m0 ->
       globalenv p = Some ge ->
-      Senv.symbol_address ge p.(prog_main) Ptrofs.zero = Some start_ofs ->
+      get_main_fun_offset p = Some start_ofs ->
       let rs0 :=
         (Asm.Pregmap.init Vundef)
         # PC <- (Vptr mem_block start_ofs)

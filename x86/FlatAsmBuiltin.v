@@ -31,10 +31,9 @@ Context `{memory_model_ops: Mem.MemoryModelOps}.
 Section EVAL_BUILTIN_ARG.
 
 Variable F: Type.
-Variable V: Type.
 Variable I: Type.
 Variable A: Type.
-Variable ge: Genv.t F V I.
+Variable ge: Genv.t F I.
 Variable e: A -> val.
 Variable sp: val.
 Variable m:mem. 
