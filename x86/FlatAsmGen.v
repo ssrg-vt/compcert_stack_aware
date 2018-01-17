@@ -3,9 +3,12 @@
 (* Date:   Jan 9, 2018 *)
 (* ******************* *)
 
-Require Import Coqlib Integers AST.
+Require Import Coqlib Integers AST Maps.
 Require Import Asm FlatAsm Sect.
 Require Import Errors.
+Require Import FlatAsmBuiltin FlatAsmGlobdef.
+Require Import Memtype.
+Import ListNotations.
 
 
 Local Open Scope error_monad_scope.
@@ -15,44 +18,8 @@ Local Open Scope error_monad_scope.
 Definition stack_sect_id: ident := 1%positive.
 Definition data_sect_id:  ident := 2%positive.
 Definition code_sect_id:  ident := 3%positive.
+Definition extfuns_sect_id: ident := 4%positive.
 
-
-(** * Translation of global variables *)
-
-(** Information accumulated during the translation of global data *)
-Record data_transl_info : Type :=
-mkDataTranslInfo{
-  dti_size : ptrofs;           (**r The size of the data section so far *)
-  dti_defs : list (ident * globvar unit * sect_block)
-                          (**r The global variable translated so far *)
-}.
-
-(** Translation of global variables. 
-    The main job is to calculate the section block a global variable occupies *)
-Fixpoint transl_globvars (gdefs : list (ident * option (globdef Asm.fundef unit)))
-                         (dinfo  : data_transl_info)
-                         : data_transl_info :=
-  match gdefs with
-  | nil => dinfo
-  | ((id, None) :: gdefs') =>
-    transl_globvars gdefs' dinfo
-  | ((_, Some (Gfun _)) :: gdefs') =>
-    transl_globvars gdefs' dinfo
-  | ((id, Some (Gvar v)) :: gdefs') =>
-    let sz := Ptrofs.repr (init_data_list_size (gvar_init v)) in
-    let ofs := (dti_size dinfo) in
-    let sblk := mkSectBlock data_sect_id ofs sz in
-    transl_globvars gdefs' 
-       (mkDataTranslInfo (Ptrofs.add ofs sz)
-                         ((id, v, sblk)::(dti_defs dinfo)))
-  end.
-         
-
-(* (* Given a FlatAsm instruciton, encode returns the size of its machine encoding *) *)
-(* Variable encode : FlatAsm.instruction -> ptrofs. *)
-
-
-(** * Translation of instructions *)
 
 Section WITH_GID_MAP.
 
@@ -60,6 +27,94 @@ Section WITH_GID_MAP.
     (i.e. pairs of section ids and offsets) *)
 Variable gid_map : ident -> option sect_label.
 
+(** * Translation of global variables *)
+
+(** Translation init data *)
+Definition transl_init_data (idata: AST.init_data) : res init_data :=
+  match idata with 
+  | AST.Init_int8 x => OK (Init_int8 x)
+  | AST.Init_int16 x => OK (Init_int16 x)
+  | AST.Init_int32 x => OK (Init_int32 x)
+  | AST.Init_int64 x => OK (Init_int64 x)
+  | AST.Init_float32 f => OK (Init_float32 f)
+  | AST.Init_float64 f => OK (Init_float64 f)
+  | AST.Init_space s => OK (Init_space s)
+  | AST.Init_addrof id ofs =>
+    match gid_map id with
+    | None => Error (MSG "Transation of init data failed: unknown global id" :: nil)
+    | Some l => OK (Init_addrof l ofs)
+    end
+  end.
+
+Fixpoint transl_init_data_list (l : list AST.init_data) : res (list init_data) :=
+  match l with 
+  | nil => OK nil
+  | (i::l1) =>
+    do i' <- transl_init_data i;
+    do l1' <- transl_init_data_list l1;
+    OK (i'::l1')
+  end.
+
+(** Translation of a global variable *)
+Definition transl_gvar {V:Type} (gvar : AST.globvar V) : res (globvar V) :=
+  do idata <- transl_init_data_list (AST.gvar_init gvar);
+  OK (
+      mkglobvar
+        V
+        (AST.gvar_info gvar)
+        idata
+        (AST.gvar_readonly gvar)
+        (AST.gvar_volatile gvar)).
+
+(** Translation of global variables *)
+Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (Z * list (ident * option FlatAsm.gdef * sect_block)) :=
+  match gdefs with
+  | nil => OK (ofs, nil)
+  | ((id, None) :: gdefs') =>
+    transl_globvars ofs gdefs'
+  | ((_, Some (AST.Gfun _)) :: gdefs') =>
+    transl_globvars ofs gdefs'
+  | ((id, Some (AST.Gvar v)) :: gdefs') =>
+    let sz := AST.init_data_list_size (AST.gvar_init v) in
+    let sblk := mkSectBlock data_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    let nofs := ofs+sz in
+    do (fofs, tgdefs') <- transl_globvars nofs gdefs';
+    do v' <- transl_gvar v;
+    OK (fofs, ((id, Some (Gvar v'), sblk) :: tgdefs'))
+  end.
+
+
+(* (** Information accumulated during the translation of global data *) *)
+(* Record data_transl_info : Type := *)
+(* mkDataTranslInfo{ *)
+(*   dti_size : ptrofs;           (**r The size of the data section so far *) *)
+(*   dti_defs : list (ident * globvar unit * sect_block) *)
+(*                           (**r The global variable translated so far *) *)
+(* }. *)
+
+(* (** Translation of global variables.  *)
+(*     The main job is to calculate the section block a global variable occupies *) *)
+(* Fixpoint transl_globvars (gdefs : list (ident * option (globdef Asm.fundef unit))) *)
+(*                          (dinfo  : data_transl_info) *)
+(*                          : data_transl_info := *)
+(*   match gdefs with *)
+(*   | nil => dinfo *)
+(*   | ((id, None) :: gdefs') => *)
+(*     transl_globvars gdefs' dinfo *)
+(*   | ((_, Some (Gfun _)) :: gdefs') => *)
+(*     transl_globvars gdefs' dinfo *)
+(*   | ((id, Some (Gvar v)) :: gdefs') => *)
+(*     let sz := Ptrofs.repr (init_data_list_size (gvar_init v)) in *)
+(*     let ofs := (dti_size dinfo) in *)
+(*     let sblk := mkSectBlock data_sect_id ofs sz in *)
+(*     transl_globvars gdefs'  *)
+(*        (mkDataTranslInfo (Ptrofs.add ofs sz) *)
+(*                          ((id, v, sblk)::(dti_defs dinfo))) *)
+(*   end. *)
+
+
+(** * Translation of instructions *)
 
 (** Translation of addressing modes *)
 Definition transl_addr_mode (m: Asm.addrmode) : res FlatAsm.addrmode :=
@@ -77,12 +132,47 @@ Definition transl_addr_mode (m: Asm.addrmode) : res FlatAsm.addrmode :=
     OK (Addrmode b ofs const')
   end.
 
+(** Translation of builtin arguments *)
+Fixpoint transl_builtin_arg {A:Type} (arg: AST.builtin_arg A) : res (builtin_arg A) :=
+  match arg with
+  | AST.BA x => OK (BA A x)
+  | AST.BA_int n => OK (BA_int A n)
+  | AST.BA_long n => OK (BA_long A n)
+  | AST.BA_float f => OK (BA_float A f)
+  | AST.BA_single f => OK (BA_single A f)
+  | AST.BA_loadstack chunk ofs => OK (BA_loadstack A chunk ofs)
+  | AST.BA_addrstack ofs => OK (BA_addrstack A ofs)
+  | AST.BA_loadglobal chunk id ofs => 
+    match (gid_map id) with
+    | None => Error (MSG "translation of builtin arg failed" :: nil)
+    | Some l => OK (BA_loadglobal A chunk l ofs)
+    end
+  | AST.BA_addrglobal id ofs => 
+    match (gid_map id) with
+    | None => Error (MSG "translation of builtin arg failed" :: nil)
+    | Some l => OK (BA_addrglobal A l ofs)
+    end
+  | AST.BA_splitlong hi lo => 
+    do hi' <- transl_builtin_arg hi;
+    do lo' <- transl_builtin_arg lo;
+    OK (BA_splitlong A hi' lo')
+  end.
+
+Fixpoint transl_builtin_args {A:Type} (args: list (AST.builtin_arg A)) : res (list (builtin_arg A)) :=
+  match args with
+  | nil => OK nil
+  | a::args1 =>
+    do a'<- transl_builtin_arg a;
+    do args' <- transl_builtin_args args1;
+    OK (a'::args')
+  end.
+
 
 Section WITH_LABEL_MAP.
 (** A mapping from labels in functions to their offsets in the code section *)
-Variable label_map : ident -> Asm.label -> option ptrofs.
+Variable label_map : ident -> Asm.label -> option Z.
 
-Definition code_label (ofs:ptrofs) : sect_label := (code_sect_id, ofs).
+Definition code_label (ofs:Z) : sect_label := (code_sect_id, Ptrofs.repr ofs).
 
 Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list sect_label) :=
   match tbl with
@@ -292,9 +382,13 @@ Definition transl_instr (fid : ident) (i:Asm.instruction) : res FlatAsm.instruct
   (** Pseudo-instructions *)
   | Asm.Plabel l =>
     Error (MSG "transl_instr does not deal with Plabel" :: nil)
-  (* | Pallocframeframe(ofs_ra ofs_link: ptrofs) *)
-  (* | Pfreeframe sz (ofs_ra ofs_link: ptrofs) *)
-  (* | Pbuiltinef(args: list (builtin_arg preg))res *)
+  | Asm.Pallocframe fi ofs_ra ofs_link =>
+    OK (Pallocframe fi ofs_ra ofs_link)
+  | Asm.Pfreeframe sz ofs_ra ofs_link =>
+    OK (Pfreeframe sz ofs_ra ofs_link)
+  | Asm.Pbuiltin ef args res =>
+    do args' <- transl_builtin_args args;
+    OK (Pbuiltin ef args' res)
   (** Instructions not generated by [Asmgen] -- TO CHECK *)
   (* | Padcl_ri rd n *)
   (* | Padcl_rr rd r2 *)
@@ -336,6 +430,99 @@ Definition transl_instr (fid : ident) (i:Asm.instruction) : res FlatAsm.instruct
   | _ => 
     Error (MSG (Asm.instr_to_string i) :: MSG " not supported" :: nil)
   end.
+
+Section WITH_ENCODE_FUN.
+
+(** Given a FlatAsm instruciton, encode returns the size of its machine encoding *)
+Variable encode : FlatAsm.instruction -> res Z.
+
+(** Translation of a sequence of instructions in a function *)
+Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instruction) : res (Z * list instr_with_info) :=
+  match instrs with
+  | nil => OK (ofs, nil)
+  | i::instrs' =>
+    do i' <- transl_instr fid i;
+    do sz <- encode i';
+    let nofs := ofs + sz in
+    do (fofs, tinstrs') <- transl_instrs fid nofs instrs';
+    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    OK (fofs, (i',sblk)::tinstrs')
+  end.
+
+(** Tranlsation of a function *)
+Definition transl_fun (fid: ident) (ofs:Z) (f:Asm.function) : res (Z* function) :=
+  do (fofs, code') <- transl_instrs fid ofs (Asm.fn_code f);
+  let sz := fofs - ofs in
+  let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+  OK (fofs, (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk)).
+
+(** Translation of internal functions *)
+Fixpoint transl_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (Z * list (ident * option FlatAsm.gdef * sect_block) * code) :=
+  match gdefs with
+  | nil => OK (ofs, nil, nil)
+  | ((id, None) :: gdefs') =>
+    transl_funs ofs gdefs'
+  | ((id, Some (AST.Gfun f)) :: gdefs') =>
+    match f with
+    | External f => 
+      transl_funs ofs gdefs'
+    | Internal fd =>
+      do (nofs, fd') <- transl_fun id ofs fd;
+      do (h, code') <- transl_funs nofs gdefs';
+      let (fofs, tgdefs') := h in
+      OK (fofs, (id, Some (Gfun (Internal fd')), (fn_range fd'))::tgdefs', (fn_code fd')++code')
+    end
+  | ((id, Some (AST.Gvar v)) :: gdefs') =>
+    transl_funs ofs gdefs'
+  end.
+
+(** Translation of external functions *)
+Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (Z * list (ident * option FlatAsm.gdef * sect_block)) :=
+  match gdefs with
+  | nil => OK (ofs, nil)
+  | ((id, None) :: gdefs') =>
+    transl_ext_funs ofs gdefs'
+  | ((id, Some (AST.Gfun f)) :: gdefs') =>
+    match f with
+    | External f => 
+      (* We assume an external function only occupies one byte *)
+      let nofs := ofs+1 in
+      let sblk := mkSectBlock extfuns_sect_id (Ptrofs.repr nofs) (Ptrofs.repr 1) in
+      do (fofs, tgdefs') <- transl_ext_funs nofs gdefs';
+      OK (fofs, (id, Some (Gfun (External f)), sblk)::tgdefs')
+    | Internal fd =>
+      transl_ext_funs ofs gdefs'
+    end
+  | ((id, Some (AST.Gvar v)) :: gdefs') =>
+    transl_ext_funs ofs gdefs'
+  end.
+
+Section WITHMEMORYMODELOPS.
+Context `{memory_model_ops: Mem.MemoryModelOps}.
+
+(** Translation of a program *)
+Definition transl_prog (p:Asm.program) : res program := 
+  do (data_sz, data_defs) <- transl_globvars 0 (AST.prog_defs p);
+  do (h, code) <- transl_funs 0 (AST.prog_defs p);
+  let (code_sz, fun_defs) := h in
+  do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
+  OK (Build_program
+        (data_defs ++ fun_defs ++ ext_fun_defs)
+        (AST.prog_public p)
+        (AST.prog_main p)
+        (PTree.empty _)
+        (Build_section stack_sect_id (Ptrofs.repr Mem.stack_limit))
+        (Build_section data_sect_id (Ptrofs.repr data_sz))
+        (Build_section code_sect_id (Ptrofs.repr code_sz), code)
+        (Build_section extfuns_sect_id (Ptrofs.repr extfuns_sz)))
+      .
+
+End WITHMEMORYMODELOPS.
+
+
+End WITH_ENCODE_FUN.
 
 End WITH_LABEL_MAP.
 
