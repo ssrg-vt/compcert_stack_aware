@@ -15,17 +15,35 @@ Local Open Scope error_monad_scope.
 
 (** Translation from CompCert Assembly (RawAsm) to FlatAsm *)
 
+
 Definition stack_sect_id: ident := 1%positive.
 Definition data_sect_id:  ident := 2%positive.
 Definition code_sect_id:  ident := 3%positive.
 Definition extfuns_sect_id: ident := 4%positive.
+
+Definition data_label (ofs:Z) : sect_label := (data_sect_id, Ptrofs.repr ofs).
+Definition code_label (ofs:Z) : sect_label := (code_sect_id, Ptrofs.repr ofs).
+
+Definition ENCODE_TYPE := FlatAsm.instruction -> res Z.
+Definition GID_MAP_TYPE := ident -> option sect_label.
+Definition LABEL_MAP_TYPE := ident -> Asm.label -> option Z.
+
+Definition default_gid_map : GID_MAP_TYPE := fun id => None.
+Definition default_label_map : LABEL_MAP_TYPE :=
+  fun id l => None.
+
+Definition update_gid_map (id:ident) (l:sect_label) (map:GID_MAP_TYPE) : GID_MAP_TYPE :=
+  fun id' => if peq id id' then Some l else (map id').
+
+Definition update_label_map (id:ident) (l:Asm.label) (ofs:Z) (map:LABEL_MAP_TYPE) : LABEL_MAP_TYPE :=
+  fun id' l' => if peq id id' then (if peq l l' then Some ofs else (map id' l')) else (map id' l').
 
 
 Section WITH_GID_MAP.
 
 (** A mapping from global identifiers their locations in sections 
     (i.e. pairs of section ids and offsets) *)
-Variable gid_map : ident -> option sect_label.
+Variable gid_map : GID_MAP_TYPE.
 
 (** * Translation of global variables *)
 
@@ -85,33 +103,6 @@ Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
   end.
 
 
-(* (** Information accumulated during the translation of global data *) *)
-(* Record data_transl_info : Type := *)
-(* mkDataTranslInfo{ *)
-(*   dti_size : ptrofs;           (**r The size of the data section so far *) *)
-(*   dti_defs : list (ident * globvar unit * sect_block) *)
-(*                           (**r The global variable translated so far *) *)
-(* }. *)
-
-(* (** Translation of global variables.  *)
-(*     The main job is to calculate the section block a global variable occupies *) *)
-(* Fixpoint transl_globvars (gdefs : list (ident * option (globdef Asm.fundef unit))) *)
-(*                          (dinfo  : data_transl_info) *)
-(*                          : data_transl_info := *)
-(*   match gdefs with *)
-(*   | nil => dinfo *)
-(*   | ((id, None) :: gdefs') => *)
-(*     transl_globvars gdefs' dinfo *)
-(*   | ((_, Some (Gfun _)) :: gdefs') => *)
-(*     transl_globvars gdefs' dinfo *)
-(*   | ((id, Some (Gvar v)) :: gdefs') => *)
-(*     let sz := Ptrofs.repr (init_data_list_size (gvar_init v)) in *)
-(*     let ofs := (dti_size dinfo) in *)
-(*     let sblk := mkSectBlock data_sect_id ofs sz in *)
-(*     transl_globvars gdefs'  *)
-(*        (mkDataTranslInfo (Ptrofs.add ofs sz) *)
-(*                          ((id, v, sblk)::(dti_defs dinfo))) *)
-(*   end. *)
 
 
 (** * Translation of instructions *)
@@ -170,9 +161,7 @@ Fixpoint transl_builtin_args {A:Type} (args: list (AST.builtin_arg A)) : res (li
 
 Section WITH_LABEL_MAP.
 (** A mapping from labels in functions to their offsets in the code section *)
-Variable label_map : ident -> Asm.label -> option Z.
-
-Definition code_label (ofs:Z) : sect_label := (code_sect_id, Ptrofs.repr ofs).
+Variable label_map : LABEL_MAP_TYPE.
 
 Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list sect_label) :=
   match tbl with
@@ -187,208 +176,207 @@ Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list sect_label) :=
   end.
 
 (** Translation of an instruction *)
-Definition transl_instr (fid : ident) (i:Asm.instruction) : res FlatAsm.instruction :=
+Definition transl_instr (fid : ident) (i:Asm.instruction) : res (list FlatAsm.instruction) :=
   match i with
   (** Moves *)
-  | Asm.Pmov_rr rd r1 => OK (Pmov_rr rd r1)
-  | Asm.Pmovl_ri rd n => OK (Pmovl_ri rd n)
-  | Asm.Pmovq_ri rd n => OK (Pmovq_ri rd n)
+  | Asm.Pmov_rr rd r1 => OK (Pmov_rr rd r1 :: nil)
+  | Asm.Pmovl_ri rd n => OK (Pmovl_ri rd n :: nil)
+  | Asm.Pmovq_ri rd n => OK (Pmovq_ri rd n :: nil)
   | Asm.Pmov_rs rd id => 
     match (gid_map id) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " source id undefined" :: nil)
-    | Some l => OK (Pmov_rs rd l)
+    | Some l => OK (Pmov_rs rd l :: nil)
     end
   | Asm.Pmovl_rm rd a =>
-    do a' <- transl_addr_mode a; OK (Pmovl_rm rd a')
+    do a' <- transl_addr_mode a; OK (Pmovl_rm rd a' :: nil)
   | Asm.Pmovq_rm rd a =>
-    do a' <- transl_addr_mode a; OK (Pmovq_rm rd a')
+    do a' <- transl_addr_mode a; OK (Pmovq_rm rd a' :: nil)
   | Asm.Pmovl_mr a rs =>
-    do a' <- transl_addr_mode a; OK (Pmovl_mr a' rs)
+    do a' <- transl_addr_mode a; OK (Pmovl_mr a' rs :: nil)
   | Asm.Pmovq_mr a rs =>
-    do a' <- transl_addr_mode a; OK (Pmovq_mr a' rs)
-  | Asm.Pmovsd_ff rd r1 =>  OK (Pmovsd_ff rd r1)
-  | Asm.Pmovsd_fi rd n => OK (Pmovsd_fi rd n)
+    do a' <- transl_addr_mode a; OK (Pmovq_mr a' rs :: nil)
+  | Asm.Pmovsd_ff rd r1 =>  OK (Pmovsd_ff rd r1 :: nil)
+  | Asm.Pmovsd_fi rd n => OK (Pmovsd_fi rd n :: nil)
   | Asm.Pmovsd_fm rd a => 
-    do a' <- transl_addr_mode a; OK (Pmovsd_fm rd a')
+    do a' <- transl_addr_mode a; OK (Pmovsd_fm rd a' :: nil)
   | Asm.Pmovsd_mf a r1 =>
-    do a' <- transl_addr_mode a; OK (Pmovsd_mf a' r1)
-  | Asm.Pmovss_fi rd n => OK (Pmovss_fi rd n)
+    do a' <- transl_addr_mode a; OK (Pmovsd_mf a' r1 :: nil)
+  | Asm.Pmovss_fi rd n => OK (Pmovss_fi rd n :: nil)
   | Asm.Pmovss_fm rd a => 
-    do a' <- transl_addr_mode a; OK (Pmovss_fm rd a')
+    do a' <- transl_addr_mode a; OK (Pmovss_fm rd a' :: nil)
   | Asm.Pmovss_mf a r1 =>
-    do a' <- transl_addr_mode a; OK (Pmovss_mf a' r1)
+    do a' <- transl_addr_mode a; OK (Pmovss_mf a' r1 :: nil)
   | Asm.Pfldl_m a =>
-    do a' <- transl_addr_mode a; OK (Pfldl_m a')
+    do a' <- transl_addr_mode a; OK (Pfldl_m a' :: nil)
   | Asm.Pfstpl_m a =>              
-    do a' <- transl_addr_mode a; OK (Pfstpl_m a')
+    do a' <- transl_addr_mode a; OK (Pfstpl_m a' :: nil)
   | Asm.Pflds_m a =>               
-    do a' <- transl_addr_mode a; OK (Pflds_m a')
+    do a' <- transl_addr_mode a; OK (Pflds_m a' :: nil)
   | Asm.Pfstps_m a =>              
-    do a' <- transl_addr_mode a; OK (Pfstps_m a')
-  | Asm.Pxchg_rr r1 r2 =>  OK (Pxchg_rr r1 r2)
+    do a' <- transl_addr_mode a; OK (Pfstps_m a' :: nil)
+  | Asm.Pxchg_rr r1 r2 =>  OK (Pxchg_rr r1 r2 :: nil)
   (** Moves with conversion *)
   | Asm.Pmovb_mr a rs =>
-    do a' <- transl_addr_mode a; OK (Pmovb_mr a' rs)
+    do a' <- transl_addr_mode a; OK (Pmovb_mr a' rs :: nil)
   | Asm.Pmovw_mr a rs =>
-    do a' <- transl_addr_mode a; OK (Pmovw_mr a' rs)
-  | Asm.Pmovzb_rr rd rs    => OK (Pmovzb_rr rd rs)
+    do a' <- transl_addr_mode a; OK (Pmovw_mr a' rs :: nil)
+  | Asm.Pmovzb_rr rd rs    => OK (Pmovzb_rr rd rs :: nil)
   | Asm.Pmovzb_rm rd a     =>
-    do a' <- transl_addr_mode a; OK (Pmovzb_rm rd a')
-  | Asm.Pmovsb_rr rd rs    => OK (Pmovsb_rr rd rs)
+    do a' <- transl_addr_mode a; OK (Pmovzb_rm rd a' :: nil)
+  | Asm.Pmovsb_rr rd rs    => OK (Pmovsb_rr rd rs :: nil)
   | Asm.Pmovsb_rm rd a     =>
-    do a' <- transl_addr_mode a; OK (Pmovsb_rm rd a')
-  | Asm.Pmovzw_rr rd rs    => OK (Pmovzw_rr rd rs)
+    do a' <- transl_addr_mode a; OK (Pmovsb_rm rd a' :: nil)
+  | Asm.Pmovzw_rr rd rs    => OK (Pmovzw_rr rd rs :: nil)
   | Asm.Pmovzw_rm rd a     =>
-    do a' <- transl_addr_mode a; OK (Pmovzw_rm rd a')
-  | Asm.Pmovsw_rr rd rs    => OK (Pmovsw_rr rd rs)
+    do a' <- transl_addr_mode a; OK (Pmovzw_rm rd a' :: nil)
+  | Asm.Pmovsw_rr rd rs    => OK (Pmovsw_rr rd rs :: nil)
   | Asm.Pmovsw_rm rd a     =>
-    do a' <- transl_addr_mode a; OK (Pmovsw_rm rd a')
-  | Asm.Pmovzl_rr rd rs    => OK (Pmovzl_rr rd rs)
-  | Asm.Pmovsl_rr rd rs    => OK (Pmovsl_rr rd rs)
-  | Asm.Pmovls_rr rd       => OK (Pmovls_rr rd)
-  | Asm.Pcvtsd2ss_ff rd r1 => OK (Pcvtsd2ss_ff rd r1)
-  | Asm.Pcvtss2sd_ff rd r1 => OK (Pcvtss2sd_ff rd r1 )
-  | Asm.Pcvttsd2si_rf rd r1=> OK (Pcvttsd2si_rf rd r1)
-  | Asm.Pcvtsi2sd_fr rd r1 => OK (Pcvtsi2sd_fr rd r1 )
-  | Asm.Pcvttss2si_rf rd r1=> OK (Pcvttss2si_rf rd r1)
-  | Asm.Pcvtsi2ss_fr rd r1 => OK (Pcvtsi2ss_fr rd r1 )
-  | Asm.Pcvttsd2sl_rf rd r1=> OK (Pcvttsd2sl_rf rd r1)
-  | Asm.Pcvtsl2sd_fr rd r1 => OK (Pcvtsl2sd_fr rd r1 )
-  | Asm.Pcvttss2sl_rf rd r1=> OK (Pcvttss2sl_rf rd r1)
-  | Asm.Pcvtsl2ss_fr rd r1 => OK (Pcvtsl2ss_fr rd r1 )
+    do a' <- transl_addr_mode a; OK (Pmovsw_rm rd a' :: nil)
+  | Asm.Pmovzl_rr rd rs    => OK (Pmovzl_rr rd rs :: nil)
+  | Asm.Pmovsl_rr rd rs    => OK (Pmovsl_rr rd rs :: nil)
+  | Asm.Pmovls_rr rd       => OK (Pmovls_rr rd :: nil)
+  | Asm.Pcvtsd2ss_ff rd r1 => OK (Pcvtsd2ss_ff rd r1 :: nil)
+  | Asm.Pcvtss2sd_ff rd r1 => OK (Pcvtss2sd_ff rd r1 :: nil)
+  | Asm.Pcvttsd2si_rf rd r1=> OK (Pcvttsd2si_rf rd r1 :: nil)
+  | Asm.Pcvtsi2sd_fr rd r1 => OK (Pcvtsi2sd_fr rd r1 :: nil)
+  | Asm.Pcvttss2si_rf rd r1=> OK (Pcvttss2si_rf rd r1 :: nil)
+  | Asm.Pcvtsi2ss_fr rd r1 => OK (Pcvtsi2ss_fr rd r1 :: nil)
+  | Asm.Pcvttsd2sl_rf rd r1=> OK (Pcvttsd2sl_rf rd r1 :: nil)
+  | Asm.Pcvtsl2sd_fr rd r1 => OK (Pcvtsl2sd_fr rd r1 :: nil)
+  | Asm.Pcvttss2sl_rf rd r1=> OK (Pcvttss2sl_rf rd r1 :: nil)
+  | Asm.Pcvtsl2ss_fr rd r1 => OK (Pcvtsl2ss_fr rd r1 :: nil)
   (** Integer arithmetic *)
   | Asm.Pleal rd a       => 
-    do a' <- transl_addr_mode a; OK (Pleal rd a')     
+    do a' <- transl_addr_mode a; OK (Pleal rd a' :: nil)     
   | Asm.Pleaq rd a       => 
-    do a' <- transl_addr_mode a; OK (Pleaq rd a')    
-  | Asm.Pnegl rd         => OK (Pnegl rd)       
-  | Asm.Pnegq rd         => OK (Pnegq rd)       
-  | Asm.Paddl_ri rd n    => OK (Paddl_ri rd n)
-  | Asm.Paddq_ri rd n    => OK (Paddq_ri rd n)  
-  | Asm.Psubl_rr rd r1   => OK (Psubl_rr rd r1) 
-  | Asm.Psubq_rr rd r1   => OK (Psubq_rr rd r1) 
-  | Asm.Pimull_rr rd r1  => OK (Pimull_rr rd r1)
-  | Asm.Pimulq_rr rd r1  => OK (Pimulq_rr rd r1)
-  | Asm.Pimull_ri rd n   => OK (Pimull_ri rd n) 
-  | Asm.Pimulq_ri rd n   => OK (Pimulq_ri rd n) 
-  | Asm.Pimull_r r1      => OK (Pimull_r r1)    
-  | Asm.Pimulq_r r1      => OK (Pimulq_r r1)    
-  | Asm.Pmull_r r1       => OK (Pmull_r r1)     
-  | Asm.Pmulq_r r1       => OK (Pmulq_r r1)     
-  | Asm.Pcltd            => OK Pcltd          
-  | Asm.Pcqto            => OK Pcqto          
-  | Asm.Pdivl r1         => OK (Pdivl r1)
-  | Asm.Pdivq r1         => OK (Pdivq r1)       
-  | Asm.Pidivl r1        => OK (Pidivl r1)      
-  | Asm.Pidivq r1        => OK (Pidivq r1)      
-  | Asm.Pandl_rr rd r1   => OK (Pandl_rr rd r1) 
-  | Asm.Pandq_rr rd r1   => OK (Pandq_rr rd r1) 
-  | Asm.Pandl_ri rd n    => OK (Pandl_ri rd n)  
-  | Asm.Pandq_ri rd n    => OK (Pandq_ri rd n)  
-  | Asm.Porl_rr rd r1    => OK (Porl_rr rd r1)  
-  | Asm.Porq_rr rd r1    => OK (Porq_rr rd r1)  
-  | Asm.Porl_ri rd n     => OK (Porl_ri rd n)   
-  | Asm.Porq_ri rd n     => OK (Porq_ri rd n)   
-  | Asm.Pxorl_r rd       => OK (Pxorl_r rd)               
-  | Asm.Pxorq_r rd           => OK (Pxorq_r rd      )
-  | Asm.Pxorl_rr rd r1       => OK (Pxorl_rr rd r1  )
-  | Asm.Pxorq_rr rd r1       => OK (Pxorq_rr rd r1  )
-  | Asm.Pxorl_ri rd n        => OK (Pxorl_ri rd n   )
-  | Asm.Pxorq_ri rd n        => OK (Pxorq_ri rd n   )
-  | Asm.Pnotl rd             => OK (Pnotl rd        )
-  | Asm.Pnotq rd             => OK (Pnotq rd        )
-  | Asm.Psall_rcl rd         => OK (Psall_rcl rd    )
-  | Asm.Psalq_rcl rd         => OK (Psalq_rcl rd    )
-  | Asm.Psall_ri rd n        => OK (Psall_ri rd n   )
-  | Asm.Psalq_ri rd n        => OK (Psalq_ri rd n   )
-  | Asm.Pshrl_rcl rd         => OK (Pshrl_rcl rd    )
-  | Asm.Pshrq_rcl rd         => OK (Pshrq_rcl rd    )
-  | Asm.Pshrl_ri rd n        => OK (Pshrl_ri rd n   )
-  | Asm.Pshrq_ri rd n        => OK (Pshrq_ri rd n   )
-  | Asm.Psarl_rcl rd         => OK (Psarl_rcl rd    )
-  | Asm.Psarq_rcl rd         => OK (Psarq_rcl rd    )
-  | Asm.Psarl_ri rd n        => OK (Psarl_ri rd n   )
-  | Asm.Psarq_ri rd n        => OK (Psarq_ri rd n   )
-  | Asm.Pshld_ri rd r1 n     => OK (Pshld_ri rd r1 n)
-  | Asm.Prorl_ri rd n        => OK (Prorl_ri rd n   )
-  | Asm.Prorq_ri rd n        => OK (Prorq_ri rd n   )  
-  | Asm.Pcmpl_rr r1 r2       => OK (Pcmpl_rr r1 r2  )
-  | Asm.Pcmpq_rr r1 r2       => OK (Pcmpq_rr r1 r2  )
-  | Asm.Pcmpl_ri r1 n        => OK (Pcmpl_ri r1 n   )
-  | Asm.Pcmpq_ri r1 n        => OK (Pcmpq_ri r1 n   )
-  | Asm.Ptestl_rr r1 r2      => OK (Ptestl_rr r1 r2 )
-  | Asm.Ptestq_rr r1 r2      => OK (Ptestq_rr r1 r2 )
-  | Asm.Ptestl_ri r1 n       => OK (Ptestl_ri r1 n  )
-  | Asm.Ptestq_ri r1 n       => OK (Ptestq_ri r1 n  )
-  | Asm.Pcmov c rd r1        => OK (Pcmov c rd r1   )
-  | Asm.Psetcc c rd          => OK (Psetcc c rd     ) 
+    do a' <- transl_addr_mode a; OK (Pleaq rd a' :: nil)    
+  | Asm.Pnegl rd         => OK (Pnegl rd :: nil)       
+  | Asm.Pnegq rd         => OK (Pnegq rd :: nil)       
+  | Asm.Paddl_ri rd n    => OK (Paddl_ri rd n :: nil)
+  | Asm.Paddq_ri rd n    => OK (Paddq_ri rd n :: nil)  
+  | Asm.Psubl_rr rd r1   => OK (Psubl_rr rd r1 :: nil) 
+  | Asm.Psubq_rr rd r1   => OK (Psubq_rr rd r1 :: nil) 
+  | Asm.Pimull_rr rd r1  => OK (Pimull_rr rd r1 :: nil)
+  | Asm.Pimulq_rr rd r1  => OK (Pimulq_rr rd r1 :: nil)
+  | Asm.Pimull_ri rd n   => OK (Pimull_ri rd n :: nil) 
+  | Asm.Pimulq_ri rd n   => OK (Pimulq_ri rd n :: nil) 
+  | Asm.Pimull_r r1      => OK (Pimull_r r1 :: nil)    
+  | Asm.Pimulq_r r1      => OK (Pimulq_r r1 :: nil)    
+  | Asm.Pmull_r r1       => OK (Pmull_r r1 :: nil)     
+  | Asm.Pmulq_r r1       => OK (Pmulq_r r1 :: nil)     
+  | Asm.Pcltd            => OK (Pcltd :: nil)
+  | Asm.Pcqto            => OK (Pcqto :: nil)          
+  | Asm.Pdivl r1         => OK (Pdivl r1 :: nil)
+  | Asm.Pdivq r1         => OK (Pdivq r1 :: nil)       
+  | Asm.Pidivl r1        => OK (Pidivl r1 :: nil)      
+  | Asm.Pidivq r1        => OK (Pidivq r1 :: nil)      
+  | Asm.Pandl_rr rd r1   => OK (Pandl_rr rd r1 :: nil) 
+  | Asm.Pandq_rr rd r1   => OK (Pandq_rr rd r1 :: nil) 
+  | Asm.Pandl_ri rd n    => OK (Pandl_ri rd n :: nil)  
+  | Asm.Pandq_ri rd n    => OK (Pandq_ri rd n :: nil)  
+  | Asm.Porl_rr rd r1    => OK (Porl_rr rd r1 :: nil)  
+  | Asm.Porq_rr rd r1    => OK (Porq_rr rd r1 :: nil)  
+  | Asm.Porl_ri rd n     => OK (Porl_ri rd n :: nil)   
+  | Asm.Porq_ri rd n     => OK (Porq_ri rd n :: nil)   
+  | Asm.Pxorl_r rd       => OK (Pxorl_r rd :: nil)               
+  | Asm.Pxorq_r rd           => OK (Pxorq_r rd :: nil)
+  | Asm.Pxorl_rr rd r1       => OK (Pxorl_rr rd r1 :: nil)
+  | Asm.Pxorq_rr rd r1       => OK (Pxorq_rr rd r1 :: nil  )
+  | Asm.Pxorl_ri rd n        => OK (Pxorl_ri rd n  :: nil  )
+  | Asm.Pxorq_ri rd n        => OK (Pxorq_ri rd n  :: nil  )
+  | Asm.Pnotl rd             => OK (Pnotl rd       :: nil  )
+  | Asm.Pnotq rd             => OK (Pnotq rd       :: nil  )
+  | Asm.Psall_rcl rd         => OK (Psall_rcl rd   :: nil  )
+  | Asm.Psalq_rcl rd         => OK (Psalq_rcl rd   :: nil  )
+  | Asm.Psall_ri rd n        => OK (Psall_ri rd n  :: nil  )
+  | Asm.Psalq_ri rd n        => OK (Psalq_ri rd n  :: nil  )
+  | Asm.Pshrl_rcl rd         => OK (Pshrl_rcl rd   :: nil  )
+  | Asm.Pshrq_rcl rd         => OK (Pshrq_rcl rd   :: nil  )
+  | Asm.Pshrl_ri rd n        => OK (Pshrl_ri rd n  :: nil  )
+  | Asm.Pshrq_ri rd n        => OK (Pshrq_ri rd n  :: nil  )
+  | Asm.Psarl_rcl rd         => OK (Psarl_rcl rd   :: nil  )
+  | Asm.Psarq_rcl rd         => OK (Psarq_rcl rd   :: nil  )
+  | Asm.Psarl_ri rd n        => OK (Psarl_ri rd n  :: nil  )
+  | Asm.Psarq_ri rd n        => OK (Psarq_ri rd n  :: nil  )
+  | Asm.Pshld_ri rd r1 n     => OK (Pshld_ri rd r1 n :: nil)
+  | Asm.Prorl_ri rd n        => OK (Prorl_ri rd n    :: nil)
+  | Asm.Prorq_ri rd n        => OK (Prorq_ri rd n    :: nil)  
+  | Asm.Pcmpl_rr r1 r2       => OK (Pcmpl_rr r1 r2   :: nil)
+  | Asm.Pcmpq_rr r1 r2       => OK (Pcmpq_rr r1 r2   :: nil)
+  | Asm.Pcmpl_ri r1 n        => OK (Pcmpl_ri r1 n    :: nil)
+  | Asm.Pcmpq_ri r1 n        => OK (Pcmpq_ri r1 n    :: nil)
+  | Asm.Ptestl_rr r1 r2      => OK (Ptestl_rr r1 r2  :: nil)
+  | Asm.Ptestq_rr r1 r2      => OK (Ptestq_rr r1 r2  :: nil)
+  | Asm.Ptestl_ri r1 n       => OK (Ptestl_ri r1 n   :: nil)
+  | Asm.Ptestq_ri r1 n       => OK (Ptestq_ri r1 n   :: nil)
+  | Asm.Pcmov c rd r1        => OK (Pcmov c rd r1    :: nil)
+  | Asm.Psetcc c rd          => OK (Psetcc c rd      :: nil) 
   (** Floating-point arithmetic *)
-  | Asm.Paddd_ff rd r1       => OK (Paddd_ff rd r1   )
-  | Asm.Psubd_ff rd r1       => OK (Psubd_ff rd r1   )
-  | Asm.Pmuld_ff rd r1       => OK (Pmuld_ff rd r1   )
-  | Asm.Pdivd_ff rd r1       => OK (Pdivd_ff rd r1   )
-  | Asm.Pnegd rd             => OK (Pnegd rd         )
-  | Asm.Pabsd rd             => OK (Pabsd rd         )
-  | Asm.Pcomisd_ff r1 r2     => OK (Pcomisd_ff r1 r2 )
-  | Asm.Pxorpd_f rd	     => OK (Pxorpd_f rd    )    
-  | Asm.Padds_ff rd r1       => OK (Padds_ff rd r1   )
-  | Asm.Psubs_ff rd r1       => OK (Psubs_ff rd r1   )
-  | Asm.Pmuls_ff rd r1       => OK (Pmuls_ff rd r1   )
-  | Asm.Pdivs_ff rd r1       => OK (Pdivs_ff rd r1   )
-  | Asm.Pnegs rd             => OK (Pnegs rd         )
-  | Asm.Pabss rd             => OK (Pabss rd         )
-  | Asm.Pcomiss_ff r1 r2     => OK (Pcomiss_ff r1 r2 )
-  | Asm.Pxorps_f rd	     => OK (Pxorps_f rd      ) 	           
+  | Asm.Paddd_ff rd r1       => OK (Paddd_ff rd r1    :: nil)
+  | Asm.Psubd_ff rd r1       => OK (Psubd_ff rd r1    :: nil)
+  | Asm.Pmuld_ff rd r1       => OK (Pmuld_ff rd r1    :: nil)
+  | Asm.Pdivd_ff rd r1       => OK (Pdivd_ff rd r1    :: nil)
+  | Asm.Pnegd rd             => OK (Pnegd rd          :: nil)
+  | Asm.Pabsd rd             => OK (Pabsd rd          :: nil)
+  | Asm.Pcomisd_ff r1 r2     => OK (Pcomisd_ff r1 r2  :: nil)
+  | Asm.Pxorpd_f rd	     => OK (Pxorpd_f rd   :: nil  )    
+  | Asm.Padds_ff rd r1       => OK (Padds_ff rd r1    :: nil)
+  | Asm.Psubs_ff rd r1       => OK (Psubs_ff rd r1    :: nil)
+  | Asm.Pmuls_ff rd r1       => OK (Pmuls_ff rd r1    :: nil)
+  | Asm.Pdivs_ff rd r1       => OK (Pdivs_ff rd r1    :: nil)
+  | Asm.Pnegs rd             => OK (Pnegs rd          :: nil)
+  | Asm.Pabss rd             => OK (Pabss rd          :: nil)
+  | Asm.Pcomiss_ff r1 r2     => OK (Pcomiss_ff r1 r2  :: nil)
+  | Asm.Pxorps_f rd	     => OK (Pxorps_f rd       :: nil) 	           
   (** Branches and calls *)
   | Asm.Pjmp_l l        => 
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjmp_l (code_label ofs))
+    | Some ofs => OK (Pjmp_l (code_label ofs) :: nil)
     end
   | Asm.Pjmp_s symb sg =>
     match (gid_map symb) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown symbol" :: nil)
-    | Some l => OK (Pjmp_s l sg)
+    | Some l => OK (Pjmp_s l sg :: nil)
     end
-  | Asm.Pjmp_r r sg => OK (Pjmp_r r sg)
+  | Asm.Pjmp_r r sg => OK (Pjmp_r r sg :: nil)
   | Asm.Pjcc c l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjcc c (code_label ofs))
+    | Some ofs => OK (Pjcc c (code_label ofs) :: nil)
     end
   | Asm.Pjcc2 c1 c2 l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjcc2 c1 c2 (code_label ofs))
+    | Some ofs => OK (Pjcc2 c1 c2 (code_label ofs) :: nil)
     end
   | Asm.Pjmptbl r tbl =>
-    do tbl' <- transl_tbl fid tbl; OK (Pjmptbl r tbl')
+    do tbl' <- transl_tbl fid tbl; OK (Pjmptbl r tbl' :: nil)
   | Asm.Pcall_s symb sg => 
     match (gid_map symb) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown symbol" :: nil)
-    | Some l => OK (Pcall_s l sg)
+    | Some l => OK (Pcall_s l sg :: nil)
     end
-  | Asm.Pcall_r r sg => OK (Pcall_r r sg)
-  | Asm.Pret => OK Pret
+  | Asm.Pcall_r r sg => OK (Pcall_r r sg :: nil)
+  | Asm.Pret => OK (Pret :: nil)
   (** Saving and restoring registers *)
   | Asm.Pmov_rm_a rd a   =>
-    do a' <- transl_addr_mode a; OK (Pmov_rm_a rd a')
+    do a' <- transl_addr_mode a; OK (Pmov_rm_a rd a' :: nil)
   | Asm.Pmov_mr_a a rs   =>
-    do a' <- transl_addr_mode a; OK (Pmov_mr_a a' rs)
+    do a' <- transl_addr_mode a; OK (Pmov_mr_a a' rs :: nil)
   | Asm.Pmovsd_fm_a rd a =>
-    do a' <- transl_addr_mode a; OK (Pmovsd_fm_a rd a')
+    do a' <- transl_addr_mode a; OK (Pmovsd_fm_a rd a' :: nil)
   | Asm.Pmovsd_mf_a a r1 =>
-    do a' <- transl_addr_mode a; OK (Pmovsd_mf_a a' r1)
+    do a' <- transl_addr_mode a; OK (Pmovsd_mf_a a' r1 :: nil)
   (** Pseudo-instructions *)
-  | Asm.Plabel l =>
-    Error (MSG "transl_instr does not deal with Plabel" :: nil)
+  | Asm.Plabel l => OK nil
   | Asm.Pallocframe fi ofs_ra ofs_link =>
-    OK (Pallocframe fi ofs_ra ofs_link)
+    OK (Pallocframe fi ofs_ra ofs_link :: nil)
   | Asm.Pfreeframe sz ofs_ra ofs_link =>
-    OK (Pfreeframe sz ofs_ra ofs_link)
+    OK (Pfreeframe sz ofs_ra ofs_link :: nil)
   | Asm.Pbuiltin ef args res =>
     do args' <- transl_builtin_args args;
-    OK (Pbuiltin ef args' res)
+    OK (Pbuiltin ef args' res :: nil)
   (** Instructions not generated by [Asmgen] -- TO CHECK *)
   (* | Padcl_ri rd n *)
   (* | Padcl_rr rd r2 *)
@@ -436,17 +424,26 @@ Section WITH_ENCODE_FUN.
 (** Given a FlatAsm instruciton, encode returns the size of its machine encoding *)
 Variable encode : FlatAsm.instruction -> res Z.
 
+Fixpoint encode_instrs (c:list FlatAsm.instruction) (ofs:Z) : res (Z * list instr_with_info) :=
+  match c with
+  | nil => OK (ofs, nil)
+  | i::c' =>
+    do sz <- encode i;
+    do (fofs, code) <- encode_instrs c' (ofs+sz);
+    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    OK (fofs, ((i, sblk)::code))
+  end.
+
+
 (** Translation of a sequence of instructions in a function *)
 Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instruction) : res (Z * list instr_with_info) :=
   match instrs with
   | nil => OK (ofs, nil)
   | i::instrs' =>
-    do i' <- transl_instr fid i;
-    do sz <- encode i';
-    let nofs := ofs + sz in
+    do instrs <- transl_instr fid i;
+    do (nofs, code) <- encode_instrs instrs ofs;
     do (fofs, tinstrs') <- transl_instrs fid nofs instrs';
-    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
-    OK (fofs, (i',sblk)::tinstrs')
+    OK (fofs, code ++ tinstrs')
   end.
 
 (** Tranlsation of a function *)
@@ -503,7 +500,7 @@ Section WITHMEMORYMODELOPS.
 Context `{memory_model_ops: Mem.MemoryModelOps}.
 
 (** Translation of a program *)
-Definition transl_prog (p:Asm.program) : res program := 
+Definition transl_prog_with_map (p:Asm.program) : res program := 
   do (data_sz, data_defs) <- transl_globvars 0 (AST.prog_defs p);
   do (h, code) <- transl_funs 0 (AST.prog_defs p);
   let (code_sz, fun_defs) := h in
@@ -527,3 +524,123 @@ End WITH_ENCODE_FUN.
 End WITH_LABEL_MAP.
 
 End WITH_GID_MAP.
+
+
+(** * Compute mappings from global identifiers to section labels *)
+
+(** Information accumulated during the translation of global data *)
+Record dinfo : Type :=
+mkDinfo{
+  di_size : Z;           (**r The size of the data section traversed so far *)
+  di_map : GID_MAP_TYPE
+                          (**r The mapping from global identifiers to section labels *)
+}.
+
+
+(** Update the gid mapping for a single variable *)
+Definition update_gvar_map {V:Type} (di: dinfo)
+           (id:ident) (gvar: AST.globvar V) : dinfo :=
+  let sz:= AST.init_data_list_size (AST.gvar_init gvar) in
+  mkDinfo (di_size di + sz) (update_gid_map id (data_label (di_size di)) (di_map di)).
+
+
+(** Update the gid mapping for all global variables *)
+Fixpoint update_gvars_map (di:dinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : dinfo :=
+  match gdefs with
+  | nil => di
+  | ((id, None) :: gdefs') =>
+    update_gvars_map di gdefs'
+  | ((_, Some (AST.Gfun _)) :: gdefs') =>
+    update_gvars_map di gdefs'
+  | ((id, Some (AST.Gvar v)) :: gdefs') =>
+    let di' := update_gvar_map di id v in
+    update_gvars_map di' gdefs'
+  end.
+
+
+(** Update the gid mapping for a single instruction *)
+Record cinfo : Type :=
+mkCinfo{
+  ci_size : Z;           (**r The size of the code section traversed so far *)
+  ci_map : GID_MAP_TYPE;  (**r The mapping from global identifiers to section labels *)
+  ci_lmap : LABEL_MAP_TYPE; (**r The mapping for labels in functions *)
+}.
+
+
+Section WITH_ENCODE_FUN.
+
+(** Given a FlatAsm instruciton, encode returns the size of its machine encoding *)
+Variable encode : FlatAsm.instruction -> res Z.
+
+Definition transl_instr_dummy := transl_instr default_gid_map default_label_map 1%positive.
+
+Definition compute_instr_size (instr:Asm.instruction) : res Z :=
+  do instrs <- transl_instr_dummy instr;
+  do (sz, code) <- encode_instrs encode instrs 0;
+  OK sz.
+
+(** Update the gid mapping for a single instruction *)
+Definition update_instr_map (fid:ident) (ci:cinfo) (instr:Asm.instruction) : res cinfo :=
+  match instr with
+  | Plabel l =>
+    let ofs := ci_size ci in
+    OK (mkCinfo ofs (ci_map ci) 
+                (update_label_map fid l ofs (ci_lmap ci)))
+  | i =>
+    do sz <- compute_instr_size i;
+    OK (mkCinfo (ci_size ci + sz) (ci_map ci) (ci_lmap ci))
+  end.
+
+    
+(** Update the gid mapping for a list of instructions *)
+Fixpoint update_instrs_map (fid:ident) (ci:cinfo) (instrs: list Asm.instruction) : res cinfo :=
+  match instrs with
+  | nil => OK ci
+  | i::instrs' =>
+    do ci' <- update_instr_map fid ci i;
+    update_instrs_map fid ci' instrs'
+  end.
+
+(** Update the gid mapping for all functions *)
+Fixpoint update_funs_map (ci:cinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res cinfo :=
+  match gdefs with
+  | nil => OK ci
+  | ((id, None) :: gdefs') =>
+    update_funs_map ci gdefs'
+  | ((id, Some (AST.Gfun f)) :: gdefs') =>
+    match f with
+    | External _ => update_funs_map ci gdefs'
+    | Internal f =>
+      let ci' := mkCinfo (ci_size ci)
+                         (update_gid_map id (code_label (ci_size ci)) (ci_map ci))
+                         (ci_lmap ci)
+      in
+      do ci'' <- update_instrs_map id ci' (Asm.fn_code f);
+      update_funs_map ci'' gdefs'
+    end
+  | ((id, Some (AST.Gvar v)) :: gdefs') =>
+    update_funs_map ci gdefs'
+  end.
+
+(** Update the gid and label mappings by traversing an Asm program *)
+Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE) :=
+  let init_di := (mkDinfo 0 default_gid_map) in
+  let map := di_map (update_gvars_map init_di (AST.prog_defs p)) in
+  let init_ci := mkCinfo 0 map default_label_map in
+  do final_ci <- update_funs_map init_ci (AST.prog_defs p);
+  OK (ci_map final_ci, ci_lmap final_ci).
+
+
+Section WITHMEMORYMODELOPS.
+Context `{memory_model_ops: Mem.MemoryModelOps}.
+
+(** The full translation *)
+Definition transf_program (p:Asm.program) : res program :=
+  do (gmap,lmap) <- update_map p;
+  transl_prog_with_map gmap lmap encode p.
+
+End WITHMEMORYMODELOPS.
+
+End WITH_ENCODE_FUN.
