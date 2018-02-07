@@ -496,8 +496,18 @@ Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
     transl_ext_funs ofs gdefs'
   end.
 
+
 Section WITHMEMORYMODELOPS.
 Context `{memory_model_ops: Mem.MemoryModelOps}.
+
+Definition gen_smap (ds_size cs_size : Z) : res section_map :=
+  if zle (ds_size + cs_size + Mem.stack_limit) Ptrofs.modulus then
+    let t1 := PTree.set stack_sect_id (Ptrofs.repr (Ptrofs.modulus - Mem.stack_limit)) (PTree.empty _) in
+    let t2 := PTree.set code_sect_id (Ptrofs.repr ds_size) t1 in
+    let t3 := PTree.set data_sect_id Ptrofs.zero t2 in
+    OK t3
+  else
+    Error (MSG "Sections are too large to fit into the memory" :: nil).
 
 (** Translation of a program *)
 Definition transl_prog_with_map (p:Asm.program) : res program := 
@@ -505,11 +515,12 @@ Definition transl_prog_with_map (p:Asm.program) : res program :=
   do (h, code) <- transl_funs 0 (AST.prog_defs p);
   let (code_sz, fun_defs) := h in
   do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
+  do smap <- gen_smap data_sz code_sz;
   OK (Build_program
         (data_defs ++ fun_defs ++ ext_fun_defs)
         (AST.prog_public p)
         (AST.prog_main p)
-        (PTree.empty _)
+        smap
         (Build_section stack_sect_id (Ptrofs.repr Mem.stack_limit))
         (Build_section data_sect_id (Ptrofs.repr data_sz))
         (Build_section code_sect_id (Ptrofs.repr code_sz), code)
