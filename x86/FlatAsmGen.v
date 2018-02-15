@@ -515,7 +515,7 @@ Definition transl_prog_with_map (p:Asm.program) : res program :=
   do (h, code) <- transl_funs 0 (AST.prog_defs p);
   let (code_sz, fun_defs) := h in
   do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
-  do smap <- gen_smap data_sz code_sz;
+  do smap <- gen_smap data_sz (code_sz + extfuns_sz);
   OK (Build_program
         (data_defs ++ fun_defs ++ ext_fun_defs)
         (AST.prog_public p)
