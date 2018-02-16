@@ -81,26 +81,26 @@ Qed.
 Hint Resolve preg_of_not_SP preg_of_not_PC: asmgen.
 
 Lemma nextinstr_pc:
-  forall rs, (nextinstr rs)#PC = Val.offset_ptr rs#PC Ptrofs.one.
+  forall rs sz, (nextinstr rs sz)#PC = Val.offset_ptr rs#PC sz.
 Proof.
   intros. apply Pregmap.gss.
 Qed.
 
 Lemma nextinstr_inv:
-  forall r rs, r <> PC -> (nextinstr rs)#r = rs#r.
+  forall r rs sz, r <> PC -> (nextinstr rs sz)#r = rs#r.
 Proof.
   intros. unfold nextinstr. apply Pregmap.gso. red; intro; subst. auto.
 Qed.
 
 Lemma nextinstr_inv1:
-  forall r rs, data_preg r = true -> (nextinstr rs)#r = rs#r.
+  forall r rs sz, data_preg r = true -> (nextinstr rs sz)#r = rs#r.
 Proof.
   intros. apply nextinstr_inv. red; intro; subst; discriminate.
 Qed.
 
 Lemma nextinstr_set_preg:
-  forall rs m v,
-  (nextinstr (rs#(preg_of m) <- v))#PC = Val.offset_ptr rs#PC Ptrofs.one.
+  forall rs m v sz,
+  (nextinstr (rs#(preg_of m) <- v) sz)#PC = Val.offset_ptr rs#PC sz.
 Proof.
   intros. unfold nextinstr. rewrite Pregmap.gss.
   rewrite Pregmap.gso. auto. apply sym_not_eq. apply preg_of_not_PC.
@@ -238,8 +238,8 @@ Proof.
 Qed.
 
 Lemma agree_nextinstr:
-  forall ms sp rs,
-  agree ms sp rs -> agree ms sp (nextinstr rs).
+  forall ms sp rs sz,
+  agree ms sp rs -> agree ms sp (nextinstr rs sz).
 Proof.
   intros. unfold nextinstr. apply agree_set_other. auto. auto.
 Qed.
@@ -440,12 +440,13 @@ Inductive code_tail: Z -> code -> code -> Prop :=
       code_tail 0 c c
   | code_tail_S: forall pos i c1 c2,
       code_tail pos c1 c2 ->
-      code_tail (pos + 1) (i :: c1) c2.
+      code_tail (pos + instr_size i) (i :: c1) c2.
 
 Lemma code_tail_pos:
   forall pos c1 c2, code_tail pos c1 c2 -> pos >= 0.
 Proof.
-  induction 1. omega. omega.
+  induction 1. omega. 
+  assert (instr_size i > 0). apply instr_size_positive. omega.
 Qed.
 
 Lemma find_instr_tail:
@@ -456,55 +457,76 @@ Proof.
   induction c1; simpl; intros.
   inv H.
   destruct (zeq pos 0). subst pos.
-  inv H. auto. generalize (code_tail_pos _ _ _ H4). intro. omegaContradiction.
-  inv H. congruence. replace (pos0 + 1 - 1) with pos0 by omega.
+  inv H. auto. generalize (code_tail_pos _ _ _ H4). intro. 
+  assert (instr_size a > 0). apply instr_size_positive. 
+  omegaContradiction.
+  inv H. congruence. replace (pos0 + (instr_size a) - (instr_size a)) with pos0 by omega.
   eauto.
 Qed.
 
 Remark code_tail_bounds_1:
   forall fn ofs c,
-  code_tail ofs fn c -> 0 <= ofs <= list_length_z fn.
+  code_tail ofs fn c -> 0 <= ofs <= code_size fn.
 Proof.
   induction 1; intros; simpl.
-  generalize (list_length_z_pos c). omega.
-  rewrite list_length_z_cons. omega.
+  generalize (code_size_non_neg c). omega.
+  generalize (instr_size_positive i). omega.
 Qed.
 
 Remark code_tail_bounds_2:
   forall fn ofs i c,
-  code_tail ofs fn (i :: c) -> 0 <= ofs < list_length_z fn.
+  code_tail ofs fn (i :: c) -> 0 <= ofs < code_size fn.
 Proof.
   assert (forall ofs fn c, code_tail ofs fn c ->
-          forall i c', c = i :: c' -> 0 <= ofs < list_length_z fn).
-  induction 1; intros; simpl.
-  rewrite H. rewrite list_length_z_cons. generalize (list_length_z_pos c'). omega.
-  rewrite list_length_z_cons. generalize (IHcode_tail _ _ H0). omega.
+          forall i c', c = i :: c' -> 0 <= ofs < code_size fn).
+  {
+    induction 1; intros; simpl.
+    - rewrite H. simpl. generalize (instr_size_positive i).
+      generalize (code_size_non_neg c'). omega.
+    - generalize (instr_size_positive i).
+      generalize (IHcode_tail _ _ H0). omega.
+  }
   eauto.
 Qed.
 
 Lemma code_tail_next:
   forall fn ofs i c,
   code_tail ofs fn (i :: c) ->
-  code_tail (ofs + 1) fn c.
+  code_tail (ofs + instr_size i) fn c.
 Proof.
   assert (forall ofs fn c, code_tail ofs fn c ->
-          forall i c', c = i :: c' -> code_tail (ofs + 1) fn c').
-  induction 1; intros.
-  subst c. constructor. constructor.
-  constructor. eauto.
+          forall i c', c = i :: c' -> code_tail (ofs + (instr_size i)) fn c').
+  { 
+    induction 1; intros.
+    - subst c. constructor. constructor.
+    - replace (pos + instr_size i + instr_size i0) with
+              ((pos + instr_size i0) + instr_size i).
+      constructor. auto. omega.
+  }
   eauto.
 Qed.
 
-Lemma code_tail_next_int:
-  forall fn ofs i c,
-  list_length_z fn <= Ptrofs.max_unsigned ->
-  code_tail (Ptrofs.unsigned ofs) fn (i :: c) ->
-  code_tail (Ptrofs.unsigned (Ptrofs.add ofs Ptrofs.one)) fn c.
-Proof.
-  intros. rewrite Ptrofs.add_unsigned, Ptrofs.unsigned_one.
-  rewrite Ptrofs.unsigned_repr. apply code_tail_next with i; auto.
-  generalize (code_tail_bounds_2 _ _ _ _ H0). omega.
-Qed.
+(* Lemma code_tail_next_int: *)
+(*   forall fn ofs i c, *)
+(*   code_size fn <= Ptrofs.max_unsigned -> *)
+(*   code_tail (Ptrofs.unsigned ofs) fn (i :: c) -> *)
+(*   code_tail (Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr (instr_size i)))) fn c. *)
+(* Proof. *)
+(*   intros. rewrite Ptrofs.add_unsigned, Ptrofs.unsigned_one. *)
+(*   rewrite Ptrofs.unsigned_repr. apply code_tail_next with i; auto. *)
+(*   generalize (code_tail_bounds_2 _ _ _ _ H0). omega. *)
+(* Qed. *)
+
+(* Lemma code_tail_next_int: *)
+(*   forall fn ofs i c, *)
+(*   list_length_z fn <= Ptrofs.max_unsigned -> *)
+(*   code_tail (Ptrofs.unsigned ofs) fn (i :: c) -> *)
+(*   code_tail (Ptrofs.unsigned (Ptrofs.add ofs Ptrofs.one)) fn c. *)
+(* Proof. *)
+(*   intros. rewrite Ptrofs.add_unsigned, Ptrofs.unsigned_one. *)
+(*   rewrite Ptrofs.unsigned_repr. apply code_tail_next with i; auto. *)
+(*   generalize (code_tail_bounds_2 _ _ _ _ H0). omega. *)
+(* Qed. *)
 
 (** [transl_code_at_pc pc fb f c ep tf tc] holds if the code pointer [pc] points
   within the Asm code generated by translating Mach function [f],

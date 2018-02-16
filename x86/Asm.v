@@ -291,7 +291,12 @@ Inductive instruction: Type :=
   | Psubl_ri (rd: ireg) (n: int)
   | Psubq_ri (rd: ireg) (n: int64).
 
-Definition instr_with_info:Type := instruction * ptrofs. (* Instruction with its size *)
+Record sizeinfo : Type := 
+mk_sizeinfo {
+  si_size : Z;
+  si_size_non_zero : si_size > 0
+}. 
+Definition instr_with_info : Type := instruction * sizeinfo.
 Definition code := list instr_with_info.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info }.
 Definition fundef := AST.fundef function.
@@ -384,8 +389,30 @@ Definition is_label (lbl: label) (instr: instr_with_info) : bool :=
   | _ => false
   end.
 
-Definition instr_size (i: instr_with_info) : Z :=
-  Ptrofs.unsigned (snd i).
+Definition instr_size (i:instr_with_info) : Z :=
+  si_size (snd i).
+
+Lemma instr_size_positive : forall i,
+  instr_size i > 0.
+Proof.
+  intros. destruct i. destruct s.
+  auto.
+Qed.
+
+Fixpoint code_size (c:code) : Z :=
+  match c with
+  | nil => 0
+  | i::c' => instr_size i + (code_size c')
+  end.
+
+Lemma code_size_non_neg : forall c,
+  code_size c >= 0.
+Proof.
+  intros. induction c.
+  - simpl. omega.
+  - simpl. generalize (instr_size_positive a). omega.
+Qed.
+
 
 Global Instance: FindLabels instr_size is_label fn_code.
 
@@ -713,7 +740,7 @@ Definition check_top_frame (m: mem) (stk: block) (sz: Z) (oldsp: val) ofs_link o
   end.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instr_with_info) (rs: regset) (m: mem): outcome :=
-  let sz := snd i in
+  let sz := Ptrofs.repr (instr_size i) in
   match (fst i) with
   (** Moves *)
   | Pmov_rr rd r1 =>
@@ -1214,10 +1241,10 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
       exec_instr ge f i rs m = Next rs' m' ->
       step ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
-    forall b ofs f ef args res rs m vargs t vres rs' m' sz,
+    forall b ofs f ef args res rs m vargs t vres rs' m' szinfo,
       rs PC = Vptr b ofs ->
       Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res, sz) ->
+      find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res, szinfo) ->
       eval_builtin_args ge rs (rs RSP) m args vargs ->
       external_call ef ge vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
@@ -1225,7 +1252,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
         rs' = nextinstr_nf
                 (set_res res vres
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs))
-                sz ->
+                (Ptrofs.repr (si_size szinfo)) ->
         step ge (State rs m) t (State rs' m')
 | exec_step_external:
     forall b ef args res rs m t rs' m',
@@ -1299,6 +1326,13 @@ Proof.
   intros. eapply C; eauto.
 Qed.
 
+
+(* Lemma exec_instr_Pbuiltin_next_absurd : forall (ge:genv) f instr rs m rs' m' res args ef, *)
+(*   exec_instr ge f instr rs m = Next rs' m' -> ii_instr instr = Pbuiltin ef args res -> False. *)
+(* Proof. *)
+(*   intros. unfold exec_instr in H. rewrite H0 in H. congruence. *)
+(* Qed. *)
+  
 Lemma semantics_determinate: forall p, determinate (semantics p).
 Proof.
 Ltac Equalities :=

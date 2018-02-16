@@ -27,9 +27,7 @@ DIRS=lib common $(ARCHDIRS) backend cfrontend driver debug\
 
 RECDIRS=lib common $(ARCHDIRS) backend cfrontend driver flocq exportclight cparser
 
-COQINCLUDES=$(foreach d, $(RECDIRS), -R $(d) compcert.$(d)) \
-	-R cpu_models/shared Shared \
-	-R cpu_models/x86model/Model X86Model
+COQINCLUDES=$(foreach d, $(RECDIRS), -R $(d) compcert.$(d))
 
 COQC="$(COQBIN)coqc" -q $(COQINCLUDES) $(COQCOPTS)
 COQDEP="$(COQBIN)coqdep" $(COQINCLUDES)
@@ -99,13 +97,10 @@ BACKEND=\
   EraseArgs.v \
   Bounds.v Stacklayout.v Stacking.v Stackingproof.v \
   Asm.v Asmgen.v Asmgenproof0.v Asmgenproof1.v Asmgenproof.v \
-  Inlining.v Inliningspec.v Inliningproof.v \
-  AsmFacts.v RawAsmgen.v AsmExpand.v RockSaltAsm.v RockSaltAsmGen.v\
-  Sect.v FlatAsmGlobenv.v FlatAsmBuiltin.v FlatAsm.v FlatAsmGlobdef.v\
-  FlatAsmGen.v
+	AsmFacts.v RawAsmgen.v
 
 #  Tailcall.v Tailcallproof.v \
-
+#  Inlining.v Inliningspec.v Inliningproof.v \
  
 # C front-end modules (in cfrontend/)
 
@@ -144,7 +139,6 @@ GENERATED=\
   cparser/Parser.v
 
 all:
-	$(MAKE) -C cpu_models/x86model
 	@test -f .depend || $(MAKE) depend
 	$(MAKE) proof
 	$(MAKE) extraction
@@ -155,7 +149,6 @@ endif
 ifeq ($(CLIGHTGEN),true)
 	$(MAKE) clightgen
 endif
-
 
 
 proof: $(FILES:.v=.vo)
@@ -282,7 +275,6 @@ clean:
 	$(MAKE) -f Makefile.extr clean
 	$(MAKE) -C runtime clean
 	$(MAKE) -C test clean
-	$(MAKE) -C cpu_models/x86model clean
 
 distclean:
 	$(MAKE) clean
