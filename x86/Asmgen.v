@@ -814,7 +814,7 @@ Definition transl_function (f: Mach.function) :=
 
 Definition transf_function (f: Mach.function) : res Asm.function :=
   do tf <- transl_function f;
-  if zlt Ptrofs.max_unsigned (list_length_z tf.(fn_code))
+  if zlt Ptrofs.max_unsigned (code_size tf.(fn_code))
   then Error (msg "code size exceeded")
   else OK tf.
 

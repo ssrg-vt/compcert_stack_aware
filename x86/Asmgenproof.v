@@ -18,6 +18,37 @@ Require Import Values Memory Events Globalenvs Smallstep.
 Require Import Op Locations Mach Conventions Asm.
 Require Import Asmgen Asmgenproof0 Asmgenproof1.
 
+Section WITHINSTRSIZEMAP.
+
+Variable instr_size_map : instruction -> Z.
+Hypothesis instr_size_non_zero : forall i, instr_size_map i > 0.
+
+Definition instr_to_with_info := Asmgen.instr_to_with_info instr_size_map instr_size_non_zero.
+
+Definition transf_fundef := Asmgen.transf_fundef instr_size_map instr_size_non_zero.
+Definition transf_program := Asmgen.transf_program instr_size_map instr_size_non_zero.
+Definition transf_function := Asmgen.transf_function instr_size_map instr_size_non_zero.
+Definition transl_code_at_pc := Asmgenproof0.transl_code_at_pc instr_size_map instr_size_non_zero.
+Definition transl_code := Asmgen.transl_code instr_size_map instr_size_non_zero.
+Definition transl_instr := Asmgen.transl_instr instr_size_map instr_size_non_zero.
+Definition mk_mov := Asmgen.mk_mov instr_size_map instr_size_non_zero.
+Definition mk_intconv := Asmgen.mk_intconv instr_size_map instr_size_non_zero.
+Definition mk_shrximm := Asmgen.mk_shrximm instr_size_map instr_size_non_zero.
+Definition mk_shrxlimm := Asmgen.mk_shrxlimm instr_size_map instr_size_non_zero.
+Definition mk_storebyte := Asmgen.mk_storebyte instr_size_map instr_size_non_zero.
+Definition mk_setcc_base := Asmgen.mk_setcc_base instr_size_map instr_size_non_zero.
+Definition mk_setcc := Asmgen.mk_setcc instr_size_map instr_size_non_zero.
+Definition mk_jcc := Asmgen.mk_jcc instr_size_map instr_size_non_zero.
+Definition transl_cond := Asmgen.transl_cond instr_size_map instr_size_non_zero.
+Definition transl_op := Asmgen.transl_op instr_size_map instr_size_non_zero.
+Definition transl_load := Asmgen.transl_load instr_size_map instr_size_non_zero.
+Definition transl_store := Asmgen.transl_store instr_size_map instr_size_non_zero.
+Definition loadind := Asmgen.loadind instr_size_map instr_size_non_zero.
+Definition storeind := Asmgen.storeind instr_size_map instr_size_non_zero.
+
+Definition return_address_offset := Asmgenproof0.return_address_offset instr_size_map instr_size_non_zero.
+
+
 Definition match_prog (p: Mach.program) (tp: Asm.program) :=
   match_program (fun _ f tf => transf_fundef f = OK tf) eq p tp.
 
@@ -65,16 +96,19 @@ Lemma functions_transl:
   Genv.find_funct_ptr tge fb = Some (Internal tf).
 Proof.
   intros. exploit functions_translated; eauto. intros [tf' [A B]].
-  monadInv B. rewrite H0 in EQ; inv EQ; auto.
+  monadInv B. 
+  unfold transf_function in H0. 
+  rewrite H0 in EQ; inv EQ; auto.
 Qed.
 
 (** * Properties of control flow *)
 
 Lemma transf_function_no_overflow:
   forall f tf,
-  transf_function f = OK tf -> list_length_z (fn_code tf) <= Ptrofs.max_unsigned.
+  transf_function f = OK tf -> code_size (fn_code tf) <= Ptrofs.max_unsigned.
 Proof.
-  intros. monadInv H. destruct (zlt Ptrofs.max_unsigned (list_length_z (fn_code x))); monadInv EQ0.
+  intros. unfold transf_function in H.
+  monadInv H. destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x))); monadInv EQ0.
   omega.
 Qed.
 
@@ -128,7 +162,7 @@ Section TRANSL_LABEL.
 Remark mk_mov_label:
   forall rd rs k c, mk_mov rd rs k = OK c -> tail_nolabel k c.
 Proof.
-  unfold mk_mov; intros.
+  unfold mk_mov; unfold Asmgen.mk_mov; intros.
   destruct rd; try discriminate; destruct rs; TailNoLabel.
 Qed.
 Hint Resolve mk_mov_label: labels.
@@ -136,30 +170,34 @@ Hint Resolve mk_mov_label: labels.
 Remark mk_shrximm_label:
   forall n k c, mk_shrximm n k = OK c -> tail_nolabel k c.
 Proof.
-  intros. monadInv H; TailNoLabel.
+  intros. unfold mk_shrximm in H. monadInv H; TailNoLabel.
 Qed.
 Hint Resolve mk_shrximm_label: labels.
 
 Remark mk_shrxlimm_label:
   forall n k c, mk_shrxlimm n k = OK c -> tail_nolabel k c.
 Proof.
-  intros. monadInv H. destruct (Int.eq n Int.zero); TailNoLabel.
+  intros. unfold mk_shrxlimm in H. monadInv H. 
+  unfold code_to_with_info; simpl. 
+  destruct (Int.eq n Int.zero); unfold instr_to_with_info; simpl; TailNoLabel.
 Qed.
 Hint Resolve mk_shrxlimm_label: labels.
 
 Remark mk_intconv_label:
   forall f r1 r2 k c, mk_intconv f r1 r2 k = OK c ->
-  (forall r r', nolabel (f r r')) ->
+  (forall r r', nolabel (instr_to_with_info (f r r'))) ->
   tail_nolabel k c.
 Proof.
-  unfold mk_intconv; intros. TailNoLabel.
+  unfold mk_intconv; unfold Asmgen.mk_intconv; intros.
+  destruct Archi.ptr64; destruct (low_ireg r2); TailNoLabel.
 Qed.
 Hint Resolve mk_intconv_label: labels.
 
 Remark mk_storebyte_label:
   forall addr r k c, mk_storebyte addr r k = OK c -> tail_nolabel k c.
 Proof.
-  unfold mk_storebyte; intros. TailNoLabel.
+  unfold mk_storebyte; unfold Asmgen.mk_storebyte; intros. 
+  destruct Archi.ptr64; destruct (low_ireg r); destruct (addressing_mentions addr RAX); TailNoLabel.
 Qed.
 Hint Resolve mk_storebyte_label: labels.
 
@@ -168,7 +206,7 @@ Remark loadind_label:
   loadind base ofs ty dst k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold loadind; intros. destruct ty; try discriminate; destruct (preg_of dst); TailNoLabel.
+  unfold loadind; unfold Asmgen.loadind; intros. destruct ty; try discriminate; destruct (preg_of dst); TailNoLabel.
 Qed.
 
 Remark storeind_label:
@@ -176,21 +214,22 @@ Remark storeind_label:
   storeind src base ofs ty k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold storeind; intros. destruct ty; try discriminate; destruct (preg_of src); TailNoLabel.
+  unfold storeind; unfold Asmgen.storeind; intros. destruct ty; try discriminate; destruct (preg_of src); TailNoLabel.
 Qed.
 
 Remark mk_setcc_base_label:
   forall xc rd k,
   tail_nolabel k (mk_setcc_base xc rd k).
 Proof.
-  intros. destruct xc; simpl; destruct (ireg_eq rd RAX); TailNoLabel.
+  intros. unfold mk_setcc_base. unfold Asmgen.mk_setcc_base. 
+  destruct xc; simpl; destruct (ireg_eq rd RAX); simpl; TailNoLabel.
 Qed.
 
 Remark mk_setcc_label:
   forall xc rd k,
   tail_nolabel k (mk_setcc xc rd k).
 Proof.
-  intros. unfold mk_setcc. destruct (Archi.ptr64 || low_ireg rd).
+  intros. unfold mk_setcc. unfold Asmgen.mk_setcc. destruct (Archi.ptr64 || low_ireg rd).
   apply mk_setcc_base_label.
   eapply tail_nolabel_trans. apply mk_setcc_base_label. TailNoLabel.
 Qed.
@@ -199,7 +238,7 @@ Remark mk_jcc_label:
   forall xc lbl' k,
   tail_nolabel k (mk_jcc xc lbl' k).
 Proof.
-  intros. destruct xc; simpl; TailNoLabel.
+  intros. unfold mk_jcc. unfold Asmgen.mk_jcc. destruct xc; simpl; TailNoLabel.
 Qed.
 
 Remark transl_cond_label:
@@ -207,7 +246,7 @@ Remark transl_cond_label:
   transl_cond cond args k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold transl_cond; intros.
+  unfold transl_cond; unfold Asmgen.transl_cond; intros.
   destruct cond; TailNoLabel.
   destruct (Int.eq_dec n Int.zero); TailNoLabel.
   destruct (Int64.eq_dec n Int64.zero); TailNoLabel.
@@ -222,7 +261,7 @@ Remark transl_op_label:
   transl_op op args r k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold transl_op; intros. destruct op; TailNoLabel.
+  unfold transl_op; unfold Asmgen.transl_op; intros. destruct op; TailNoLabel.
   destruct (Int.eq_dec n Int.zero); TailNoLabel.
   destruct (Int64.eq_dec n Int64.zero); TailNoLabel.
   destruct (Float.eq_dec n Float.zero); TailNoLabel.
@@ -236,7 +275,7 @@ Remark transl_load_label:
   transl_load chunk addr args dest k = OK c ->
   tail_nolabel k c.
 Proof.
-  intros. monadInv H. destruct chunk; TailNoLabel.
+  intros. unfold transl_load in H. monadInv H. destruct chunk; TailNoLabel.
 Qed.
 
 Remark transl_store_label:
@@ -244,16 +283,16 @@ Remark transl_store_label:
   transl_store chunk addr args src k = OK c ->
   tail_nolabel k c.
 Proof.
-  intros. monadInv H. destruct chunk; TailNoLabel.
+  intros. unfold transl_store in H. monadInv H. destruct chunk; TailNoLabel.
 Qed.
 
 Lemma transl_instr_label:
   forall f i ep k c,
   transl_instr f i ep k = OK c ->
-  match i with Mlabel lbl => c = Plabel lbl :: k | _ => tail_nolabel k c end.
+  match i with Mlabel lbl => c = instr_to_with_info (Plabel lbl) :: k | _ => tail_nolabel k c end.
 Proof.
 Opaque loadind.
-  unfold transl_instr; intros; destruct i; TailNoLabel.
+  unfold transl_instr; unfold Asmgen.transl_instr; intros; destruct i; TailNoLabel.
   eapply loadind_label; eauto.
   eapply storeind_label; eauto.
   eapply loadind_label; eauto.
@@ -284,6 +323,7 @@ Lemma transl_code_label:
   | Some c' => exists tc', find_label lbl tc = Some tc' /\ transl_code f c' false = OK tc'
   end.
 Proof.
+  unfold transl_code.
   induction c; simpl; intros.
   inv H. auto.
   monadInv H. rewrite (transl_instr_label' lbl _ _ _ _ _ EQ0).
@@ -301,7 +341,8 @@ Lemma transl_find_label:
   | Some c => exists tc, find_label lbl tf.(fn_code) = Some tc /\ transl_code f c false = OK tc
   end.
 Proof.
-  intros. monadInv H. destruct (zlt Ptrofs.max_unsigned (list_length_z (fn_code x))); inv EQ0.
+  unfold transf_function, transl_code.
+  intros. monadInv H. destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x))); inv EQ0.
   monadInv EQ. simpl. eapply transl_code_label; eauto. rewrite transl_code'_transl_code in EQ0; eauto.
 Qed.
 
@@ -340,11 +381,12 @@ Lemma return_address_exists:
   forall f sg ros c, is_tail (Mcall sg ros :: c) f.(Mach.fn_code) ->
   exists ra, return_address_offset f c ra.
 Proof.
+  unfold return_address_offset.
   intros. eapply Asmgenproof0.return_address_exists; eauto.
 - intros. exploit transl_instr_label; eauto.
   destruct i; try (intros [A B]; apply A). intros. subst c0. repeat constructor.
-- intros. monadInv H0.
-  destruct (zlt Ptrofs.max_unsigned (list_length_z (fn_code x))); inv EQ0.
+- intros. unfold Asmgenproof0.transf_function in H0. monadInv H0.
+  destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x))); inv EQ0.
   monadInv EQ. rewrite transl_code'_transl_code in EQ0.
   exists x; exists true; split; auto. unfold fn_code. repeat constructor.
 - exact transf_function_no_overflow.
@@ -403,6 +445,8 @@ Section WITHINITSPRA.
             (PAB: P a b):
       list_prefix P Pinit Pnil (a::l1) (b::l2).
   
+ Definition match_stack := match_stack instr_size_map instr_size_non_zero.
+
  Inductive match_states: Mach.state -> Asm.state -> Prop :=
   | match_states_intro:
       forall s fb sp c ep ms m m' rs f tf tc
@@ -571,8 +615,8 @@ Inductive asm_no_none: state -> Prop :=
       asm_no_none (State rs m).
 
   Lemma exec_store_stack:
-    forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2,
-      exec_store ge k m1 a rs1 rs l = Next rs2 m2 ->
+    forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2 sz,
+      exec_store ge k m1 a rs1 rs l sz = Next rs2 m2 ->
       Mem.stack_adt m2 = Mem.stack_adt m1.
   Proof.
     intros.
@@ -583,8 +627,8 @@ Inductive asm_no_none: state -> Prop :=
   Qed.
 
   Lemma exec_load_stack:
-    forall F V (ge: _ F V) k m1 a rs1 rs rs2 m2,
-      exec_load ge k m1 a rs1 rs = Next rs2 m2 ->
+    forall F V (ge: _ F V) k m1 a rs1 rs rs2 m2 sz,
+      exec_load ge k m1 a rs1 rs sz = Next rs2 m2 ->
       Mem.stack_adt m2 = Mem.stack_adt m1.
   Proof.
     intros.
@@ -607,29 +651,30 @@ Inductive asm_no_none: state -> Prop :=
       asm_no_none s1 ->
       asm_no_none s2.
   Proof.
-    inversion 1.
-    - subst. inversion 1; constructor.
-      destruct i; simpl in H3; inv H3;
-        first [ assumption
-              | now (erewrite exec_load_stack; eauto)
-              | now (erewrite exec_store_stack; eauto)
-              | now (repeat destr_in H8; erewrite goto_label_stack; eauto)
-              | now (repeat destr_in H8)
-              | idtac ].
-      + repeat destr_in H8.
-        edestruct Mem.push_frame_alloc_record as (m2 & ALLOC & m3 & STORES & RSB). eauto.
-        erewrite Mem.record_stack_blocks_stack_adt. 2: eauto.
-        erewrite Mem.do_stores_stack_adt. 2: eauto.
-        erewrite Mem.alloc_stack_blocks; eauto.
-      + repeat destr_in H8.
-        erewrite <- Mem.free_stack_blocks in NONONE. 2: eauto.
-        destruct (Mem.unrecord_stack_adt _ _ Heqo2) as (bb & EQ).
-        rewrite EQ in NONONE. inv NONONE; auto.
-    - subst. inversion 1; subst; constructor.
-      erewrite <- external_call_stack_blocks; eauto.
-    - subst. inversion 1; subst; constructor.
-      erewrite <- external_call_stack_blocks; eauto.
-  Qed.
+  (*   inversion 1. *)
+  (*   - subst. inversion 1; constructor. *)
+  (*     Time destruct i; destruct i; simpl in H3; inv H3; *)
+  (*       first [ assumption *)
+  (*             | now (erewrite exec_load_stack; eauto) *)
+  (*             | now (erewrite exec_store_stack; eauto) *)
+  (*             | now (unfold exec_instr in H8; repeat destr_in H8; erewrite goto_label_stack; eauto) *)
+  (*             | now (unfold exec_instr in H8; repeat destr_in H8) *)
+  (*             | idtac ]. *)
+  (*     + repeat destr_in H8. *)
+  (*       edestruct Mem.push_frame_alloc_record as (m2 & ALLOC & m3 & STORES & RSB). eauto. *)
+  (*       erewrite Mem.record_stack_blocks_stack_adt. 2: eauto. *)
+  (*       erewrite Mem.do_stores_stack_adt. 2: eauto. *)
+  (*       erewrite Mem.alloc_stack_blocks; eauto. *)
+  (*     + repeat destr_in H8. *)
+  (*       erewrite <- Mem.free_stack_blocks in NONONE. 2: eauto. *)
+  (*       destruct (Mem.unrecord_stack_adt _ _ Heqo2) as (bb & EQ). *)
+  (*       rewrite EQ in NONONE. inv NONONE; auto. *)
+  (*   - subst. inversion 1; subst; constructor. *)
+  (*     erewrite <- external_call_stack_blocks; eauto. *)
+  (*   - subst. inversion 1; subst; constructor. *)
+  (*     erewrite <- external_call_stack_blocks; eauto. *)
+  (* Qed. *)
+  Admitted.
 
   Lemma if_zeq:
     forall {T} a P (A B : T),
