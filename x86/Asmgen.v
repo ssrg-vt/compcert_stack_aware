@@ -110,34 +110,68 @@ Definition mk_storebyte (addr: addrmode) (rs: ireg) (k: code) :=
 (** Accessing slots in the stack frame. *)
 
 Definition loadind (base: ireg) (ofs: ptrofs) (ty: typ) (dst: mreg) (k: code) :=
+  do instr <-
   let a := Addrmode (Some base) None (inl _ (Ptrofs.unsigned ofs)) in
   match ty, preg_of dst with
-  | Tint, IR r => OK (instr_to_with_info (Pmovl_rm r a) ::  k)
-  | Tlong, IR r => OK (instr_to_with_info (Pmovq_rm r a) :: k)
-  | Tsingle, FR r => OK (instr_to_with_info (Pmovss_fm r a) :: k)
-  | Tsingle, ST0  => OK (instr_to_with_info (Pflds_m a) :: k)
-  | Tfloat, FR r => OK (instr_to_with_info (Pmovsd_fm r a) :: k)
-  | Tfloat, ST0  => OK (instr_to_with_info (Pfldl_m a) :: k)
-  | Tany32, IR r => if Archi.ptr64 then Error (msg "Asmgen.loadind1") else OK (instr_to_with_info (Pmov_rm_a r a) :: k)
-  | Tany64, IR r => if Archi.ptr64 then OK (instr_to_with_info (Pmov_rm_a r a) :: k) else Error (msg "Asmgen.loadind2")
-  | Tany64, FR r => OK (instr_to_with_info (Pmovsd_fm_a r a) :: k)
+  | Tint, IR r => OK (Pmovl_rm r a)
+  | Tlong, IR r => OK (Pmovq_rm r a)
+  | Tsingle, FR r => OK (Pmovss_fm r a)
+  | Tsingle, ST0  => OK (Pflds_m a)
+  | Tfloat, FR r => OK (Pmovsd_fm r a)
+  | Tfloat, ST0  => OK (Pfldl_m a)
+  | Tany32, IR r => if Archi.ptr64 then Error (msg "Asmgen.loadind1") else OK (Pmov_rm_a r a)
+  | Tany64, IR r => if Archi.ptr64 then OK (Pmov_rm_a r a) else Error (msg "Asmgen.loadind2")
+  | Tany64, FR r => OK (Pmovsd_fm_a r a)
   | _, _ => Error (msg "Asmgen.loadind")
-  end.
+  end;
+  OK (instr_to_with_info instr :: k).
+
+(* Definition loadind (base: ireg) (ofs: ptrofs) (ty: typ) (dst: mreg) (k: code) := *)
+(*   let a := Addrmode (Some base) None (inl _ (Ptrofs.unsigned ofs)) in *)
+(*   match ty, preg_of dst with *)
+(*   | Tint, IR r => OK (instr_to_with_info (Pmovl_rm r a) ::  k) *)
+(*   | Tlong, IR r => OK (instr_to_with_info (Pmovq_rm r a) :: k) *)
+(*   | Tsingle, FR r => OK (instr_to_with_info (Pmovss_fm r a) :: k) *)
+(*   | Tsingle, ST0  => OK (instr_to_with_info (Pflds_m a) :: k) *)
+(*   | Tfloat, FR r => OK (instr_to_with_info (Pmovsd_fm r a) :: k) *)
+(*   | Tfloat, ST0  => OK (instr_to_with_info (Pfldl_m a) :: k) *)
+(*   | Tany32, IR r => if Archi.ptr64 then Error (msg "Asmgen.loadind1") else OK (instr_to_with_info (Pmov_rm_a r a) :: k) *)
+(*   | Tany64, IR r => if Archi.ptr64 then OK (instr_to_with_info (Pmov_rm_a r a) :: k) else Error (msg "Asmgen.loadind2") *)
+(*   | Tany64, FR r => OK (instr_to_with_info (Pmovsd_fm_a r a) :: k) *)
+(*   | _, _ => Error (msg "Asmgen.loadind") *)
+(*   end. *)
 
 Definition storeind (src: mreg) (base: ireg) (ofs: ptrofs) (ty: typ) (k: code) :=
+  do instr <- 
   let a := Addrmode (Some base) None (inl _ (Ptrofs.unsigned ofs)) in
   match ty, preg_of src with
-  | Tint, IR r => OK (instr_to_with_info (Pmovl_mr a r) :: k)
-  | Tlong, IR r => OK (instr_to_with_info (Pmovq_mr a r) :: k)
-  | Tsingle, FR r => OK (instr_to_with_info (Pmovss_mf a r) :: k)
-  | Tsingle, ST0 => OK (instr_to_with_info (Pfstps_m a) :: k)
-  | Tfloat, FR r => OK (instr_to_with_info (Pmovsd_mf a r) :: k)
-  | Tfloat, ST0 => OK (instr_to_with_info (Pfstpl_m a) :: k)
-  | Tany32, IR r => if Archi.ptr64 then Error (msg "Asmgen.storeind1") else OK (instr_to_with_info (Pmov_mr_a a r) :: k)
-  | Tany64, IR r => if Archi.ptr64 then OK (instr_to_with_info (Pmov_mr_a a r) :: k) else Error (msg "Asmgen.storeind2")
-  | Tany64, FR r => OK (instr_to_with_info (Pmovsd_mf_a a r) :: k)
+  | Tint, IR r => OK (Pmovl_mr a r)
+  | Tlong, IR r => OK (Pmovq_mr a r)
+  | Tsingle, FR r => OK (Pmovss_mf a r)
+  | Tsingle, ST0 => OK (Pfstps_m a)
+  | Tfloat, FR r => OK (Pmovsd_mf a r)
+  | Tfloat, ST0 => OK (Pfstpl_m a)
+  | Tany32, IR r => if Archi.ptr64 then Error (msg "Asmgen.storeind1") else OK (Pmov_mr_a a r)
+  | Tany64, IR r => if Archi.ptr64 then OK (Pmov_mr_a a r) else Error (msg "Asmgen.storeind2")
+  | Tany64, FR r => OK (Pmovsd_mf_a a r)
   | _, _ => Error (msg "Asmgen.storeind")
-  end.
+  end;
+  OK (instr_to_with_info instr :: k).
+
+(* Definition storeind (src: mreg) (base: ireg) (ofs: ptrofs) (ty: typ) (k: code) := *)
+(*   let a := Addrmode (Some base) None (inl _ (Ptrofs.unsigned ofs)) in *)
+(*   match ty, preg_of src with *)
+(*   | Tint, IR r => OK (instr_to_with_info (Pmovl_mr a r) :: k) *)
+(*   | Tlong, IR r => OK (instr_to_with_info (Pmovq_mr a r) :: k) *)
+(*   | Tsingle, FR r => OK (instr_to_with_info (Pmovss_mf a r) :: k) *)
+(*   | Tsingle, ST0 => OK (instr_to_with_info (Pfstps_m a) :: k) *)
+(*   | Tfloat, FR r => OK (instr_to_with_info (Pmovsd_mf a r) :: k) *)
+(*   | Tfloat, ST0 => OK (instr_to_with_info (Pfstpl_m a) :: k) *)
+(*   | Tany32, IR r => if Archi.ptr64 then Error (msg "Asmgen.storeind1") else OK (instr_to_with_info (Pmov_mr_a a r) :: k) *)
+(*   | Tany64, IR r => if Archi.ptr64 then OK (instr_to_with_info (Pmov_mr_a a r) :: k) else Error (msg "Asmgen.storeind2") *)
+(*   | Tany64, FR r => OK (instr_to_with_info (Pmovsd_mf_a a r) :: k) *)
+(*   | _, _ => Error (msg "Asmgen.storeind") *)
+(*   end. *)
 
 (** Translation of addressing modes *)
 
@@ -640,27 +674,29 @@ Definition transl_op
 Definition transl_load (chunk: memory_chunk)
                        (addr: addressing) (args: list mreg) (dest: mreg)
                        (k: code) : res code :=
+  do instr <-
   do am <- transl_addressing addr args;
   match chunk with
   | Mint8unsigned =>
-      do r <- ireg_of dest; OK(instr_to_with_info (Pmovzb_rm r am) :: k)
+      do r <- ireg_of dest; OK(Pmovzb_rm r am)
   | Mint8signed =>
-      do r <- ireg_of dest; OK(instr_to_with_info (Pmovsb_rm r am) :: k)
+      do r <- ireg_of dest; OK(Pmovsb_rm r am)
   | Mint16unsigned =>
-      do r <- ireg_of dest; OK(instr_to_with_info (Pmovzw_rm r am) :: k)
+      do r <- ireg_of dest; OK(Pmovzw_rm r am)
   | Mint16signed =>
-      do r <- ireg_of dest; OK(instr_to_with_info (Pmovsw_rm r am) :: k)
+      do r <- ireg_of dest; OK(Pmovsw_rm r am)
   | Mint32 =>
-      do r <- ireg_of dest; OK(instr_to_with_info (Pmovl_rm r am) :: k)
+      do r <- ireg_of dest; OK(Pmovl_rm r am)
   | Mint64 =>
-      do r <- ireg_of dest; OK(instr_to_with_info (Pmovq_rm r am) :: k)
+      do r <- ireg_of dest; OK(Pmovq_rm r am)
   | Mfloat32 =>
-      do r <- freg_of dest; OK(instr_to_with_info (Pmovss_fm r am) :: k)
+      do r <- freg_of dest; OK(Pmovss_fm r am)
   | Mfloat64 =>
-      do r <- freg_of dest; OK(instr_to_with_info (Pmovsd_fm r am) :: k)
+      do r <- freg_of dest; OK(Pmovsd_fm r am)
   | _ =>
       Error (msg "Asmgen.transl_load")
-  end.
+  end;
+  OK (instr_to_with_info instr :: k).
 
 Definition transl_store (chunk: memory_chunk)
                         (addr: addressing) (args: list mreg) (src: mreg)
