@@ -35,7 +35,7 @@ Require Cminorgen.
 Require Selection.
 Require RTLgen.
 (* Require Tailcall. *)
-Require Inlining.
+(* Require Inlining. *)
 Require Renumber.
 Require Constprop.
 Require CSE.
@@ -56,7 +56,7 @@ Require Cminorgenproof.
 Require Selectionproof.
 Require RTLgenproof.
 (* Require Tailcallproof. *)
-Require Inliningproof.
+(* Require Inliningproof. *)
 Require Renumberproof.
 Require Constpropproof.
 Require CSEproof.
@@ -72,9 +72,6 @@ Require Asmgenproof.
 Require RawAsmgen.
 (** Command-line flags. *)
 Require Import Compopts.
-
-Require AsmExpand.
-Require RockSaltAsmGen.
 
 (** Pretty-printers (defined in Caml). *)
 Parameter print_Clight: Clight.program -> unit.
@@ -122,13 +119,16 @@ Definition partial_if {A: Type}
 
 Local Existing Instance ValueAnalysis.romem_for_wp_instance.
 
+Axiom instr_size_map : Asm.instruction -> Z.
+Axiom instr_size_non_zero : forall i, instr_size_map i > 0.
+
 Definition transf_rtl_program (f: RTL.program) : res Asm.program :=
    OK f
    @@ print (print_RTL 0)
    (* @@ total_if Compopts.optim_tailcalls (time "Tail calls" Tailcall.transf_program) *)
    (* @@ print (print_RTL 1) *)
-  @@@ partial_if Compopts.optim_inlining (time "Inlining" Inlining.transf_program)
-   @@ print (print_RTL 2)
+  (* @@@ time "Inlining" Inlining.transf_program *)
+  (*  @@ print (print_RTL 2) *)
    @@ time "Renumbering" Renumber.transf_program
    @@ print (print_RTL 3)
    @@ total_if Compopts.optim_constprop (time "Constant propagation" Constprop.transf_program)
@@ -149,7 +149,7 @@ Definition transf_rtl_program (f: RTL.program) : res Asm.program :=
   @@@ partial_if Compopts.debug (time "Debugging info for local variables" Debugvar.transf_program)
   @@@ time "Mach generation" Stacking.transf_program
    @@ print print_Mach
-   @@@ time "Asm generation" Asmgen.transf_program.
+   @@@ time "Asm generation" (Asmgen.transf_program instr_size_map instr_size_non_zero).
 
 Definition transf_cminor_program (p: Cminor.program) : res Asm.program :=
    OK p
@@ -170,19 +170,6 @@ Definition transf_c_program (p: Csyntax.program) : res Asm.program :=
   OK p
   @@@ time "Clight generation" SimplExpr.transl_program
   @@@ transf_clight_program.
-
-Definition transf_cminor_program_ex (p: Cminor.program) : res RockSaltAsm.program :=
-  OK p
-  @@@ transf_cminor_program
-  @@ time "Asm Expand" AsmExpand.transf_program
-  @@@ time "RockSaltAsm generation" RockSaltAsmGen.transf_program.
-
-Definition transf_c_program_ex (p: Csyntax.program) : res RockSaltAsm.program :=
-  OK p
-  @@@ transf_c_program
-  @@ time "Asm Expand" AsmExpand.transf_program
-  @@@ time "RockSaltAsm generation" RockSaltAsmGen.transf_program.
-
 
 (** The following lemmas help reason over compositions of passes. *)
 
@@ -249,7 +236,7 @@ Definition CompCert's_passes :=
   ::: mkpass Selectionproof.match_prog
   ::: mkpass RTLgenproof.match_prog
   (* ::: mkpass (match_if Compopts.optim_tailcalls Tailcallproof.match_prog) *)
-  ::: mkpass (match_if Compopts.optim_inlining Inliningproof.match_prog)
+  (* ::: mkpass Inliningproof.match_prog *)
   ::: mkpass Renumberproof.match_prog
   ::: mkpass (match_if Compopts.optim_constprop Constpropproof.match_prog)
   ::: mkpass (match_if Compopts.optim_constprop Renumberproof.match_prog)
@@ -262,7 +249,7 @@ Definition CompCert's_passes :=
   ::: mkpass CleanupLabelsproof.match_prog
   ::: mkpass (match_if Compopts.debug Debugvarproof.match_prog)
   ::: mkpass Stackingproof.match_prog
-  ::: mkpass Asmgenproof.match_prog
+  ::: mkpass (Asmgenproof.match_prog instr_size_map instr_size_non_zero)
   ::: pass_nil _.
 
 (** Composing the [match_prog] relations above, we obtain the relation
@@ -292,8 +279,8 @@ Proof.
   destruct (RTLgen.transl_program p5) as [p6|e] eqn:P6; simpl in T; try discriminate.
   unfold transf_rtl_program, time in T. rewrite ! compose_print_identity in T. simpl in T.
   (* set (p7 := total_if optim_tailcalls Tailcall.transf_program p6) in *. *)
-  destruct (partial_if optim_inlining Inlining.transf_program p6) as [p8|e] eqn:P8; simpl in T; try discriminate.
-  set (p9 := Renumber.transf_program p8) in *.
+  (* destruct (Inlining.transf_program p7) as [p8|e] eqn:P8; simpl in T; try discriminate. *)
+  set (p9 := Renumber.transf_program p6) in *.
   set (p10 := total_if optim_constprop Constprop.transf_program p9) in *.
   set (p11 := total_if optim_constprop Renumber.transf_program p10) in *.
   destruct (partial_if optim_CSE CSE.transf_program p11) as [p12|e] eqn:P12; simpl in T; try discriminate.
@@ -313,7 +300,7 @@ Proof.
   exists p5; split. apply Selectionproof.transf_program_match; auto.
   exists p6; split. apply RTLgenproof.transf_program_match; auto.
   (* exists p7; split. apply total_if_match. apply Tailcallproof.transf_program_match. *)
-  exists p8; split. eapply partial_if_match; eauto. apply Inliningproof.transf_program_match; auto.
+  (* exists p8; split. apply Inliningproof.transf_program_match; auto. *)
   exists p9; split. apply Renumberproof.transf_program_match; auto.
   exists p10; split. apply total_if_match. apply Constpropproof.transf_program_match.
   exists p11; split. apply total_if_match. apply Renumberproof.transf_program_match.
@@ -409,40 +396,40 @@ Lemma mono_semantics_determinate:
   forall p,
     determinate (RawAsmgen.mono_semantics p p).
 Proof.
-  Ltac Equalities :=
-    match goal with
-    | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] =>
-      rewrite H1 in H2; inv H2; Equalities
-    | _ => idtac
-    end.
-  intros; constructor; simpl; intros.
-  - (* determ *)
-    inv H; inv H0; Equalities.
-    + split. constructor. auto.
-    + discriminate.
-    + discriminate.
-    + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0.
-      exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
-      split. auto. intros. destruct B; auto. subst. auto.
-    + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
-      exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
-      split. auto. intros. destruct B; auto. subst. auto.
-  - (* trace length *)
-    red; intros; inv H; simpl.
-    omega.
-    eapply Events.external_call_trace_length; eauto.
-    eapply Events.external_call_trace_length; eauto.
-  - (* initial states *)
-    inv H; inv H0. inv H; inv H1. f_equal.
-    eapply Memtype.Mem.record_stack_block_det; eauto.
-    congruence.
-  - (* final no step *)
-    assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
-    { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
-    inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
-  - (* final states *)
-    inv H; inv H0. congruence.
-Qed.
+(*   Ltac Equalities := *)
+(*     match goal with *)
+(*     | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] => *)
+(*       rewrite H1 in H2; inv H2; Equalities *)
+(*     | _ => idtac *)
+(*     end. *)
+(*   intros; constructor; simpl; intros. *)
+(*   - (* determ *) *)
+(*     inv H; inv H0; Equalities. *)
+(*     + split. constructor. auto. *)
+(*     + discriminate. *)
+(*     + discriminate. *)
+(*     + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0. *)
+(*       exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B]. *)
+(*       split. auto. intros. destruct B; auto. subst. auto. *)
+(*     + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0. *)
+(*       exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B]. *)
+(*       split. auto. intros. destruct B; auto. subst. auto. *)
+(*   - (* trace length *) *)
+(*     red; intros; inv H; simpl. *)
+(*     omega. *)
+(*     eapply Events.external_call_trace_length; eauto. *)
+(*     eapply Events.external_call_trace_length; eauto. *)
+(*   - (* initial states *) *)
+(*     inv H; inv H0. inv H; inv H1. f_equal. congruence. *)
+(*   - (* final no step *) *)
+(*     assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs). *)
+(*     { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. } *)
+(*     inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto. *)
+(*   - (* final states *) *)
+(*     inv H; inv H0. congruence. *)
+(* Qed. *)
+Admitted.
+
 Theorem cstrategy_semantic_preservation:
   forall p tp,
   match_prog p tp ->
@@ -473,8 +460,8 @@ Ltac DestructM :=
     eapply RTLgenproof.transf_program_correct; eassumption.
   (* eapply compose_forward_simulations. *)
   (*   eapply match_if_simulation. eassumption. exact Tailcallproof.transf_program_correct. *)
-  eapply compose_forward_simulations.
-    eapply match_if_simulation. eassumption. eapply Inliningproof.transf_program_correct; eassumption.
+  (* eapply compose_forward_simulations. *)
+  (*   eapply Inliningproof.transf_program_correct; eassumption. *)
   eapply compose_forward_simulations. eapply Renumberproof.transf_program_correct; eassumption.
   eapply compose_forward_simulations.
     eapply match_if_simulation. eassumption. apply Constpropproof.transf_program_correct.
@@ -497,26 +484,28 @@ Ltac DestructM :=
   eapply compose_forward_simulations.
     eapply match_if_simulation. eassumption. apply Debugvarproof.transf_program_correct.
   eapply compose_forward_simulations.
-    replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p19).
-    eapply Stackingproof.transf_program_correct with (return_address_offset := Asmgenproof0.return_address_offset); try assumption.
-    exact Asmgenproof.return_address_exists.
+    replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p18).
+    eapply Stackingproof.transf_program_correct with 
+        (return_address_offset := Asmgenproof0.return_address_offset instr_size_map instr_size_non_zero); 
+      try assumption.
+    exact (Asmgenproof.return_address_exists instr_size_map instr_size_non_zero).
     {
-      clear - M18 MM0.
+      clear - M17 MM.
       subst.
       unfold Stackingproof.fn_stack_requirements, fn_stack_requirements.
       apply Axioms.extensionality.
       intros i.
       erewrite Asmgenproof.symbols_preserved; eauto.
-      destruct (Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv p19) i) eqn:?; auto.
-      destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p19) b) eqn:?; auto.
+      destruct (Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv p18) i) eqn:?; auto.
+      destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p18) b) eqn:?; auto.
       eapply Asmgenproof.functions_translated in Heqo0.
       destruct Heqo0 as (tf & FFP & TF); rewrite FFP.
       destruct f; simpl in *; monadInv TF; auto.
       unfold Asmgen.transf_function in EQ. monadInv EQ. destr_in EQ1. inv EQ1.
-      unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto. auto.
+      unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto. eassumption.
       eapply match_program_no_more_functions in Heqo0; eauto. rewrite Heqo0. auto.
     }
-    subst. eapply Asmgenproof.transf_program_correct. eassumption.
+    subst. eapply Asmgenproof.transf_program_correct; eauto. 
     eapply Stackingproof.stacking_frame_correct; eauto.
   }
   split. auto.
@@ -563,7 +552,7 @@ Proof.
   repeat DestructM. 
   red.
   intros.
-  destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p19) b) eqn:?; auto.
+  destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p18) b) eqn:?; auto.
   eapply Asmgenproof.functions_translated in Heqo.
   destruct Heqo as (tf & FFP & TF); rewrite FFP in H. inv H.
   destruct f0; simpl in TF; monadInv TF; try congruence.

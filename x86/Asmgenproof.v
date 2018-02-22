@@ -1487,7 +1487,7 @@ Proof.
   inversion 2. subst. intros. eapply star_preserves; eauto.
 Qed.
 
-Theorem transf_program_correct':
+Theorem transf_program_correct:
   forward_simulation (Mach.semantics return_address_offset prog) (Asm.semantics tprog).
 Proof.
   eapply forward_simulation_star with (measure := measure).
@@ -1519,19 +1519,19 @@ End WITHINSTRSIZEMAP.
 
 (** We assume there exists a valid mapping from instructions to their sizes *)
 
-Axiom instr_size_map : instruction -> Z.
-Axiom instr_size_non_zero : forall i, instr_size_map i > 0.
+(* Axiom instr_size_map : instruction -> Z. *)
+(* Axiom instr_size_non_zero : forall i, instr_size_map i > 0. *)
 
-Section PRESERVATION.
-  Existing Instance inject_perm_all.
-Context `{external_calls_prf: ExternalCalls}.
+(* Section PRESERVATION. *)
+(*   Existing Instance inject_perm_all. *)
+(* Context `{external_calls_prf: ExternalCalls}. *)
 
-Local Existing Instance mem_accessors_default.
+(* Local Existing Instance mem_accessors_default. *)
 
-Variable prog: Mach.program.
-Variable tprog: Asm.program.
-Hypothesis TRANSF: match_prog instr_size_map instr_size_non_zero prog tprog.
+(* Variable prog: Mach.program. *)
+(* Variable tprog: Asm.program. *)
+(* Hypothesis TRANSF: match_prog instr_size_map instr_size_non_zero prog tprog. *)
 
-Definition transf_program_correct := transf_program_correct' instr_size_map instr_size_non_zero.
+(* Definition transf_program_correct := transf_program_correct' instr_size_map instr_size_non_zero. *)
 
-End PRESERVATION.
+(* End PRESERVATION. *)
