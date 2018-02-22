@@ -70,6 +70,7 @@ Require Debugvarproof.
 Require Stackingproof.
 Require Asmgenproof.
 Require RawAsmgen.
+Require RawAsmgenproof.
 (** Command-line flags. *)
 Require Import Compopts.
 
@@ -394,7 +395,7 @@ Qed.
 
 Lemma mono_semantics_determinate:
   forall p,
-    determinate (RawAsmgen.mono_semantics p p).
+    determinate (RawAsmgen.mono_semantics p).
 Proof.
 (*   Ltac Equalities := *)
 (*     match goal with *)
@@ -518,9 +519,9 @@ Qed.
 Theorem cstrategy_semantic_preservation_raw:
   forall p tp,
     match_prog p tp ->
-    forall NORSP:     RawAsmgen.asm_prog_no_rsp (Globalenvs.Genv.globalenv tp),
-      forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp)
-  /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp tp).
+    forall NORSP:     RawAsmgenproof.asm_prog_no_rsp (Globalenvs.Genv.globalenv tp),
+      forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp)
+  /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp).
 Proof.
   intros p tp M NORSP.
   assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics tp)).
@@ -528,10 +529,10 @@ Proof.
     eapply cstrategy_semantic_preservation; eauto.
   }
   assert (G: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p)
-                                (RawAsmgen.mono_semantics tp tp)).
+                                (RawAsmgen.mono_semantics tp)).
   {
     eapply compose_forward_simulations. apply F.
-    eapply RawAsmgen.transf_program_correct. auto.
+    eapply RawAsmgenproof.transf_program_correct. auto.
   }
   split. auto.
   apply forward_to_backward_simulation.
@@ -543,8 +544,8 @@ Qed.
 Theorem cstrategy_semantic_preservation_raw':
   forall p tp,
     match_prog p tp ->
-    forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp)
-    /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp tp).
+    forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp)
+    /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp).
 Proof.
   intros p tp M.
   eapply cstrategy_semantic_preservation_raw; eauto.
@@ -579,7 +580,7 @@ Qed.
 Theorem c_semantic_preservation_raw:
   forall p tp,
   match_prog p tp ->
-  backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp).
+  backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp).
 Proof.
   intros.
   apply compose_backward_simulation with (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)).
@@ -614,7 +615,7 @@ Qed.
 Theorem transf_c_program_correct_raw:
   forall p tp,
   transf_c_program p = OK tp ->
-  backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp).
+  backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp).
 Proof.
   intros. apply c_semantic_preservation_raw. apply transf_c_program_match; auto.
 Qed.
