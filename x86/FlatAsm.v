@@ -382,10 +382,7 @@ Definition nextinstr_nf (rs: regset) (isz:ptrofs) : regset :=
   nextinstr (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs) isz.
 
 Definition goto_label {F I} (ge: Genv.t F I) (lbl: label) (rs: regset) (m: mem) :=
-  match (Genv.get_label_offset0 ge lbl) with
-  | None => Stuck
-  | Some lofs => Next (rs#PC <- (flatptr lofs)) m
-  end.
+  Next (rs#PC <- (Genv.get_label_addr0 ge lbl)) m.
 
 (** [CompCertiKOS:test-compcert-param-mem-accessors] For CertiKOS, we
 need to parameterize over [exec_load] and [exec_store], which will be
@@ -778,13 +775,9 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | _ => Stuck
       end
   | Pcall_s gloc sg =>
-    match (Genv.get_label_offset0 ge gloc) with
-    | None => Stuck
-    | Some ofs => 
-      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (flatptr ofs)) m
-    end
+      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.get_label_addr0 ge gloc)) m
   | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) m
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
@@ -1045,7 +1038,7 @@ Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * 
   match (get_sect_block_offset0 smap sb) with
   | None => None
   | Some ofs => 
-    let ofs := Ptrofs.signed ofs in
+    let ofs := Ptrofs.unsigned ofs in
     match gdef with
     | None =>
       Some m
