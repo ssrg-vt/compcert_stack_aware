@@ -231,7 +231,7 @@ Inductive instruction: Type :=
   | Pmovsd_fm_a (rd: freg) (a: addrmode) (**r like [Pmovsd_fm], using [Many64] chunk *)
   | Pmovsd_mf_a (a: addrmode) (r1: freg) (**r like [Pmovsd_mf], using [Many64] chunk *)
   (** Pseudo-instructions *)
-  (* | Plabel(l: label) *)
+  | Plabel(l: label)
   | Pallocframe(frame: frame_info)(ofs_ra ofs_link: ptrofs)
   | Pfreeframe (sz: Z) (ofs_ra ofs_link: ptrofs)
   | Pbuiltin(ef: external_function)(args: list (builtin_arg preg))(res: builtin_res preg)
@@ -799,8 +799,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pmovsd_mf_a a r1 =>
       exec_store _ _ ge Many64 m a rs r1 nil sz
   (** Pseudo-instructions *)
-  (* | Plabel lbl => *)
-  (*     Next (nextinstr rs) m *)
+  | Plabel lbl =>
+      Next (nextinstr rs sz) m
   | Pallocframe fi ofs_ra ofs_link =>
     let sp := alloc_stack_frame (rs RSP) fi in
     match Mem.storev Mptr m (Val.offset_ptr sp ofs_link) rs#RSP with
