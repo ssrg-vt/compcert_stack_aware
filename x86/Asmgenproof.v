@@ -644,6 +644,7 @@ Inductive asm_no_none: state -> Prop :=
     unfold goto_label in H; repeat destr_in H.
   Qed.
 
+  Require Import AsmFacts.
 
   Lemma step_asm_no_none:
     forall s1 t s2,
@@ -651,30 +652,28 @@ Inductive asm_no_none: state -> Prop :=
       asm_no_none s1 ->
       asm_no_none s2.
   Proof.
-  (*   inversion 1. *)
-  (*   - subst. inversion 1; constructor. *)
-  (*     Time destruct i; destruct i; simpl in H3; inv H3; *)
-  (*       first [ assumption *)
-  (*             | now (erewrite exec_load_stack; eauto) *)
-  (*             | now (erewrite exec_store_stack; eauto) *)
-  (*             | now (unfold exec_instr in H8; repeat destr_in H8; erewrite goto_label_stack; eauto) *)
-  (*             | now (unfold exec_instr in H8; repeat destr_in H8) *)
-  (*             | idtac ]. *)
-  (*     + repeat destr_in H8. *)
-  (*       edestruct Mem.push_frame_alloc_record as (m2 & ALLOC & m3 & STORES & RSB). eauto. *)
-  (*       erewrite Mem.record_stack_blocks_stack_adt. 2: eauto. *)
-  (*       erewrite Mem.do_stores_stack_adt. 2: eauto. *)
-  (*       erewrite Mem.alloc_stack_blocks; eauto. *)
-  (*     + repeat destr_in H8. *)
-  (*       erewrite <- Mem.free_stack_blocks in NONONE. 2: eauto. *)
-  (*       destruct (Mem.unrecord_stack_adt _ _ Heqo2) as (bb & EQ). *)
-  (*       rewrite EQ in NONONE. inv NONONE; auto. *)
-  (*   - subst. inversion 1; subst; constructor. *)
-  (*     erewrite <- external_call_stack_blocks; eauto. *)
-  (*   - subst. inversion 1; subst; constructor. *)
-  (*     erewrite <- external_call_stack_blocks; eauto. *)
-  (* Qed. *)
-  Admitted.
+    intros s1 t s2 STEP ANN. inv ANN. inv STEP.
+    - destruct (is_unchanged i) eqn:UNCH.
+      + constructor.
+        generalize (asmgen_no_change_stack i UNCH _ _ _ _ _ _ _ _ H6). intros (A & B). congruence.
+      + destruct i.
+        destruct i; simpl in UNCH; try discriminate;
+        unfold exec_instr in H6; simpl in H6.
+        * constructor.
+          repeat destr_in H6.
+          edestruct Mem.push_frame_alloc_record as (m2 & ALLOC & m3 & STORES & RSB). eauto.
+          erewrite Mem.record_stack_blocks_stack_adt. 2: eauto.
+          erewrite Mem.do_stores_stack_adt. 2: eauto.
+          erewrite Mem.alloc_stack_blocks; eauto.
+        * constructor. repeat destr_in H6.
+          erewrite <- Mem.free_stack_blocks in NONONE. 2: eauto.
+          destruct (Mem.unrecord_stack_adt _ _ Heqo2) as (bb & EQ).
+          rewrite EQ in NONONE. inv NONONE; auto.
+    - subst. constructor.
+      erewrite <- external_call_stack_blocks; eauto.
+    - subst. constructor.
+      erewrite <- external_call_stack_blocks; eauto.
+  Qed.
 
   Lemma if_zeq:
     forall {T} a P (A B : T),

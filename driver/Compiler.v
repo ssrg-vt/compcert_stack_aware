@@ -397,39 +397,43 @@ Lemma mono_semantics_determinate:
   forall p,
     determinate (RawAsmgen.mono_semantics p).
 Proof.
-(*   Ltac Equalities := *)
-(*     match goal with *)
-(*     | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] => *)
-(*       rewrite H1 in H2; inv H2; Equalities *)
-(*     | _ => idtac *)
-(*     end. *)
-(*   intros; constructor; simpl; intros. *)
-(*   - (* determ *) *)
-(*     inv H; inv H0; Equalities. *)
-(*     + split. constructor. auto. *)
-(*     + discriminate. *)
-(*     + discriminate. *)
-(*     + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0. *)
-(*       exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B]. *)
-(*       split. auto. intros. destruct B; auto. subst. auto. *)
-(*     + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0. *)
-(*       exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B]. *)
-(*       split. auto. intros. destruct B; auto. subst. auto. *)
-(*   - (* trace length *) *)
-(*     red; intros; inv H; simpl. *)
-(*     omega. *)
-(*     eapply Events.external_call_trace_length; eauto. *)
-(*     eapply Events.external_call_trace_length; eauto. *)
-(*   - (* initial states *) *)
-(*     inv H; inv H0. inv H; inv H1. f_equal. congruence. *)
-(*   - (* final no step *) *)
-(*     assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs). *)
-(*     { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. } *)
-(*     inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto. *)
-(*   - (* final states *) *)
-(*     inv H; inv H0. congruence. *)
-(* Qed. *)
-Admitted.
+  Ltac Equalities :=
+    match goal with
+    | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] =>
+      rewrite H1 in H2; inv H2; Equalities
+    | _ => idtac
+    end.
+  intros; constructor; simpl; intros.
+  - (* determ *)
+    inv H; inv H0; Equalities.
+    + split. constructor. auto.
+    + discriminate.
+    + discriminate.
+    + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0.
+      exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
+      split. auto. intros. destruct B; auto. subst. auto.
+    + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
+      exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
+      split. auto. intros. destruct B; auto. subst. auto.
+  - (* trace length *)
+    red; intros; inv H; simpl.
+    omega.
+    eapply Events.external_call_trace_length; eauto.
+    eapply Events.external_call_trace_length; eauto.
+  - (* initial states *)
+    inv H; inv H0. inv H; inv H1. f_equal.
+    assert (m = m0) by congruence. subst.
+    assert (m1 = m4) by congruence. subst.
+    assert (m2 = m5) by congruence. subst.
+    assert (bstack = bstack0) by congruence. subst.
+    assert (m3 = m6) by (eapply Memtype.Mem.record_stack_block_det; eauto). auto.
+  - (* final no step *)
+    assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
+    { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
+    inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
+  - (* final states *)
+    inv H; inv H0. congruence.
+Qed.
 
 Theorem cstrategy_semantic_preservation:
   forall p tp,

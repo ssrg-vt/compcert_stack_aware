@@ -229,6 +229,8 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     repeat match goal with
              H: bind _ ?x = OK ?x1 |- _ =>
              monadInv H
+           | H: exec_instr _ _ _ _ _ = _ |- _ =>
+             unfold exec_instr in H; simpl in H; inv H
            | |- _ => apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs
            end.
 
@@ -280,28 +282,27 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       Asmgen.ireg_of m = OK x2 ->
       transl_cond cond l (mk_setcc (Asmgen.testcond_for_condition cond) x2 x0) = OK x1 ->
       asm_code_no_rsp x1.
-    Admitted.
-  (* Proof. *)
-  (*   unfold Asmgen.transl_cond; simpl. *)
-  (*   intros x0 m x2 x1 cond l ACNR IREG TRANSL. *)
-  (*   repeat destr_in TRANSL. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm. eapply mkset_cc_no_rsp; eauto.  *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm;  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm.  eapply mkset_cc_no_rsp; eauto. *)
-  (*   invasm.  eapply mkset_cc_no_rsp; eauto. *)
-  (* Qed. *)
+  Proof.
+    unfold transl_cond, Asmgen.transl_cond; simpl.
+    intros x0 m x2 x1 cond l ACNR IREG TRANSL.
+    repeat destr_in TRANSL.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
+    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
+    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
+    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+  Qed.
 
   Lemma goto_label_rsp:
     forall F V (ge: _ F V) rs1 rs2 f l m1 m2,
@@ -318,298 +319,235 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       asm_code_no_rsp x0 ->
       In i (mk_jcc c x2 x0) ->
       asm_instr_no_rsp i.
-    Admitted.
-  (* Proof. *)
-  (*   intros x0 x2 i c A H1. *)
-  (*   unfold Asmgen.mk_jcc in H1. destr_in H1. *)
-  (*   - destruct H1. subst.  red; simpl; intros. *)
-  (*     repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs. *)
-  (*     intros. eapply A; eauto. *)
-  (*   - destruct H1. subst. red; simpl; intros. *)
-  (*     repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs. *)
-  (*     destruct H0. subst.  red; simpl; intros. *)
-  (*     repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs. *)
-  (*     intros. eapply A; eauto. *)
-  (*   - destruct H1. subst.  red; simpl; intros. *)
-  (*     repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs. solve_rs. *)
-  (*     intros. eapply A. eauto.  *)
-  (* Qed. *)
+  Proof.
+    intros x0 x2 i c A H1.
+    unfold mk_jcc, Asmgen.mk_jcc in H1. destr_in H1.
+    - destruct H1. subst.  red; simpl; intros.
+      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs.
+      eapply A; eauto.
+    - destruct H1. subst. red; simpl; intros.
+      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs.
+      destruct H0. subst. red; simpl; intros. 
+      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs.
+      simpl in H0. 
+      eapply A; eauto.
+    - destruct H1. subst.  red; simpl; intros.
+      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs. solve_rs.
+      intros. eapply A. eauto.
+  Qed.
   
   Lemma asmgen_transl_cond_rsp':
     forall x0 x2 x1 cond l,
       asm_code_no_rsp x0 ->
       transl_cond cond l (mk_jcc (Asmgen.testcond_for_condition cond) x2 x0) = OK x1 ->
       asm_code_no_rsp x1.
-  (* Proof. *)
-  (*   unfold Asmgen.transl_cond; simpl. *)
-  (*   intros x0 x2 x1 cond l ACNR TRANSL. *)
-  (*   repeat destr_in TRANSL. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkjcc_no_rsp; eauto.  *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkjcc_no_rsp; eauto.  *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkjcc_no_rsp; eauto.  *)
-  (*   invasm. destruct c; simpl in *; solve_rs. eapply mkjcc_no_rsp; eauto.  *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (*   invasm. intuition subst; eauto. red; simpl; intros. repeat destr_in H1. *)
-  (*   eapply goto_label_rsp; eauto. solve_rs. *)
-  (* Qed. *)
-    Admitted.
+  Proof.
+    unfold transl_cond, Asmgen.transl_cond; simpl.
+    intros x0 x2 x1 cond l ACNR TRANSL.
+    repeat destr_in TRANSL.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
+      invasm; repeat destr_in H3; eauto;
+      eapply goto_label_rsp; eauto.
+    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
+        invasm; repeat destr_in H3; eauto;
+          eapply goto_label_rsp; eauto.
+    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
+        invasm; repeat destr_in H3; eauto;
+          eapply goto_label_rsp; eauto.
+    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
+        invasm; repeat destr_in H3; eauto;
+          eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
+      invasm. repeat destr_in H3; eauto.
+      eapply goto_label_rsp; eauto.
+  Qed.
   
   Lemma asmgen_no_change_rsp:
     forall f tf,
       transf_function f = OK tf ->
       asm_code_no_rsp (Asm.fn_code tf).
-  (* Proof. *)
-  (*   intros f tf TR. *)
-  (*   unfold Asmgen.transf_function in TR. *)
-  (*   monadInv TR. *)
-  (*   destr_in EQ0. inv EQ0. *)
-  (*   unfold Asmgen.transl_function in EQ. *)
-  (*   monadInv EQ. simpl. *)
-  (*   apply asm_code_no_rsp_cons. red; simpl. congruence. *)
-  (*   unfold Asmgen.transl_code' in EQ0. *)
-  (*   revert EQ0. *)
-  (*   set (P := fun f => forall x y, f x = OK y -> asm_code_no_rsp x -> asm_code_no_rsp y). *)
-  (*   assert (P (fun c => OK c)). *)
-  (*   { unfold P; simpl. inversion 1; tauto. } *)
-  (*   revert H0. *)
-  (*   generalize (Mach.fn_code f) true (fun c : code => OK c). *)
-  (*   clear g Heqs. *)
-  (*   induction c; simpl; intros; eauto. *)
-  (*   eapply H0; eauto. red; easy. *)
-  (*   eapply IHc. 2: apply EQ0. *)
-  (*   unfold P. intros. monadInv H1. *)
-  (*   eapply H0; eauto. *)
-  (*   destruct a; simpl in EQ. *)
-  (*   - eapply loadind_no_change_rsp; eauto.  *)
-  (*   - eapply storeind_no_change_rsp; eauto. *)
-  (*   - destr_in EQ. *)
-  (*     eapply loadind_no_change_rsp; eauto. *)
-  (*     monadInv EQ. *)
-  (*     eapply loadind_no_change_rsp. 2: eauto. *)
-  (*     eapply loadind_no_change_rsp; eauto. *)
-  (*   - unfold Asmgen.transl_op in EQ. *)
-  (*     repeat destr_in EQ. *)
-  (*     eapply mk_move_nochange_rsp; eauto. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
-  (*     invasm. *)
+  Proof.
+    intros f tf TR.
+    unfold transf_function, Asmgen.transf_function in TR.
+    monadInv TR.
+    destr_in EQ0. inv EQ0.
+    unfold Asmgen.transl_function in EQ.
+    monadInv EQ. simpl.
+    apply asm_code_no_rsp_cons. red; simpl. congruence.
+    unfold Asmgen.transl_code' in EQ0.
+    revert EQ0.
+    set (P := fun f => forall x y, f x = OK y -> asm_code_no_rsp x -> asm_code_no_rsp y).
+    assert (P (fun c => OK c)).
+    { unfold P; simpl. inversion 1; tauto. }
+    revert H0.
+    generalize (Mach.fn_code f) true (fun c : code => OK c).
+    clear g Heqs.
+    induction c; simpl; intros; eauto.
+    eapply H0; eauto. red; easy.
+    eapply IHc. 2: apply EQ0.
+    unfold P. intros. monadInv H1.
+    eapply H0; eauto.
+    destruct a; simpl in EQ.
+    - eapply loadind_no_change_rsp; eauto.
+    - eapply storeind_no_change_rsp; eauto.
+    - destr_in EQ.
+      eapply loadind_no_change_rsp; eauto.
+      monadInv EQ.
+      eapply loadind_no_change_rsp. 2: eauto.
+      eapply loadind_no_change_rsp; eauto.
+    - unfold Asmgen.transl_op in EQ.
+      repeat destr_in EQ; try       now (invasm; solve_rs).
+      eapply mk_move_nochange_rsp; eauto.
 
-  (*     monadInv H3. *)
-  (*     unfold Asmgen.mk_intconv in EQ4. *)
-  (*     destr_in EQ4. inv EQ4. *)
-  (*     apply asm_code_no_rsp_cons; auto. *)
-  (*     red; simpl; intros. *)
-  (*     solve_rs. *)
-  (*     inv EQ4. *)
-  (*     apply asm_code_no_rsp_cons; auto. *)
-  (*     red; simpl; intros. *)
-  (*     solve_rs. *)
-  (*     apply asm_code_no_rsp_cons; auto. *)
-  (*     red; simpl; intros. *)
-  (*     solve_rs. *)
+      + invasm.
+        unfold Asmgen.mk_intconv in EQ4. inv EQ4.
+        apply asm_code_no_rsp_cons; auto.
+        red; simpl; intros.
+        invasm; destr_in EQ1; solve_rs.
 
+      + invasm.
+        unfold Asmgen.mk_intconv in EQ4. inv EQ4.
+        apply asm_code_no_rsp_cons; auto.
+        red; simpl; intros.
+        invasm; destr_in EQ1; solve_rs.
 
-  (*     monadInv H3. *)
-  (*     unfold Asmgen.mk_intconv in EQ4. *)
-  (*     destr_in EQ4. inv EQ4. *)
-  (*     apply asm_code_no_rsp_cons; auto. *)
-  (*     red; simpl; intros. *)
-  (*     solve_rs. *)
-  (*     inv EQ4. *)
-  (*     apply asm_code_no_rsp_cons; auto. *)
-  (*     red; simpl; intros. *)
-  (*     solve_rs. *)
-  (*     apply asm_code_no_rsp_cons; auto. *)
-  (*     red; simpl; intros. *)
-  (*     solve_rs. *)
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
 
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. solve_rs. solve_rs. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat destr_in H3. solve_rs. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     destr_in EQ1. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     repeat destr_in EQ1. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     repeat apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     progress invasm. *)
-  (*     eapply asmgen_transl_cond_rsp; eauto. *)
-  (*   - unfold Asmgen.transl_load in EQ. *)
-  (*     invasm. *)
-  (*     destruct m; invasm; try (eapply exec_load_rsp; eauto); try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. inv EQ3. inv EQ3. *)
-  (*   - *)
-  (*     unfold Asmgen.transl_store in EQ. *)
-  (*     invasm. *)
-  (*     destruct m; invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     unfold Asmgen.mk_storebyte in EQ4. repeat destr_in EQ4. *)
-  (*     invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     invasm. intuition subst; *)
-  (*               red; intros; simpl in *; solve_rs. *)
-  (*     invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     eapply H2; eauto. *)
-  (*     invasm. intuition subst; *)
-  (*               red; intros; simpl in *; solve_rs. *)
-  (*     invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     eapply H2; eauto. *)
-  (*     unfold Asmgen.mk_storebyte in EQ4. repeat destr_in EQ4. *)
-  (*     invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     invasm. intuition subst; *)
-  (*               red; intros; simpl in *; solve_rs. *)
-  (*     invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     eapply H2; eauto. *)
-  (*     invasm. intuition subst; *)
-  (*               red; intros; simpl in *; solve_rs. *)
-  (*     invasm; try eapply exec_store_rsp; eauto; try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto; *)
-  (*       try eapply freg_of_not_rsp; eauto. *)
-  (*     eapply H2; eauto. *)
-  (*     inv EQ3. *)
-  (*     inv EQ3. *)
-  (*   - destr_in EQ; invasm. inv EQ. invasm. *)
-  (*   - destr_in EQ; invasm. repeat destr_in H3. *)
-  (*     intuition subst; *)
-  (*       red; intros; simpl in *; solve_rs. *)
-  (*     eapply H2; eauto. *)
-  (*     inv EQ. invasm. *)
-  (*     repeat destr_in H3. *)
-  (*     intuition subst; *)
-  (*       red; intros; simpl in *; solve_rs. *)
-  (*     eapply H2; eauto. *)
-  (*   - inv EQ. red; intros; simpl in *. *)
-  (*     intuition subst; red; intros; simpl in *; solve_rs. inv H3. eapply H2; eauto. *)
-  (*   - inv EQ. invasm. *)
-  (*   - inv EQ. invasm. *)
-  (*     eapply goto_label_rsp; eauto. *)
-  (*   - eapply asmgen_transl_cond_rsp'; eauto. *)
-  (*   - inv EQ. invasm. repeat destr_in H3. *)
-  (*     erewrite goto_label_rsp. 2: apply H5. *)
-  (*     solve_rs. *)
-  (*   - inv EQ. invasm. *)
-  (*     repeat destr_in H3. *)
-  (*     intuition subst; *)
-  (*       red; intros; simpl in *; solve_rs. *)
-  (*     eapply H2; eauto. *)
-  (* Qed. *)
-  Admitted.
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs. eauto.
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+
+      + invasm; solve_rs. destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        repeat destr_in H5; solve_rs. eauto.
+      + destr; invasm; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        eauto.
+      + invasm. repeat destr.
+        subst;invasm; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        eauto.
+        red; simpl; intros; invasm; solve_rs.
+        destruct H1; subst;invasm.
+        red; simpl; intros; invasm; solve_rs.
+        eauto.
+      + invasm.
+        eapply asmgen_transl_cond_rsp; eauto.
+    - unfold Asmgen.transl_load in EQ.
+      invasm.
+      destruct m; invasm;
+      try (eapply exec_load_rsp; eauto); try apply not_eq_sym; try eapply ireg_of_not_rsp; eauto;
+        try eapply freg_of_not_rsp; eauto; inv EQ3.
+    - unfold Asmgen.transl_store in EQ.
+      invasm.
+      destruct m; invasm; try eapply exec_store_rsp; eauto; try easy.
+      unfold Asmgen.mk_storebyte in EQ4. repeat destr_in EQ4.
+      + invasm; try eapply exec_store_rsp; eauto. easy.
+      + red; simpl; intros. intuition subst; eauto; try eapply exec_store_rsp; eauto;
+                              red; simpl; intros; invasm; solve_rs.
+        eapply exec_store_rsp; eauto. easy.
+      + red; simpl; intros. intuition subst; eauto; try eapply exec_store_rsp; eauto;
+                              red; simpl; intros; invasm; solve_rs.
+        eapply exec_store_rsp; eauto. easy.
+      + unfold Asmgen.mk_storebyte in EQ4. repeat destr_in EQ4.
+        red; simpl; intros. intuition subst; eauto; try eapply exec_store_rsp; eauto;
+                              red; simpl; intros; invasm; solve_rs.
+        eapply exec_store_rsp; eauto. easy.
+        red; simpl; intros. intuition subst; eauto; try eapply exec_store_rsp; eauto;
+                              red; simpl; intros; invasm; solve_rs.
+        eapply exec_store_rsp; eauto. easy.
+        red; simpl; intros. intuition subst; eauto; try eapply exec_store_rsp; eauto;
+                              red; simpl; intros; invasm; solve_rs.
+        eapply exec_store_rsp; eauto. easy.
+    - destr_in EQ; invasm. solve_rs. inv EQ. invasm. solve_rs.                                                       
+    - destr_in EQ; invasm.
+      + repeat destr_in H5.
+      + intuition subst. red; intros; simpl in *; invasm; solve_rs. eauto.
+      + inv EQ. invasm.
+        repeat destr_in H5.
+        intuition subst; eauto; red; intros; simpl in *; invasm; solve_rs.
+    - inv EQ. red; intros; simpl in *.
+      intuition subst; eauto; red; intros; simpl in *; invasm; solve_rs.
+    - inv EQ. invasm; solve_rs.
+    - inv EQ. invasm; solve_rs.
+      eapply goto_label_rsp; eauto.
+    - eapply asmgen_transl_cond_rsp'; eauto.
+    - inv EQ. invasm; solve_rs. repeat destr_in H5.
+      erewrite goto_label_rsp. 2: apply H4.
+      solve_rs.
+    - inv EQ. invasm.
+      repeat destr_in H5.
+      intuition subst; eauto; red; intros; simpl in *; invasm; solve_rs.
+      Unshelve. all: eauto.
+      apply @Genv.empty_genv. exact nil. exact Mint32. exact Ptrofs.zero.
+      apply @Genv.empty_genv. exact nil. exact Mint32. exact Ptrofs.zero.
+      exact RAX. exact RAX.
+  Qed.
 
   Definition asm_instr_no_stack (i : Asm.instr_with_info) : Prop :=
     is_unchanged i = true ->
@@ -653,20 +591,19 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
 
   Lemma asmgen_no_change_stack i:
     asm_instr_no_stack i.
-  Admitted.
-  (* Proof. *)
-  (*   red; intros IU F V ge0 rs1 m1 rs2 m2 f EI. *)
-  (*   destruct i; *)
-  (*     simpl in IU; try discriminate;  *)
-  (*       simpl in EI; inv EI; *)
-  (*         first [ split;[reflexivity|tauto] *)
-  (*               | now (eapply exec_load_stack; eauto) *)
-  (*               | now (eapply exec_store_stack; eauto) *)
-  (*               | now (repeat destr_in H1; eapply goto_label_stack; eauto) *)
-  (*               | now (repeat destr_in H1) *)
-  (*               | idtac ]. *)
-  (* Qed. *)
-
+  Proof.
+    red; intros IU F V ge0 rs1 m1 rs2 m2 f EI.
+    destruct i as (i & info);
+      destruct i; simpl in IU; try discriminate;
+        unfold exec_instr in EI; simpl in EI; repeat destr_in EI;
+          first [ split;[reflexivity|tauto]
+                | now (eapply exec_load_stack; eauto)
+                | now (eapply exec_store_stack; eauto)
+                | now ( eapply goto_label_stack; eauto)
+                | idtac ].
+    Unshelve. all: auto.
+    apply @Genv.empty_genv. exact nil. exact Mint32. exact PC. exact Ptrofs.zero.
+  Qed.
 
   Definition asm_instr_nb_fw i:=
     forall F V (ge: _ F V) f rs1 m1 rs2 m2,
@@ -701,35 +638,34 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
 
   Lemma asmgen_nextblock_forward i:
     asm_instr_nb_fw i.
-  (* Proof. *)
-  (*   red. intros F V ge f rs1 m1 rs2 m2 EI. *)
-  (*   destruct i; simpl in EI; inv EI; try (apply Ple_refl); *)
-  (*     first [now eapply exec_load_nb; eauto *)
-  (*           | now (eapply exec_store_nb; eauto) *)
-  (*           | idtac ]. *)
-  (*   - repeat destr_in H1. apply Ple_refl. *)
-  (*   - repeat destr_in H1. apply Ple_refl. *)
-  (*   - repeat destr_in H1. apply Ple_refl. *)
-  (*   - repeat destr_in H1. apply Ple_refl. *)
-  (*   - repeat destr_in H1; apply Ple_refl. *)
-  (*   - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl. *)
-  (*   - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl. *)
-  (*   - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl. *)
-  (*   - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl. *)
-  (*   - repeat destr_in H1. *)
-  (*     edestruct (Mem.push_frame_alloc_record) as (m3 & ALLOC & m4 & STORES & RSB). eauto. *)
-  (*     edestruct Mem.record_stack_blocks_mem_unchanged; eauto. simpl. eauto. *)
-  (*     rewrite H0. *)
-  (*     apply Mem.do_stores_nextblock in STORES. rewrite STORES. *)
-  (*     rewrite (Mem.nextblock_alloc _ _ _ _ _ ALLOC). *)
-  (*     xomega. *)
-  (*   - repeat destr_in H1. *)
-  (*     edestruct Mem.unrecord_stack_block_mem_unchanged. simpl; eauto. *)
-  (*     rewrite H0. *)
-  (*     rewrite (Mem.nextblock_free _ _ _ _ _ Heqo1). apply Ple_refl. *)
-  (* Qed. *)
-    Admitted.
-
+  Proof.
+    red. intros F V ge f rs1 m1 rs2 m2 EI.
+    unfold exec_instr in EI.
+    destruct i as(i&info); destruct i; simpl in EI; inv EI; try (apply Ple_refl);
+      first [now eapply exec_load_nb; eauto
+            | now (eapply exec_store_nb; eauto)
+            | idtac ].
+    - repeat destr_in H1. apply Ple_refl.
+    - repeat destr_in H1. apply Ple_refl.
+    - repeat destr_in H1. apply Ple_refl.
+    - repeat destr_in H1. apply Ple_refl.
+    - repeat destr_in H1; apply Ple_refl.
+    - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
+    - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
+    - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
+    - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
+    - repeat destr_in H1.
+      edestruct (Mem.push_frame_alloc_record) as (m3 & ALLOC & m4 & STORES & RSB). eauto.
+      edestruct Mem.record_stack_blocks_mem_unchanged; eauto. simpl. eauto.
+      rewrite H0.
+      apply Mem.do_stores_nextblock in STORES. rewrite STORES.
+      rewrite (Mem.nextblock_alloc _ _ _ _ _ ALLOC).
+      xomega.
+    - repeat destr_in H1.
+      edestruct Mem.unrecord_stack_block_mem_unchanged. simpl; eauto.
+      rewrite H0.
+      rewrite (Mem.nextblock_free _ _ _ _ _ Heqo1). apply Ple_refl.
+  Qed.
 
   Lemma val_inject_set:
     forall j rs1 rs2
