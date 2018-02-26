@@ -23,8 +23,8 @@ Definition extfuns_sect_id: ident := 4%positive.
 
 Definition data_label (ofs:Z) : sect_label := (data_sect_id, Ptrofs.repr ofs).
 Definition code_label (ofs:Z) : sect_label := (code_sect_id, Ptrofs.repr ofs).
+Definition extfun_label (ofs:Z) : sect_label := (extfuns_sect_id, Ptrofs.repr ofs).
 
-(* Definition ENCODE_TYPE := FlatAsm.instruction -> res Z. *)
 Definition GID_MAP_TYPE := ident -> option sect_label.
 Definition LABEL_MAP_TYPE := ident -> Asm.label -> option Z.
 
@@ -477,7 +477,7 @@ Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
     | External f => 
       (* We assume an external function only occupies one byte *)
       let nofs := ofs+1 in
-      let sblk := mkSectBlock extfuns_sect_id (Ptrofs.repr nofs) (Ptrofs.repr 1) in
+      let sblk := mkSectBlock extfuns_sect_id (Ptrofs.repr nofs) Ptrofs.one in
       do (fofs, tgdefs') <- transl_ext_funs nofs gdefs';
       OK (fofs, (id, Some (Gfun (External f)), sblk)::tgdefs')
     | Internal fd =>
@@ -491,12 +491,13 @@ Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
 Section WITHMEMORYMODELOPS.
 Context `{memory_model_ops: Mem.MemoryModelOps}.
 
-Definition gen_smap (ds_size cs_size : Z) : res section_map :=
-  if zle (ds_size + cs_size + Mem.stack_limit) Ptrofs.modulus then
-    let t1 := PTree.set stack_sect_id (Ptrofs.repr (Ptrofs.modulus - Mem.stack_limit)) (PTree.empty _) in
+Definition gen_smap (ds_size cs_size es_size: Z) : res section_map :=
+  if zle (ds_size + cs_size + es_size + Mem.stack_limit) Ptrofs.modulus then
+    let t1 := PTree.set data_sect_id Ptrofs.zero (PTree.empty _) in
     let t2 := PTree.set code_sect_id (Ptrofs.repr ds_size) t1 in
-    let t3 := PTree.set data_sect_id Ptrofs.zero t2 in
-    OK t3
+    let t3 := PTree.set extfuns_sect_id (Ptrofs.repr (ds_size + cs_size)) t2 in
+    let t4 := PTree.set stack_sect_id (Ptrofs.repr (Ptrofs.modulus - Mem.stack_limit)) t3 in
+    OK t4
   else
     Error (MSG "Sections are too large to fit into the memory" :: nil).
 
@@ -506,7 +507,7 @@ Definition transl_prog_with_map (p:Asm.program) : res program :=
   do (h, code) <- transl_funs 0 (AST.prog_defs p);
   let (code_sz, fun_defs) := h in
   do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
-  do smap <- gen_smap data_sz (code_sz + extfuns_sz);
+  do smap <- gen_smap data_sz code_sz extfuns_sz;
   OK (Build_program
         (data_defs ++ fun_defs ++ ext_fun_defs)
         (AST.prog_public p)
@@ -567,11 +568,6 @@ mkCinfo{
 }.
 
 
-Section WITH_ENCODE_FUN.
-
-(** Given a FlatAsm instruciton, encode returns the size of its machine encoding *)
-Variable encode : FlatAsm.instruction -> res Z.
-
 Definition transl_instr_dummy := transl_instr default_gid_map default_label_map 1%positive.
 
 (** Update the gid mapping for a single instruction *)
@@ -596,7 +592,7 @@ Fixpoint update_instrs_map (fid:ident) (ci:cinfo) (instrs: list Asm.instr_with_i
     update_instrs_map fid ci' instrs'
   end.
 
-(** Update the gid mapping for all functions *)
+(** Update the gid mapping for all internal functions *)
 Fixpoint update_funs_map (ci:cinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
                          : cinfo :=
   match gdefs with
@@ -618,11 +614,36 @@ Fixpoint update_funs_map (ci:cinfo) (gdefs : list (ident * option (AST.globdef A
     update_funs_map ci gdefs'
   end.
 
+
+(** Update the gid mapping for all external functions *)
+Fixpoint update_extfuns_map (ei: dinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+  : dinfo :=
+  match gdefs with
+  | nil => ei
+  | ((id, None) :: gdefs') =>
+    update_extfuns_map ei gdefs'
+  | ((id, Some (AST.Gfun f)) :: gdefs') =>
+    match f with
+    | External _ => 
+      let ei' := mkDinfo (di_size ei + 1)
+                         (update_gid_map id (extfun_label (di_size ei)) (di_map ei))
+      in
+      update_extfuns_map ei' gdefs'
+    | Internal f =>
+      update_extfuns_map ei gdefs'
+    end
+  | ((id, Some (AST.Gvar v)) :: gdefs') =>
+    update_extfuns_map ei gdefs'
+  end.
+  
+
 (** Update the gid and label mappings by traversing an Asm program *)
 Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE) :=
   let init_di := (mkDinfo 0 default_gid_map) in
-  let map := di_map (update_gvars_map init_di (AST.prog_defs p)) in
-  let init_ci := mkCinfo 0 map default_label_map in
+  let di := update_gvars_map init_di (AST.prog_defs p) in
+  let ei := mkDinfo 0 (di_map di) in
+  let ei' := update_extfuns_map ei (AST.prog_defs p) in
+  let init_ci := mkCinfo 0 (di_map ei') default_label_map in
   let final_ci := update_funs_map init_ci (AST.prog_defs p) in
   OK (ci_map final_ci, ci_lmap final_ci).
 
@@ -636,5 +657,3 @@ Definition transf_program (p:Asm.program) : res program :=
   transl_prog_with_map gmap lmap p.
 
 End WITHMEMORYMODELOPS.
-
-End WITH_ENCODE_FUN.
