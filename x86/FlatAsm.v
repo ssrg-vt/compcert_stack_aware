@@ -231,7 +231,7 @@ Inductive instruction: Type :=
   | Pmovsd_fm_a (rd: freg) (a: addrmode) (**r like [Pmovsd_fm], using [Many64] chunk *)
   | Pmovsd_mf_a (a: addrmode) (r1: freg) (**r like [Pmovsd_mf], using [Many64] chunk *)
   (** Pseudo-instructions *)
-  (* | Plabel(l: label) *)
+  | Plabel(l: label)
   | Pallocframe(frame: frame_info)(ofs_ra ofs_link: ptrofs)
   | Pfreeframe (sz: Z) (ofs_ra ofs_link: ptrofs)
   | Pbuiltin(ef: external_function)(args: list (builtin_arg preg))(res: builtin_res preg)
@@ -382,10 +382,7 @@ Definition nextinstr_nf (rs: regset) (isz:ptrofs) : regset :=
   nextinstr (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) rs) isz.
 
 Definition goto_label {F I} (ge: Genv.t F I) (lbl: label) (rs: regset) (m: mem) :=
-  match (Genv.get_label_offset0 ge lbl) with
-  | None => Stuck
-  | Some lofs => Next (rs#PC <- (flatptr lofs)) m
-  end.
+  Next (rs#PC <- (Genv.get_label_addr0 ge lbl)) m.
 
 (** [CompCertiKOS:test-compcert-param-mem-accessors] For CertiKOS, we
 need to parameterize over [exec_load] and [exec_store], which will be
@@ -778,13 +775,9 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | _ => Stuck
       end
   | Pcall_s gloc sg =>
-    match (Genv.get_label_offset0 ge gloc) with
-    | None => Stuck
-    | Some ofs => 
-      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (flatptr ofs)) m
-    end
+      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.get_label_addr0 ge gloc)) m
   | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) m
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
@@ -799,8 +792,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pmovsd_mf_a a r1 =>
       exec_store _ _ ge Many64 m a rs r1 nil sz
   (** Pseudo-instructions *)
-  (* | Plabel lbl => *)
-  (*     Next (nextinstr rs) m *)
+  | Plabel lbl =>
+      Next (nextinstr rs sz) m
   | Pallocframe fi ofs_ra ofs_link =>
     let sp := alloc_stack_frame (rs RSP) fi in
     match Mem.storev Mptr m (Val.offset_ptr sp ofs_link) rs#RSP with
@@ -809,23 +802,17 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       match Mem.storev Mptr m2 (Val.offset_ptr sp ofs_ra) rs#RA with
       | None => Stuck
       | Some m3 =>
-        (* For now we just assume that Pallocframe does not take any space.
-           This will be changed once we figure out how to translate the
-           pseudo instructions into real instructions *)
-        Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) Ptrofs.zero) m3
+        Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) sz) m3
       end
     end
-  | Pfreeframe sz ofs_ra ofs_link =>
+  | Pfreeframe sz' ofs_ra ofs_link =>
     match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
     | None => Stuck
     | Some ra =>
       match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_link) with
       | None => Stuck
       | Some sp =>
-        (* For now we just assume that Pfreeframe does not take any space.
-           This will be changed once we figure out how to translate the
-           pseudo instructions into real instructions *)
-        Next (nextinstr (rs#RSP <- sp #RA <- ra) Ptrofs.zero) m
+        Next (nextinstr (rs#RSP <- sp #RA <- ra) sz) m
       end
     end
   | Pcfi_adjust n => Next rs m
@@ -885,14 +872,14 @@ Definition no_rsp_pair := Asm.no_rsp_pair.
 Definition extcall_arguments := Asm.extcall_arguments.
 
 Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} 
-  (smap: section_map) (ge: genv ) : state -> trace -> state -> Prop :=
+  (ge: genv) : state -> trace -> state -> Prop :=
 | exec_step_internal:
     forall ofs i rs m rs' m',
       rs PC = Vptr mem_block ofs ->
       Genv.genv_is_instr_internal ge ofs = true ->
       Genv.find_instr ge ofs = Some i ->
       exec_instr ge i rs m = Next rs' m' ->
-      step smap ge (State rs m) E0 (State rs' m')
+      step ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
     forall ofs ef args res rs m vargs t vres rs' m' blk,
       rs PC = Vptr mem_block ofs ->
@@ -905,7 +892,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         rs' = nextinstr_nf
                 (set_res res vres
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) (sect_block_size blk) ->
-        step smap ge (State rs m) t (State rs' m')
+        step ge (State rs m) t (State rs' m')
 | exec_step_external:
     forall ofs ef args res rs m t rs' m',
       rs PC = Vptr mem_block ofs ->
@@ -927,68 +914,64 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         external_call ef dummy_senv args m t res m' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
-        step smap ge (State rs m) t (State rs' m').
+        step ge (State rs m) t (State rs' m').
 
 End RELSEM.
 
 (** Initialization of the global environment *)
-Definition add_global (ge:genv) (idg: ident * option gdef * sect_block) : option genv :=
+Definition add_global (ge:genv) (idg: ident * option gdef * sect_block) : genv :=
   let '(gid,gdef,sb) := idg in
   match (Genv.get_block_offset0 ge sb) with
-  | None => None
+  | None => ge
   | Some ofs =>
     match gdef with
-    | None => Some ge
-    | Some (Gvar _) => Some ge
+    | None => ge
+    | Some (Gvar _) => ge
     | Some (Gfun f) =>
-      Some (Genv.mkgenv
-              (ZTree.set (Ptrofs.unsigned ofs) f (Genv.genv_defs ge))
-              (Genv.genv_smap ge)
-              (Genv.genv_instrs_map ge)
-              (Genv.genv_is_instr_internal ge))
+      (Genv.mkgenv
+         (ZTree.set (Ptrofs.unsigned ofs) f (Genv.genv_defs ge))
+         (Genv.genv_smap ge)
+         (Genv.genv_instrs_map ge)
+         (Genv.genv_is_instr_internal ge))
     end
   end.
 
-Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * sect_block)) : option genv :=
+Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * sect_block)) : genv :=
   match gl with
-  | nil => Some ge
+  | nil => ge
   | (idg::gl') => 
-    match (add_global ge idg) with
-    | None => None
-    | Some ge' => add_globals ge' gl'
-    end
+    let ge' := add_global ge idg in
+    add_globals ge' gl'
   end.  
 
 (* Get the offset of an instruction in the flat memory space *)
 Definition get_instr_ofs (smap: section_map) (i:instr_with_info): option ptrofs :=
   let (_,bi) := i in get_sect_block_offset0 smap bi.
 
-Definition acc_instr_map (smap:section_map) (i:instr_with_info) map : option (ZTree.t instr_with_info) :=
+Definition acc_instr_map (smap:section_map) (i:instr_with_info) map : ZTree.t instr_with_info :=
   match (get_instr_ofs smap i) with
-  | None => None
-  | Some ofs => Some (ZTree.set (Ptrofs.unsigned ofs) i map)
+  | None => ZTree.empty _
+  | Some ofs => ZTree.set (Ptrofs.unsigned ofs) i map
   end.
 
-Fixpoint acc_instrs_map (smap:section_map) (c:code) map : option (ZTree.t instr_with_info) :=
+Fixpoint acc_instrs_map (smap:section_map) (c:code) map : ZTree.t instr_with_info :=
   match c with 
-  | nil => Some map 
+  | nil => map 
   | i'::c' => 
-    match (acc_instr_map smap i' map) with
-    | None => None
-    | Some map' => acc_instrs_map smap c' map'
-    end
+    let map' := acc_instr_map smap i' map in
+    acc_instrs_map smap c' map'
   end.
 
 (* Generate a mapping from offsets to instructions *)
-Definition gen_instrs_map (p:program) : option (ZTree.t instr_with_info) :=
+Definition gen_instrs_map (p:program) : ZTree.t instr_with_info :=
   acc_instrs_map (sects_map p) (snd (code_sect p)) (ZTree.empty _).  
   
 (* Generate a function for checking if pc points to an internal instruction *)
-Definition gen_is_instr_internal (p:program) : option (ptrofs -> bool) :=
+Definition gen_is_instr_internal (p:program) : ptrofs -> bool:=
   match (get_section_range (sects_map p) (fst (code_sect p))) with
-  | None => None
+  | None => (fun ofs => false)
   | Some (s,e) => 
-    Some (fun ofs => andb (Ptrofs.cmpu Cle s ofs) (Ptrofs.cmpu Clt ofs e))
+    fun ofs => andb (Ptrofs.cmpu Cle s ofs) (Ptrofs.cmpu Clt ofs e)
   end.
 
 Definition empty_genv (smap: section_map)
@@ -997,12 +980,10 @@ Definition empty_genv (smap: section_map)
   Genv.mkgenv (ZTree.empty _) smap instrs_map is_instr_internal.
 
 
-Definition globalenv (p: program) : option genv :=
-  match (gen_instrs_map p, gen_is_instr_internal p) with
-  | (Some imap, Some f) => 
-    add_globals (empty_genv (sects_map p) imap f) p.(prog_defs)
-  | (_, _) => None
-  end.
+Definition globalenv (p: program) : genv :=
+  let imap := gen_instrs_map p in
+  let f := gen_is_instr_internal p in
+    add_globals (empty_genv (sects_map p) imap f) p.(prog_defs).
 
 (** Initialization of the memory *)
 Definition mem_block_size : Z :=
@@ -1045,7 +1026,7 @@ Definition alloc_global (smap:section_map) (m: mem) (idg: ident * option gdef * 
   match (get_sect_block_offset0 smap sb) with
   | None => None
   | Some ofs => 
-    let ofs := Ptrofs.signed ofs in
+    let ofs := Ptrofs.unsigned ofs in
     match gdef with
     | None =>
       Some m
@@ -1082,12 +1063,9 @@ Fixpoint alloc_globals (smap:section_map) (m: mem) (gl: list (ident * option gde
 End WITHGE.
 
 Definition init_mem (p: program) :=
-  match (globalenv p) with
-  | None => None
-  | Some ge => 
-    let im := fst (Mem.alloc Mem.empty 0 mem_block_size) in
-    alloc_globals ge p.(sects_map) im p.(prog_defs)
-  end.
+  let ge := globalenv p in
+  let im := fst (Mem.alloc Mem.empty 0 mem_block_size) in
+  alloc_globals ge p.(sects_map) im p.(prog_defs).
 
 (** Execution of whole programs. *)
 Fixpoint get_main_block (main:ident) (l: list (ident * option gdef * sect_block)) : option sect_block :=
@@ -1105,9 +1083,8 @@ Definition get_main_fun_offset (p:program) : option ptrofs :=
   end.
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall m0 start_ofs ge rng,
+  | initial_state_intro: forall m0 start_ofs rng,
       init_mem p = Some m0 ->
-      globalenv p = Some ge ->
       get_main_fun_offset p = Some start_ofs ->
       (get_section_range (sects_map p) (stack_sect p) = Some rng) ->
       let rs0 :=
@@ -1126,10 +1103,7 @@ Inductive final_state: state -> int -> Prop :=
 Local Existing Instance mem_accessors_default.
 
 Definition semantics (p: program) :=
-  match (globalenv p) with
-  | None => None
-  | Some ge => Some (Semantics_gen (step p.(sects_map)) (initial_state p) final_state ge dummy_senv)
-  end.
+  Semantics_gen step (initial_state p) final_state (globalenv p) dummy_senv.
 
 (* (** Determinacy of the [Asm] semantics. *) *)
 
@@ -1155,7 +1129,7 @@ Definition semantics (p: program) :=
 (*   intros. eapply C; eauto. *)
 (* Qed. *)
 
-Lemma semantics_determinate: forall p sem, semantics p = Some sem -> determinate sem.
+Lemma semantics_determinate: forall p, determinate (semantics p).
 Proof.
 Ltac Equalities :=
   match goal with
@@ -1163,18 +1137,7 @@ Ltac Equalities :=
       rewrite H1 in H2; inv H2; Equalities
   | _ => idtac
   end.
-  intros. unfold semantics in H.
-  destruct (globalenv p); inversion H; clear H. subst sem.
-  set (sem :=
-         {|
-           Smallstep.state := state;
-           genvtype := genv;
-           Smallstep.step := step (sects_map p);
-           Smallstep.initial_state := initial_state p;
-           Smallstep.final_state := final_state;
-           Smallstep.globalenv := g;
-           symbolenv := dummy_senv |}) in *.
-  constructor; simpl; intros.
+  intros; constructor; simpl; intros.
 - (* determ *)
   inv H; inv H0; Equalities.
 + split. constructor. auto.

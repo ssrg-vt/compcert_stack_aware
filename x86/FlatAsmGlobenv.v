@@ -64,7 +64,7 @@ Variable I: Type.  (**r The type of instructions *)
 (** The type of global environments. *)
 
 Record t: Type := mkgenv {
-  genv_defs: ZTree.t F;                 (**r mapping block -> function defintions *)
+  genv_defs: ZTree.t F;                 (**r mapping offsets -> function defintions *)
   genv_smap: section_map;               (**r mapping from section ids to their addresses *)
   genv_instrs_map: ZTree.t I;           (**r mapping offset -> instructions *)
   genv_is_instr_internal : ptrofs -> bool;       (**r checking if pc points to an internal instruction *)
@@ -72,7 +72,7 @@ Record t: Type := mkgenv {
 
 (** ** Lookup functions *)
 
-(** [find_funct_ptr ge b] returns the function description associated with
+(** [find_funct_ptr ge ofs] returns the function description associated with
     the given address. *)
 
 Definition find_funct_offset (ge: t) (ofs: ptrofs) : option F :=
