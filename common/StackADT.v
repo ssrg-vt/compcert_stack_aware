@@ -793,13 +793,14 @@ Section INJ.
       stack_inject_pack:
         forall i j (G: g i = Some j), j <= i;
       stack_inject_sizes:
-        forall i1 i2 f1 f2
-          (FAP1: f1 @ s1 : i1)
-          (FAP2: f2 @ s2 : i2)
-          (G: g i1 = Some i2)
-          (LARGEST: forall i, g i = Some i2 -> i <= i1),
-          (size_opt_frames (opt_last f2) <= size_opt_frames (opt_last f1))%Z
-          (* (frame_adt_size (alast f2) <= frame_adt_size (alast f1))%Z *);
+        (size_stack s2 <= size_stack s1)%Z;
+        (* forall i1 i2 f1 f2 *)
+        (*   (FAP1: f1 @ s1 : i1) *)
+        (*   (FAP2: f2 @ s2 : i2) *)
+        (*   (G: g i1 = Some i2) *)
+        (*   (LARGEST: forall i, g i = Some i2 -> i <= i1), *)
+        (*   (size_opt_frames (opt_last f2) <= size_opt_frames (opt_last f1))%Z *)
+        (*   (* (frame_adt_size (alast f2) <= frame_adt_size (alast f1))%Z *); *)
       stack_inject_surjective:
         frameinj_surjective g (length s2);
     }.
@@ -938,8 +939,7 @@ Section INJ.
           in_frame vf2 b2 /\
           g i1 = Some i2 /\
           tframe_inject f f1 f2 /\
-          i2 <= i1 /\
-          ((forall i, g i = Some i2 -> i <= i1) -> (size_opt_frames (opt_last f2) <= size_opt_frames (opt_last f1))%Z).
+          i2 <= i1.
   Proof.
     intros f g m s1 s2 SI b1 b2 delta FB i1 f1 FAP IFR (o & k & p & PERM & IPC).
     edestruct stack_inject_compat as (i2 & f2 & vf2 & FAP2 & VF2 & IFR2 & GI1); eauto.
@@ -952,11 +952,8 @@ Section INJ.
     assert (i2 = i2') by congruence. subst.
     assert (f2 = f2') by (eapply frame_at_same_pos; eauto). subst.
     split; eauto.
-    split.
     eapply stack_inject_pack; eauto.
-    intros; eapply stack_inject_sizes; eauto.
   Qed.
-
 
   Lemma stack_inject_is_stack_top:
     forall f g m s1 s2,
@@ -969,7 +966,7 @@ Section INJ.
   Proof.
     intros f g m s1 s2 SI b1 b2 delta FB PERM IST.
     destruct (stack_top_frame_at_position _ _ IST) as (ff & FAP1 & IFR1).
-    edestruct stack_inject_block_inject as (i2 & f2 & vf2 & FAP2 & VF2 & IFR2 & GI1 & FI & LE & SZ); eauto.
+    edestruct stack_inject_block_inject as (i2 & f2 & vf2 & FAP2 & VF2 & IFR2 & GI1 & FI & LE); eauto.
     eapply frame_at_position_stack_top; eauto.
     constructor.
     replace i2 with O in * by omega. 
@@ -1395,17 +1392,7 @@ Section INJ.
       intros i j CINJ; destr_in CINJ.
       eapply stack_inject_pack0 in Heqo.
       eapply stack_inject_pack1 in CINJ. omega.
-    - unfold compose_frameinj.
-      intros i1 i3 f1 f3 FAP1 FAP3 CINJ LT.
-      destr_in CINJ.
-      destruct (stack_inject_frame_inject0 _ _ _ Heqo FAP1) as (f2 & FAP2 & FI12).
-      destruct (stack_inject_frame_inject1 _ _ _ CINJ FAP2) as (f3' & FAP3' & FI23).
-      edestruct (compose_frameinj_smallest g g') as (i2 & G12 & G23 & SMALLEST12 & SMALLEST23); eauto.
-      intros. eapply stack_inject_surjective0. eapply stack_inject_range1. eauto.
-      unfold compose_frameinj; rewrite Heqo, CINJ. auto.
-      assert (f3 = f3') by (eapply frame_at_same_pos; eauto). subst.
-      assert (n =i2) by congruence. subst. 
-      transitivity (size_opt_frames (opt_last f2)); eauto.
+    - omega.
     - unfold compose_frameinj.
       red. intros j LT.
       edestruct (stack_inject_surjective1 _ LT) as (i3 & G3).
@@ -1952,7 +1939,7 @@ Qed.
     - congruence.
     (* - simpl; intros; omega. *)
     - congruence.
-    - congruence.
+    - reflexivity.
     - red. simpl. intros; omega.
   Qed.
 
@@ -2365,38 +2352,7 @@ Qed.
       stack_inject j g P s1 s2 ->
       (size_stack s2 <= size_stack s1)%Z.
   Proof.
-    intros j g P s1 s2 SI.
-    transitivity (size_stack (filteri (fun i1 _ => latestb g i1 (length s1)) (pairi s1 O))).
-    2: apply size_stack_filteri.
-    erewrite <- (map_snd_pairi s2).
-    instantiate (1:=O).
-    apply size_stack_filteri_le.
-    - apply sorted_fst_pairi.
-    - apply sorted_fst_pairi.
-    - intros. apply In_pairi_nth in H.
-      apply In_pairi_nth in H0.
-      rewrite <- minus_n_O in *.
-      eapply stack_inject_sizes; eauto; try (now (constructor; eauto)).
-    - intros.
-      apply In_pairi_nth in H. rewrite <- minus_n_O in H.
-      exploit stack_inject_frame_inject; eauto. constructor; eauto. intros (f2 & FAP & FI).
-      inv FAP. eapply nth_In_pairi with (n:=O) in H1.
-      rewrite plus_0_r in H1. eauto.
-    - intros.
-      rewrite in_map_iff in IN.
-      destruct IN as ((ii & f) & EQ & IN). subst. simpl in *.
-      eapply In_pairi_nth in IN. rewrite <- minus_n_O in IN.
-      eapply stack_inject_range in GJ; eauto.
-      destruct GJ as (LTi1 & LTj0).
-      replace (i1) with (i1+O)%nat by omega. eapply In_map_fst_pairi. auto.
-    - intros; eapply stack_inject_range in H; eauto. tauto.
-    - intros. inv SI. eauto.
-    - intros j0 f IN.
-      eapply In_pairi_nth in IN. rewrite <- minus_n_O in IN.
-      destruct (stack_inject_surjective _ _ _ _ _ SI j0). rewrite <- nth_error_Some. congruence.
-      exists x; split; auto.
-      replace (x) with (x+O)%nat by omega. eapply In_map_fst_pairi. 
-      eapply stack_inject_range in H; eauto. tauto.
+    inversion 1; auto.
   Qed.
 
   (* Lemma stack_inject_g0_0: *)
@@ -2430,8 +2386,7 @@ Qed.
     - intros i j H; destr_in H; inv H.
     (* - intros. exists i; destr. *)
     - intros i j H; destr_in H; inv H. omega.
-    - intros i1 i2 f1 f2 FAP1 FAP2 EQ LT; repeat destr_in EQ.
-      assert (f1 = f2) by (eapply frame_at_same_pos; eauto). subst. omega.
+    - reflexivity.
     - intros i LT. exists i; destr. 
   Qed.
 
@@ -2737,7 +2692,7 @@ Proof.
   eapply stack_inject_surjective0; eauto.
   apply stack_inject_range0 in H0. omega.
 Qed.
-
+(*
 Lemma stack_inject_unrecord_left:
   forall j g m1 s1 s2
     (SI: stack_inject j g m1 s1 s2)
@@ -2772,9 +2727,7 @@ Proof.
     intro; subst.
     generalize (fun pf => stack_inject_diff_increases _ _ _ _ _ SI _ _ _ _ EXOTHERS pf G).
     intros GSSpec. trim GSSpec. omega. omega.
-  + intros i1 i2 f1 f2 FAP1 FAP2 GS LT.
-    eapply frame_at_pos_cons in FAP1. eapply stack_inject_sizes; eauto.
-    intros i GI. destruct i. omega. apply Peano.le_n_S. apply LT. auto.
+  + 
   + intros i LT.
     destruct (Nat.eq_dec i O); subst.
     * eauto.
@@ -2833,7 +2786,7 @@ Proof.
       exploit (frameinj_mono_inv _ stack_inject_mono0 O i). omega. eauto. eauto.
       intros; exists (pred i3). rewrite <- G3. f_equal. omega.
 Qed.
-
+*)
 Lemma frame_at_pos_cons_inv:
   forall a s i f,
     frame_at_pos (a::s) i f ->
@@ -2854,7 +2807,8 @@ Lemma stack_inject_unrecord_parallel:
     fr2 l2
     (STK2 : s2 = fr2 :: l2)
     fr1 l1
-    (STK1 : s1 = fr1 :: l1),
+    (STK1 : s1 = fr1 :: l1)
+    (SZ: (size_stack l2 <= size_stack l1)%Z),
     stack_inject j (fun n : nat => option_map Init.Nat.pred (g (S n))) m1 l1 l2.
 Proof.
   intros. subst.
@@ -2898,15 +2852,6 @@ Proof.
     unfold option_map in G. repeat destr_in G.
     exploit stack_inject_pack; eauto. simpl.
     omega.
-  + intros i1 i2 f1 f2 FAP1 FAP2 GS LT.
-    unfold option_map in GS; destr_in GS; inv GS.
-    eapply frame_at_pos_cons in FAP1.
-    eapply frame_at_pos_cons in FAP2.
-    eapply stack_inject_sizes; eauto.
-    destruct n. eapply NO0 in Heqo. omega. omega. simpl. eauto.
-    destruct n. eapply NO0 in Heqo. intros; omega. omega. simpl. eauto.
-    intros i GI. destruct i. omega. apply Peano.le_n_S. apply LT.
-    rewrite GI. simpl. auto.
   + unfold option_map. intros i LT.
     edestruct (stack_inject_surjective0 (S i)) as (i1 & G1). simpl; omega.
     exists (pred i1). replace (S (pred i1)) with i1. rewrite G1. reflexivity.
@@ -2924,7 +2869,8 @@ Lemma stack_inject_unrecord_parallel_frameinj_flat_on:
     fr2 l2
     (STK2 : s2 = fr2 :: l2)
     fr1 l1
-    (STK1 : s1 = fr1 :: l1),
+    (STK1 : s1 = fr1 :: l1)
+    (SZ: (size_stack l2 <= size_stack l1)%Z),
     stack_inject j (flat_frameinj (length l2)) m1 l1 l2.
 Proof.
   intros. subst.
@@ -2969,14 +2915,6 @@ Proof.
   +
     intros.
     unfold flat_frameinj in G. repeat destr_in G. auto.
-  + intros i1 i2 f1 f2 FAP1 FAP2 GS LT.
-    unfold flat_frameinj in GS; destr_in GS; inv GS.
-    eapply frame_at_pos_cons in FAP1.
-    eapply frame_at_pos_cons in FAP2.
-    eapply stack_inject_sizes; eauto.
-    unfold flat_frameinj. simpl. destr. omega.
-    intros i GI. destruct i. omega. apply Peano.le_n_S. apply LT.
-    unfold flat_frameinj in *. destr_in GI. inv GI. destr.
   + apply frameinj_surjective_flat. auto. 
 Qed.
 
