@@ -573,7 +573,7 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       type_of_fundef fd = Tfunction tyargs tyres cconv ->
       step (State f (Scall optid a al) k e le m)
-        E0 (Callstate fd vargs (Kcall optid f e le k) m (fn_stack_requirements id))
+        E0 (Callstate fd vargs (Kcall optid f e le k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
   | step_builtin:   forall f optid ef tyargs al k e le m vargs t vres m',
       eval_exprlist e le m al tyargs vargs ->
@@ -688,8 +688,8 @@ Inductive initial_state (p: program): state -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks false m1 (make_singleton_frame_adt b1 0 0) m2 ->
-      initial_state p (Callstate f nil Kstop m2 (fn_stack_requirements (prog_main p))).
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 (** A final state is a [Returnstate] with an empty continuation. *)
 
@@ -710,7 +710,7 @@ Inductive function_entry1 (ge: genv) (f: function) (vargs: list val) (m: mem) (e
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info ge e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks false m1 fa m1' ->
+      Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m' ->
       le = create_undef_temps f.(fn_temps) ->
       function_entry1 ge f vargs m e le m' sz.
@@ -727,7 +727,7 @@ Inductive function_entry2 (ge: genv)  (f: function) (vargs: list val) (m: mem) (
       alloc_variables ge empty_env m f.(fn_vars) e m' ->
       frame_adt_blocks fa = blocks_with_info ge e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks false m' fa m1' ->
+      Mem.record_stack_blocks m' fa = Some m1' ->
       bind_parameter_temps f.(fn_params) vargs (create_undef_temps f.(fn_temps)) = Some le ->
       function_entry2 ge f vargs m e le m1' sz.
 

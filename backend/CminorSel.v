@@ -367,7 +367,7 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       step (State f (Scall optid sig a bl) k sp e m)
-        E0 (Callstate fd vargs (Kcall optid f sp e k) m (fn_stack_requirements id))
+        E0 (Callstate fd vargs (Kcall optid f sp e k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
   | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' m'' id (IFI: is_function_ident ge vf id),
       eval_expr_or_symbol (Vptr sp Ptrofs.zero) e m nil a vf ->
@@ -375,7 +375,6 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Stailcall sig a bl) k (Vptr sp Ptrofs.zero) e m)
         E0 (Callstate fd vargs (call_cont k) m'' (fn_stack_requirements id))
 
@@ -441,7 +440,7 @@ Inductive step: state -> trace -> state -> Prop :=
 
   | step_internal_function: forall f vargs k m m' sp e m'' sz,
       Mem.alloc m 0 f.(fn_stackspace) = (m', sp) ->
-      Mem.record_stack_blocks m' (make_singleton_frame_adt sp (fn_stackspace f) sz) m'' ->
+      Mem.record_stack_blocks m' (make_singleton_frame_adt sp (fn_stackspace f) sz) = Some m'' ->
       set_locals f.(fn_vars) (set_params vargs f.(fn_params)) = e ->
       step (Callstate (Internal f) vargs k m sz)
         E0 (State f f.(fn_body) k (Vptr sp Ptrofs.zero) e m'')
@@ -464,8 +463,8 @@ Inductive initial_state (p: program): state -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks m1 (make_singleton_frame_adt b1 0 0) m2 ->
-      initial_state p (Callstate f nil Kstop m2 (fn_stack_requirements (prog_main p))).
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall r m,

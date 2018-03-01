@@ -137,7 +137,7 @@ Inductive state `{memory_model_ops: Mem.MemoryModelOps} : Type :=
       forall (stack: list stackframe) (**r call stack *)
              (f: fundef)              (**r function to call *)
              (ls: locset)             (**r location state of caller *)
-             (m: mem) (sz: Z) (tailcall: bool),                (**r memory state *)
+             (m: mem) (sz: Z),                (**r memory state *)
       state
   | Returnstate:
       forall (stack: list stackframe) (**r call stack *)
@@ -231,14 +231,14 @@ Inductive step: state -> trace -> state -> Prop :=
       find_function ros rs = Some fd ->
       funsig fd = sig ->
       step (Block s f sp (Lcall sig ros :: bb) rs m)
-        E0 (Callstate (Stackframe f sp rs bb :: s) fd rs m (fn_stack_requirements id) false)
+        E0 (Callstate (Stackframe f sp rs bb :: s) fd rs (Mem.push_new_stage m) (fn_stack_requirements id))
   | exec_Ltailcall: forall s f sp sig ros bb rs m fd rs' m' id (IFI: ros_is_function ros rs' id),
       rs' = return_regs (parent_locset s) rs ->
       find_function ros rs' = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stacksize) = Some m' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Ltailcall sig ros :: bb) rs m)
-        E0 (Callstate s fd rs' m' (fn_stack_requirements id) true)
+        E0 (Callstate s fd rs' m' (fn_stack_requirements id))
   | exec_Lbuiltin: forall s f sp ef args res bb rs m vargs t vres rs' m',
       eval_builtin_args ge rs sp m args vargs ->
       external_call ef ge vargs m t vres m' ->
@@ -266,17 +266,17 @@ Inductive step: state -> trace -> state -> Prop :=
       Mem.unrecord_stack_block m' = Some m'' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Lreturn :: bb) rs m)
         E0 (Returnstate s (return_regs (parent_locset s) rs) m'')
-  | exec_function_internal: forall tail s f rs m m' m'' sp rs' sz,
+  | exec_function_internal: forall s f rs m m' m'' sp rs' sz,
       Mem.alloc m 0 f.(fn_stacksize) = (m', sp) ->
-      Mem.record_stack_blocks tail m' (make_singleton_frame_adt sp (fn_stacksize f) sz) m'' ->
+      Mem.record_stack_blocks m' (make_singleton_frame_adt sp (fn_stacksize f) sz) = Some m'' ->
       rs' = undef_regs destroyed_at_function_entry (call_regs rs) ->
-      step (Callstate s (Internal f) rs m sz tail)
+      step (Callstate s (Internal f) rs m sz)
         E0 (State s f (Vptr sp Ptrofs.zero) f.(fn_entrypoint) rs' m'')
   | exec_function_external: forall s ef t args res rs m rs' m' sz,
       args = map (fun p => Locmap.getpair p rs) (loc_arguments (ef_sig ef)) ->
       external_call ef ge args m t res m' ->
       rs' = Locmap.setpair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
-      step (Callstate s (External ef) rs m sz false)
+      step (Callstate s (External ef) rs m sz)
          t (Returnstate s rs' m')
   | exec_return: forall f sp rs1 bb s rs m,
       step (Returnstate (Stackframe f sp rs1 bb :: s) rs m)
@@ -297,8 +297,8 @@ Inductive initial_state (p: program): state -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks false m1 (make_singleton_frame_adt b1 0 0) m2 ->
-      initial_state p (Callstate nil f (Locmap.init Vundef) m2 (fn_stack_requirements (prog_main p)) false).
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      initial_state p (Callstate nil f (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m retcode,

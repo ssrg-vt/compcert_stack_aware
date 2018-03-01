@@ -374,7 +374,7 @@ Inductive estep: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       type_of_fundef fd = Tfunction targs tres cconv ->
       estep (ExprState f (C (Ecall rf rargs ty)) k e m)
-         E0 (Callstate fd vargs (Kcall f e C ty k) m (fn_stack_requirements id))
+         E0 (Callstate fd vargs (Kcall f e C ty k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
   | step_builtin: forall f C ef tyargs rargs ty k e m vargs t vres m',
       leftcontext RV RV C ->
@@ -1774,7 +1774,7 @@ with eval_expr: env -> mem -> kind -> expr -> trace -> mem -> expr -> Prop :=
       classify_fun (typeof rf) = fun_case_f targs tres cconv ->
       Genv.find_funct ge vf = Some fd ->
       type_of_fundef fd = Tfunction targs tres cconv ->
-      eval_funcall m2 fd vargs t3 m3 vres (fn_stack_requirements id) ->
+      eval_funcall (Mem.push_new_stage m2) fd vargs t3 m3 vres (fn_stack_requirements id) ->
       eval_expr e m RV (Ecall rf rargs ty) (t1**t2**t3) m3 (Eval vres ty)
 
 with eval_exprlist: env -> mem -> exprlist -> trace -> mem -> exprlist -> Prop :=
@@ -1910,7 +1910,7 @@ with eval_funcall: mem -> fundef -> list val -> trace -> mem -> val -> Z -> Prop
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info ge e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks m1 fa m1' ->
+      Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m2 ->
       exec_stmt e m2 f.(fn_body) t m3 out ->
       outcome_result_value out f.(fn_return) vres m3 ->
@@ -2022,7 +2022,7 @@ CoInductive evalinf_expr: env -> mem -> kind -> expr -> traceinf -> Prop :=
       classify_fun (typeof rf) = fun_case_f targs tres cconv ->
       Genv.find_funct ge vf = Some fd ->
       type_of_fundef fd = Tfunction targs tres cconv ->
-      evalinf_funcall m2 fd vargs t3 (fn_stack_requirements id) ->
+      evalinf_funcall (Mem.push_new_stage m2) fd vargs t3 (fn_stack_requirements id) ->
       evalinf_expr e m RV (Ecall rf rargs ty) (t1***t2***t3)
 
 with evalinf_exprlist: env -> mem -> exprlist -> traceinf -> Prop :=
@@ -2136,7 +2136,7 @@ with evalinf_funcall: mem -> fundef -> list val -> traceinf -> Z -> Prop :=
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info ge e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks m1 fa m1' ->
+      Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m2 ->
       execinf_stmt e m2 f.(fn_body) t ->
       evalinf_funcall m (Internal f) vargs t sz.
@@ -3046,8 +3046,8 @@ Inductive bigstep_program_terminates (p: program): trace -> int -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m2,b1) ->
-      Mem.record_stack_blocks m2 (make_singleton_frame_adt b1 0 0) m3 ->
-      eval_funcall ge m3 f nil t m1 (Vint r) (fn_stack_requirements (prog_main p)) ->
+      Mem.record_stack_blocks (Mem.push_new_stage m2) (make_singleton_frame_adt b1 0 0) = Some m3 ->
+      eval_funcall ge (Mem.push_new_stage m3) f nil t m1 (Vint r) (fn_stack_requirements (prog_main p)) ->
       bigstep_program_terminates p t r.
 
 Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
@@ -3058,8 +3058,8 @@ Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m2,b1) ->
-      Mem.record_stack_blocks m2 (make_singleton_frame_adt b1 0 0) m3 ->
-      evalinf_funcall ge m3 f nil t (fn_stack_requirements (prog_main p)) ->
+      Mem.record_stack_blocks (Mem.push_new_stage m2) (make_singleton_frame_adt b1 0 0) = Some m3 ->
+      evalinf_funcall ge (Mem.push_new_stage m3) f nil t (fn_stack_requirements (prog_main p)) ->
       bigstep_program_diverges p t.
 
 Definition bigstep_semantics (p: program) :=

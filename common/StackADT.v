@@ -2692,6 +2692,7 @@ Proof.
   eapply stack_inject_surjective0; eauto.
   apply stack_inject_range0 in H0. omega.
 Qed.
+
 (*
 Lemma stack_inject_unrecord_left:
   forall j g m1 s1 s2

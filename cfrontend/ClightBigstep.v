@@ -102,7 +102,7 @@ Inductive exec_stmt: env -> temp_env -> mem -> statement -> trace -> temp_env ->
       eval_exprlist ge e le m al tyargs vargs ->
       Genv.find_funct ge vf = Some f ->
       type_of_fundef f = Tfunction tyargs tyres cconv ->
-      eval_funcall m f vargs t m' vres (fn_stack_requirements id) ->
+      eval_funcall (Mem.push_new_stage m) f vargs t m' vres (fn_stack_requirements id) ->
       exec_stmt e le m (Scall optid a al)
                 t (set_opttemp optid vres le) m' Out_normal
   | exec_Sbuiltin:   forall e le m optid ef al tyargs vargs t m' vres,
@@ -200,7 +200,7 @@ CoInductive execinf_stmt: env -> temp_env -> mem -> statement -> traceinf -> Pro
       eval_exprlist ge e le m al tyargs vargs ->
       Genv.find_funct ge vf = Some f ->
       type_of_fundef f = Tfunction tyargs tyres cconv ->
-      evalinf_funcall m f vargs t (fn_stack_requirements id) ->
+      evalinf_funcall (Mem.push_new_stage m) f vargs t (fn_stack_requirements id) ->
       execinf_stmt e le m (Scall optid a al) t
   | execinf_Sseq_1:   forall e le m s1 s2 t,
       execinf_stmt e le m s1 t ->
@@ -259,8 +259,8 @@ Inductive bigstep_program_terminates (p: program): trace -> int -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m01,b1) ->
-      Mem.record_stack_blocks false m01 (make_singleton_frame_adt b1 0 0) m02 ->
-      eval_funcall ge function_entry m02 f nil t m1 (Vint r) (fn_stack_requirements (prog_main p))->
+      Mem.record_stack_blocks (Mem.push_new_stage m01) (make_singleton_frame_adt b1 0 0) = Some m02 ->
+      eval_funcall ge function_entry (Mem.push_new_stage m02) f nil t m1 (Vint r) (fn_stack_requirements (prog_main p))->
       bigstep_program_terminates p t r.
 
 Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
@@ -271,8 +271,8 @@ Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
       Genv.find_funct_ptr ge b = Some f ->
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m01,b1) ->
-      Mem.record_stack_blocks false m01 (make_singleton_frame_adt b1 0 0) m02 ->
-      evalinf_funcall ge function_entry m02 f nil t (fn_stack_requirements (prog_main p)) ->
+      Mem.record_stack_blocks (Mem.push_new_stage m01) (make_singleton_frame_adt b1 0 0) = Some m02 ->
+      evalinf_funcall ge function_entry (Mem.push_new_stage m02) f nil t (fn_stack_requirements (prog_main p)) ->
       bigstep_program_diverges p t.
 
 Definition bigstep_semantics (p: program) :=
