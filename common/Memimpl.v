@@ -7035,15 +7035,6 @@ Definition packed_frameinj (g: nat -> option nat) (s1 s2: nat) :=
     exists lo hi,
       lo < hi <= s1 /\ (forall o, lo <= o < hi <-> g o = Some j).
 
-Definition downstar (g: frameinj) : nat -> option nat :=
-  fun n => g (S n).
-
-Definition upstar (g: frameinj) : nat -> option nat :=
-  fun n => if Nat.eq_dec n O then Some O else g (pred n).
-
-Definition down (g: frameinj) : nat -> option nat :=
-  fun n => option_map pred (downstar g n).
-
     (** [g O = None] is the case where a call is transformed into a tailcall.
     This is to match the return from [f] with no step in the target. *)
     (** [g 1 = Some O] is the case where a call is inlined. This is to match
@@ -7494,9 +7485,6 @@ Proof.
     rewrite EQsz. intros; omega.
 Qed.
 
-Definition up (g: frameinj) : nat -> option nat :=
-  fun n => if Nat.eq_dec n O then Some O else option_map S (g (pred n)).
-
 Lemma stack_inject_push_new_stage:
   forall j g P s1 s2,
     stack_inject j g P s1 s2 ->
@@ -7548,6 +7536,52 @@ Proof.
     erewrite <- S_pred. auto. instantiate (1 := O); omega.
 Qed.
 
+Lemma stack_inject_push_new_stage_left:
+  forall j g P s1 s2,
+    stack_inject j g P s1 s2 ->
+    s2 <> nil ->
+    stack_inject j (upstar g) P (nil::s1) s2.
+Proof.
+  intros j g P s1 s2 SI NONIL.
+  destruct SI; constructor; auto.
+  - constructor; auto. red; easy.
+  - red; intros. unfold up, upstar, option_map in G1, G2.
+    repeat destr_in G1; repeat destr_in G2; try omega.
+    repeat destr_in Heqo; repeat destr_in Heqo0; try omega.
+    generalize (fun pf => stack_inject_mono _ _ pf _ _ H0 H1).
+    intros A.
+    apply A. omega.
+  - intros i1 f1 FAP HP; inv FAP.
+    destruct i1. inv H. destruct HP as (b & o & k & p & HP). easy.
+    simpl in H.
+    edestruct (stack_inject_frames_ex i1 f1) as (i2 & G2). constructor; auto. auto.
+    unfold up, upstar, option_map; simpl; rewrite G2; simpl; eauto.
+  - unfold up, upstar, option_map.
+    intros i1 f1 i2 G1 FAP1. repeat destr_in G1.
+    apply frame_at_pos_last in FAP1. subst. destruct s2. congruence.
+    eexists; split. constructor; reflexivity.
+    red. easy.
+    apply frame_at_pos_cons_inv in FAP1. 2: omega.
+    edestruct stack_inject_frame_inject as (f2 & FAP2 & FI12); eauto.
+  - intros.
+    unfold upstar, option_map in G.
+    repeat destr_in G. destruct s2. congruence. simpl; omega.
+    simpl.
+    apply stack_inject_range in H0. omega.
+  - intros. 
+    unfold upstar in G.
+    repeat destr_in G. omega.
+    apply stack_inject_pack in H0. omega.
+  - intros. simpl. generalize (size_frames_pos nil). omega.
+  - simpl.
+    red; intros.
+    red in stack_inject_surjective.
+    destruct (Nat.eq_dec j0 O). subst.
+    exists O; auto.
+    destruct (stack_inject_surjective j0). omega.
+    unfold upstar; exists (S x). destr.
+Qed.
+
 Lemma mem_inj_push_new_stage:
   forall j g m1 m2,
     mem_inj j g m1 m2 ->
@@ -7555,6 +7589,35 @@ Lemma mem_inj_push_new_stage:
 Proof.
   intros j g m1 m2 MI; inv MI; constructor; eauto.
   eapply stack_inject_push_new_stage; eauto.
+Qed.
+
+Lemma mem_inj_push_new_stage_left:
+  forall j g m1 m2,
+    mem_inj j g m1 m2 ->
+    stack_adt m2 <> nil ->
+    mem_inj j (upstar g) (push_new_stage m1) m2.
+Proof.
+  intros j g m1 m2 MI; inv MI; constructor; eauto.
+  eapply stack_inject_push_new_stage_left; eauto.
+Qed.
+
+Lemma inject_push_new_stage:
+  forall j g m1 m2,
+    inject j g m1 m2 ->
+    inject j (up g) (push_new_stage m1) (push_new_stage m2).
+Proof.
+  intros j g m1 m2 MI; inv MI; constructor; eauto.
+  eapply mem_inj_push_new_stage; eauto.
+Qed.
+
+Lemma inject_push_new_stage_left:
+  forall j g m1 m2,
+    inject j g m1 m2 ->
+    stack_adt m2 <> nil ->
+    inject j (upstar g) (push_new_stage m1) m2.
+Proof.
+  intros j g m1 m2 MI; inv MI; constructor; eauto.
+  eapply mem_inj_push_new_stage_left; eauto.
 Qed.
 
 Lemma record_stack_blocks_mem_inj:

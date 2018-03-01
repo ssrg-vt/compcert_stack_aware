@@ -2920,5 +2920,17 @@ Proof.
 Qed.
 
 
+Definition downstar (g: frameinj) : nat -> option nat :=
+  fun n => g (S n).
+
+Definition upstar (g: frameinj) : nat -> option nat :=
+  fun n => if Nat.eq_dec n O then Some O else g (pred n).
+
+Definition down (g: frameinj) : nat -> option nat :=
+  fun n => option_map pred (downstar g n).
+
+Definition up (g: frameinj) : nat -> option nat :=
+  fun n => if Nat.eq_dec n O then Some O else option_map S (g (pred n)).
+
 
 End INJ.

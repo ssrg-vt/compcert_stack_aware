@@ -2000,7 +2000,15 @@ push_new_stage_nextblock: forall m, nextblock (push_new_stage m) = nextblock m;
    forall j g m1 m2,
         inject j g m1 m2 ->
         inject j (fun n => if Nat.eq_dec n O then Some O else option_map S (g (pred n)))
-                   (push_new_stage m1) (push_new_stage m2);
+               (push_new_stage m1) (push_new_stage m2);
+
+ inject_push_new_stage_left {injperm: InjectPerm}:
+   forall j g m1 m2,
+     inject j g m1 m2 ->
+     stack_adt m2 <> nil ->
+     inject j (upstar g) (push_new_stage m1) m2;
+
+
  push_new_stage_length_stack:
       forall m,
         length (stack_adt (push_new_stage m)) = S (length (stack_adt m));
