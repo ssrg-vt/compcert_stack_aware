@@ -14,7 +14,8 @@ Require Import Events.
 Require Import StackADT.
 Require Import Linking Errors.
 Require Import Globalenvs FlatAsmGlobenv.
-
+Require Import RawAsmgen.
+Require Import Sectinj.
 
 Section WITHMEMORYMODEL.
   
@@ -39,7 +40,9 @@ Definition regset_inject (j:meminj) (rs rs' : regset) : Prop :=
 
 Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
 | match_states_intro: forall (j:meminj) (rs: regset) (m: mem) (rs': regset) (m':mem)
+                        (sj: sectinj) (sm: section_map)
                         (MINJ: Mem.inject j (fun n => if lt_dec n (length (Mem.stack_adt m)) then Some O else None) m m')
+                        (SMINJ_MATCH: match_sectinj_meminj sj sm j)
                         (RSINJ: regset_inject j rs rs'),
     match_states (State rs m) (State rs' m').
 
@@ -51,7 +54,7 @@ Existing Instance FlatAsm.mem_accessors_default.
 
 Theorem step_simulation:
   forall S1 t S2,
-    Asm.step ge S1 t S2 ->
+    RawAsmgen.step ge S1 t S2 ->
     forall S1' (MS: match_states S1 S1'),
     exists S2',
       FlatAsm.step tge S1' t S2' /\
@@ -60,7 +63,9 @@ Proof.
   destruct 1; intros; inv MS.
 
   - (* Internal step *)
-    admit.
+    unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
+    inversion 1; subst.
+
 
   - (* Builtin *)
     admit.
