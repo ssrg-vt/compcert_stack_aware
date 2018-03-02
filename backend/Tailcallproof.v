@@ -330,37 +330,46 @@ We first define the simulation invariant between call stacks.
 The first two cases are standard, but the third case corresponds
 to a frame that was eliminated by the transformation. *)
 
-
 (* The list of boolean records whether the source frame has a corresponding
 counterpart in the target stack ([true]) or not ([false]). This will later be used
 to specify the shape of the stack injection function [g]. *)
-Inductive match_stackframes: meminj -> list bool -> list stackframe -> list stackframe -> Prop :=
+Inductive match_stackframes: meminj -> list stackframe -> list stackframe -> Prop :=
   | match_stackframes_nil j:
-      match_stackframes j nil nil nil
-  | match_stackframes_normal: forall j l stk stk' res sp sp' pc rs rs' f,
-      match_stackframes j l stk stk' ->
+      match_stackframes j nil nil
+  | match_stackframes_normal: forall j stk stk' res sp sp' pc rs rs' f tc,
+      match_stackframes j stk stk' ->
       regs_inject j rs rs' ->
       j sp = Some (sp',0) ->
-      match_stackframes j (true::l)
-        (Stackframe res f (Vptr sp Ptrofs.zero) pc rs :: stk)
-        (Stackframe res (transf_function f) (Vptr sp' Ptrofs.zero) pc rs' :: stk')
-  | match_stackframes_tail: forall j l stk stk' res sp pc rs f,
-      match_stackframes j l stk stk' ->
+      match_stackframes j 
+        (Stackframe res f false (Vptr sp Ptrofs.zero) pc rs :: stk)
+        (Stackframe res (transf_function f) tc (Vptr sp' Ptrofs.zero) pc rs' :: stk')
+  | match_stackframes_tail: forall j stk stk' res sp pc rs f tc,
+      match_stackframes j stk stk' ->
       is_return_spec f pc res ->
       f.(fn_stacksize) = 0 ->
-      match_stackframes j (false::l)
-        (Stackframe res f (Vptr sp Ptrofs.zero) pc rs :: stk)
-        stk'.
+      match_stackframes j
+        (Stackframe res f false (Vptr sp Ptrofs.zero) pc rs :: stk)
+        (StackframeTailcalled tc :: stk')
+.
 
 (* Specifying the shape of stack injection functions *)
+
+(* [compat_frameinj_rec l g ns nt]
+   [ns] is the stage position in the source stack, [nt] in the target stack.
+   [l] is the target call stack.
+   [g] is compatible with [l] if the corresponding frames are injected correctly by [g].
+   Tailcalled stack frames are injected into the current target stage and we do
+   not increment the target stage.
+ *)
+
+Definition tc_of_stackframe sf :=
+  match sf with | Stackframe _ _ tc _ _ _ => tc | StackframeTailcalled tc => tc end.
 
 Fixpoint compat_frameinj_rec (l: list bool) (g: frameinj) (ns nt: nat) :=
   match l with
     nil => forall i j (LE: (ns <= i)%nat) (Gi: g i = Some j), (nt <= j)%nat
-  | true::l =>
-    g ns = Some nt /\ compat_frameinj_rec l g (S ns) (S nt)
-  | false::l =>
-    g ns = Some nt /\ compat_frameinj_rec l g (S ns) nt
+  | tc :: l =>
+    g ns = Some nt /\ compat_frameinj_rec l g (S ns) (if tc then nt else S nt)
   end.
 
 Definition compat_frameinj l g := compat_frameinj_rec l g O O.
@@ -371,13 +380,11 @@ Lemma compat_frameinj_rec_above:
     (nt <= j)%nat.
 Proof.
   induction l; simpl; intros; eauto.
-  destruct a; destruct CFG as (GNS & GABOVE).
-  - destruct (Nat.eq_dec ns i); subst; auto.
-    + rewrite GNS in Gi; inv Gi; auto.
-    + eapply IHl in GABOVE. 2: apply Gi. 2: omega. omega.
-  - destruct (Nat.eq_dec ns i); subst; auto. 
-    + rewrite GNS in Gi; inv Gi; auto.
-    + eapply IHl in GABOVE. 2: apply Gi. 2: omega. omega.
+  destruct CFG as (GNS & GABOVE).
+  destruct (Nat.eq_dec ns i); subst; auto.
+  rewrite GNS in Gi; inv Gi; auto.
+  eapply IHl in GABOVE. 2: apply Gi. 2: omega.
+  destruct a; omega.
 Qed.
 
 (** Here is the invariant relating two states.  The first three
@@ -387,50 +394,49 @@ Qed.
 
 Inductive match_states: state -> state -> Prop :=
   | match_states_normal:
-      forall s sp sp' pc rs m s' rs' m' f g l j
-
-             (STACKS: match_stackframes j l s s')
+      forall s sp sp' pc rs m s' rs' m' f g j tc
+             (STACKS: match_stackframes j s s')
              (RLD: regs_inject j rs rs')
              (MLD: Mem.inject j g m m')
-             (CFG: compat_frameinj (true::l) g)
+             (CFG: compat_frameinj (tc::map tc_of_stackframe s') g)
              (IG: inject_globals ge j)
              (JB: j sp = Some (sp', 0)),
-      match_states (State s f (Vptr sp Ptrofs.zero) pc rs m)
-                   (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc rs' m')
+      match_states (State s f false (Vptr sp Ptrofs.zero) pc rs m)
+                   (State s' (transf_function f) tc (Vptr sp' Ptrofs.zero) pc rs' m')
   | match_states_call:
-      forall s f args m s' args' m' sz g l j 
-        (MS: match_stackframes j l s s')
+      forall s f args m s' args' m' sz g j (tc1 tc2: bool)
+        (MS: match_stackframes j s s')
         (LDargs: Val.inject_list j args args')
         (MLD: Mem.inject j g m m')
-        (CFG: compat_frameinj l g)
+        (CFG: compat_frameinj (map tc_of_stackframe s') g)
         (IG: inject_globals ge j),
-      match_states (Callstate s f args m sz)
-                   (Callstate s' (transf_fundef f) args' m' sz)
+      match_states (Callstate s f args m sz tc1)
+                   (Callstate s' (transf_fundef f) args' m' sz tc2)
   | match_states_return:
-      forall s v m s' v' m' g l j
-        (MS: match_stackframes j l s s')
+      forall s v m s' v' m' g j
+        (MS: match_stackframes j s s')
         (LDret: Val.inject j v v')
         (MLD: Mem.inject j g m m')
-        (CFG: compat_frameinj l g)
+        (CFG: compat_frameinj (map tc_of_stackframe s') g)
              (IG: inject_globals ge j),
         match_states (Returnstate s v m)
                      (Returnstate s' v' m')
   | match_states_interm:
-      forall s sp pc rs m s' m' f r v' g l j
-             (STACKS: match_stackframes j l s s')
+      forall s sp pc rs m s' m' f r v' g j
+             (STACKS: match_stackframes j s s')
              (MLD: Mem.inject j g m m')
              (RETspec: is_return_spec f pc r)
              (SZzero: f.(fn_stacksize) = 0)
              (LDret: Val.inject j (rs#r) v')
-             (CFG: compat_frameinj (false::l) g)
+             (CFG: compat_frameinj (false::map tc_of_stackframe s') g)
              (IG: inject_globals ge j),
-        match_states (State s f (Vptr sp Ptrofs.zero) pc rs m)
+        match_states (State s f false (Vptr sp Ptrofs.zero) pc rs m)
                      (Returnstate s' v' m').
 
 Definition mem_state (s: state) : mem :=
   match s with
-    State _ _ _ _ _ m
-  | Callstate _ _ _ m _
+    State _ _ _ _ _ _ m
+  | Callstate _ _ _ m _ _
   | Returnstate _ _ m => m
   end.
 
@@ -439,21 +445,21 @@ Definition match_state_ge {F V} (g: Genv.t F V) (s: state) :=
 
 Definition current_sp_state (s: state) : option (option (block * Z)) :=
   match s with
-    State _ f (Vptr sp _) _ _ _ => Some (Some (sp, fn_stacksize f))
-  | State _ _ _ _ _ _ => None
+    State _ f _ (Vptr sp _) _ _ _ => Some (Some (sp, fn_stacksize f))
+  | State _ _ _ _ _ _ _ => None
   | _ => Some None
   end.
 
 Definition stackblocks_of_stackframe (sf: stackframe) : option (block * Z) :=
   match sf with
-  | (Stackframe _ f (Vptr sp _) _ _) => Some (sp,fn_stacksize f)
+  | (Stackframe _ f _ (Vptr sp _) _ _) => Some (sp,fn_stacksize f)
   | _ => None
   end.
 
 Definition stackframes_state (s: state) : list stackframe :=
   match s with
-    State stk _ _ _ _ _
-  | Callstate stk _ _ _ _ 
+    State stk _ _ _ _ _ _
+  | Callstate stk _ _ _ _ _
   | Returnstate stk _ _ => stk
   end.
 
@@ -505,8 +511,8 @@ Definition match_stack_adt (s: state) :=
 
 Definition measure (st: state) : nat :=
   match st with
-  | State s f sp pc rs m => (List.length s * (niter + 2) + return_measure f.(fn_code) pc + 1)%nat
-  | Callstate s f args m sz => 0%nat
+  | State s f tc sp pc rs m => (List.length s * (niter + 2) + return_measure f.(fn_code) pc + 1)%nat
+  | Callstate s f args m sz tc => 0%nat
   | Returnstate s v m => (List.length s * (niter + 2))%nat
   end.
 
@@ -666,47 +672,35 @@ Qed.
 
 Lemma compat_frameinj_pop_right:
   forall g l,
-    compat_frameinj (true :: l) g ->
-    compat_frameinj (false :: l) (fun n : nat => if Nat.eq_dec n 0 then Some O else option_map Init.Nat.pred (g n)).
+    compat_frameinj (false :: l) g ->
+    compat_frameinj (true :: l) (fun n : nat => if Nat.eq_dec n 0 then Some O else option_map Init.Nat.pred (g n)).
 Proof.
   intros g l (A & B); split; simpl; auto.
   eapply compat_frameinj_pop_right_rec; eauto.
   intros. destr. omega.
 Qed.
-
-Lemma compat_frameinj_pop_right':
-  forall g l,
-    compat_frameinj (true :: l) g ->
-    compat_frameinj (false :: l) (fun n : nat => if Nat.eq_dec n 0 then Some O else (g (pred n))).
-Proof.
-  intros g l (A & B); split; simpl; auto.
-  eapply compat_frameinj_pop_right_rec; eauto.
-  intros. destr. omega.
-Qed.
-
 
 Lemma compat_frameinj_rec_pop_parallel:
   forall g l ns nt
     (CFR: compat_frameinj_rec l g (S ns) (S nt)),
-    compat_frameinj_rec l (fun n : nat => option_map Init.Nat.pred (g (S n))) ns nt.
+    compat_frameinj_rec l (down g) ns nt.
 Proof.
+  unfold down, downstar.
   induction l; simpl; intros; eauto.
   - unfold option_map in Gi; repeat destr_in Gi.
     eapply CFR in Heqo. omega. omega.
-  - destr; destruct CFR as (Gn & CFR).
-    + split.
-      * unfold option_map. rewrite Gn. reflexivity.
-      * eapply IHl; eauto.
-    + split.
-      * unfold option_map. rewrite Gn. reflexivity.
-      * eapply IHl; eauto.
+  - destruct CFR as (Gn & CFR).
+    split.
+    unfold option_map. rewrite Gn. reflexivity.
+    eapply IHl; eauto.
+    destruct a; auto.
 Qed.
 
 Lemma match_stackframes_incr:
-  forall f l s s'
-    (MS: match_stackframes f l s s')
+  forall f s s'
+    (MS: match_stackframes f s s')
     f' (INCR: inject_incr f f'),
-    match_stackframes f' l s s'.
+    match_stackframes f' s s'.
 Proof.
   induction 1; simpl; intros; eauto; try now econstructor; eauto.
   econstructor; eauto.
@@ -751,7 +745,7 @@ Proof.
   exploit eval_operation_inject; eauto.
   eapply inject_globals_meminj_preserves_globals; eauto.
   intros [v' [EVAL' VLD]].
-  left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc' (rs'#res <- v') m'); split.
+  left. exists (State s' (transf_function f) tc0 (Vptr sp' Ptrofs.zero) pc' (rs'#res <- v') m'); split.
   eapply exec_Iop; eauto.  rewrite <- EVAL'.
   rewrite eval_shift_stack_operation.
   apply eval_operation_preserved. exact symbols_preserved.
@@ -769,7 +763,7 @@ Proof.
   intros [a' [ADDR' ALD]].
   exploit Mem.loadv_inject; eauto.
   intros [v' [LOAD' VLD]].
-  left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc' (rs'#dst <- v') m'); split.
+  left. exists (State s' (transf_function f) tc0 (Vptr sp' Ptrofs.zero) pc' (rs'#dst <- v') m'); split.
   eapply exec_Iload with (a0 := a'). eauto.  rewrite <- ADDR'.
   rewrite eval_shift_stack_addressing.
   apply eval_addressing_preserved. exact symbols_preserved. eauto.
@@ -783,7 +777,7 @@ Proof.
   intros [a' [ADDR' ALD]].
   exploit Mem.storev_mapped_inject. 2: eexact H1. eauto. eauto. apply RLD.
   intros [m'1 [STORE' MLD']].
-  left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc' rs' m'1); split.
+  left. exists (State s' (transf_function f) tc0 (Vptr sp' Ptrofs.zero) pc' rs' m'1); split.
   eapply exec_Istore with (a0 := a'). eauto.  rewrite <- ADDR'.
   rewrite eval_shift_stack_addressing.
   apply eval_addressing_preserved. exact symbols_preserved. eauto.
@@ -808,10 +802,10 @@ Proof.
     repeat destr_in FI.
     rewrite stacksize_preserved in RNG. rewrite H7 in RNG. omega.
   }
-  destruct MSA as (sprog & sinit & EQstk & LF2).
-  inv LF2. simpl in EQstk.
-  destruct MSA' as (sprog' & sinit' & EQstk' & LF2').
-  inv LF2'. simpl in EQstk'.
+  (* destruct MSA as (sprog & sinit & EQstk & LF2). *)
+  (* inv LF2. simpl in EQstk. *)
+  (* destruct MSA' as (sprog' & sinit' & EQstk' & LF2'). *)
+  (* inv LF2'. simpl in EQstk'. *)
   (* edestruct (Mem.unrecord_stack_block_succeeds m'') as (m2' & USB & EQ). *)
   (* erewrite Mem.free_stack_blocks; eauto. *)
   (* generalize (Mem.unrecord_stack_block_inject_right _ _ _ _ m2' FINJ). intro UINJ. *)
@@ -843,22 +837,25 @@ Proof.
   (* } *)
   (* trim UINJ. apply CFG. *)
   (* trim UINJ. eauto. *)
-  left. exists (Callstate s' (transf_fundef fd) (rs'##args) m'' (fn_stack_requirements id)); split.
+  left. eexists (Callstate (StackframeTailcalled tc0 ::s') (transf_fundef fd) (rs'##args) m'' (fn_stack_requirements id) true); split.
   eapply exec_Itailcall; eauto.
   eapply ros_is_function_transf; eauto.
   apply sig_preserved.
-  econstructor. eapply match_stackframes_tail; eauto. apply regs_inject_regs; auto.
-  eapply Mem.inject_push_new_stage_left; eauto.
-  rewrite_stack_blocks. rewrite EQstk'. congruence.
-  {
-    revert CFG. unfold upstar.
-    eapply compat_frameinj_pop_right; eauto.
-  }
-  eauto.
+  econstructor; eauto. econstructor; eauto.
+  apply regs_inject_regs; auto.
+  (* simpl.  *)
+  (* eapply compat_frameinj_pop_right; eauto. *)
+  (* eapply Mem.inject_push_new_stage_left; eauto. *)
+  (* rewrite_stack_blocks. rewrite EQstk'. congruence. *)
+  (* { *)
+  (*   revert CFG. unfold upstar. *)
+  (*   eapply compat_frameinj_pop_right; eauto. *)
+  (* } *)
+  (* eauto. *)
 
 + (* call that remains a call *)
-  left. exists (Callstate (Stackframe res (transf_function f) (Vptr sp' Ptrofs.zero) pc' rs' :: s')
-                          (transf_fundef fd) (rs'##args) m' (fn_stack_requirements id)); split.
+  left. exists (Callstate (Stackframe res (transf_function f) tc0 (Vptr sp' Ptrofs.zero) pc' rs' :: s')
+                          (transf_fundef fd) (rs'##args) m' (fn_stack_requirements id) false); split.
   eapply exec_Icall; eauto.
   eapply ros_is_function_transf; eauto.
   apply sig_preserved.
@@ -869,28 +866,25 @@ Proof.
   exploit find_function_translated; eauto. intro FIND'.
   exploit Mem.free_parallel_inject; eauto. constructor.
   intros [m'1 [FREE EXT]].
-  exploit Mem.unrecord_stack_block_inject_parallel. apply EXT. eauto.
-  {
-    red in CFG. simpl in CFG.
-    intros i1 i2 Gi LT.
-    eapply compat_frameinj_rec_above in Gi. 2: apply CFG. omega. omega.
-  }
-  {
-    apply CFG.
-  }
-  intros (m2' & USB' & UINJ).
+  (* exploit Mem.unrecord_stack_block_inject_parallel. apply EXT. eauto. *)
+  (* { *)
+  (*   red in CFG. simpl in CFG. *)
+  (*   intros i1 i2 Gi LT. *)
+  (*   eapply compat_frameinj_rec_above in Gi. 2: apply CFG. omega. omega. *)
+  (* } *)
+  (* { *)
+  (*   apply CFG. *)
+  (* } *)
+  (* intros (m2' & USB' & UINJ). *)
   TransfInstr.
-  left. exists (Callstate s' (transf_fundef fd) (rs'##args) m2' (fn_stack_requirements id)); split.
+  left. exists (Callstate (StackframeTailcalled tc0 :: s') (transf_fundef fd) (rs'##args) m'1 (fn_stack_requirements id) true); split.
   eapply exec_Itailcall; eauto.
   eapply ros_is_function_transf; eauto.
   apply sig_preserved.
   rewrite stacksize_preserved; auto. rewrite ! Z.add_0_r in FREE. eauto.
   econstructor; eauto.
+  admit.                        (* we could/should rule out this case since there's no tailcall in the source. *)
   apply regs_inject_regs; auto.
-  {
-    destruct CFG as (G0 & CFG).
-    eapply compat_frameinj_rec_pop_parallel; eauto.
-  }
 
 - (* builtin *)
   TransfInstr.
@@ -906,7 +900,7 @@ Proof.
   exploit external_call_mem_inject; eauto.
   eapply inject_globals_meminj_preserves_globals; eauto.
   intros [f' [v' [m'1 [A [B [C [D [E [F G]]]]]]]]].
-  left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc' (regmap_setres res v' rs') m'1); split.
+  left. exists (State s' (transf_function f) tc0 (Vptr sp' Ptrofs.zero) pc' (regmap_setres res v' rs') m'1); split.
   eapply exec_Ibuiltin; eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   econstructor. 3: eauto.
@@ -923,7 +917,7 @@ Proof.
 
 - (* cond *)
   TransfInstr.
-  left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) (if b then ifso else ifnot) rs' m'); split.
+  left. exists (State s' (transf_function f) tc0 (Vptr sp' Ptrofs.zero) (if b then ifso else ifnot) rs' m'); split.
   eapply exec_Icond; eauto.
   eapply eval_condition_inject. apply regs_inject_regs; auto.
   eauto. eauto. auto.
@@ -931,7 +925,7 @@ Proof.
 
 - (* jumptable *)
   TransfInstr.
-  left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc' rs' m'); split.
+  left. exists (State s' (transf_function f) tc0 (Vptr sp' Ptrofs.zero) pc' rs' m'); split.
   eapply exec_Ijumptable; eauto.
   generalize (RLD arg). rewrite H0. intro. inv H2. auto.
   econstructor; eauto.
@@ -942,11 +936,15 @@ Proof.
   {
     red in CFG. simpl in CFG.
     intros i1 i2 Gi LT.
-    eapply compat_frameinj_rec_above in Gi. 2: apply CFG. omega. omega.
+    eapply compat_frameinj_rec_above in Gi. 2: apply CFG. admit. omega.
   }
   {
     apply CFG.
   }
+  repeat rewrite_stack_blocks.
+  inv MSA'. simpl in H2. destruct H2 as (sinit & EQ & LF). rewrite EQ.
+  inv MSA. simpl in H2. destruct H2 as (sinit1 & EQ1 & LF1). rewrite EQ1.
+  unfold stack_blocks_of_state in LF, LF1. simpl in LF, LF1. inv LF; inv LF1. simpl.
   intros (m2' & USB' & UINJ).
   TransfInstr.
   left. exists (Returnstate s' (regmap_optget or Vundef rs') m2'); split.
