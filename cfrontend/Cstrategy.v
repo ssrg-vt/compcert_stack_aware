@@ -1909,7 +1909,7 @@ with eval_funcall: mem -> fundef -> list val -> trace -> mem -> val -> Z -> Prop
       list_norepet (var_names f.(fn_params) ++ var_names f.(fn_vars)) ->
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info ge e ->
-      frame_adt_size fa = sz ->
+      frame_adt_size fa = Z.max 0 sz ->
       Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m2 ->
       exec_stmt e m2 f.(fn_body) t m3 out ->
@@ -2135,7 +2135,7 @@ with evalinf_funcall: mem -> fundef -> list val -> traceinf -> Z -> Prop :=
       list_norepet (var_names f.(fn_params) ++ var_names f.(fn_vars)) ->
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info ge e ->
-      frame_adt_size fa = sz ->
+      frame_adt_size fa = Z.max 0 sz ->
       Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m2 ->
       execinf_stmt e m2 f.(fn_body) t ->

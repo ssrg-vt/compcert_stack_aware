@@ -758,7 +758,7 @@ Inductive sstep: state -> trace -> state -> Prop :=
       list_norepet (var_names (fn_params f) ++ var_names (fn_vars f)) ->
       alloc_variables empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info e ->
-      frame_adt_size fa = sz ->
+      frame_adt_size fa = Z.max 0 sz ->
       Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters e m1' f.(fn_params) vargs m2 ->
       sstep (Callstate (Internal f) vargs k m sz)

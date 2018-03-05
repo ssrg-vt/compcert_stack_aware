@@ -504,7 +504,7 @@ Definition do_ef_free
       do vsz <- Mem.load Mptr m b (Ptrofs.unsigned lo - size_chunk Mptr);
       do sz <- do_alloc_size vsz;
       check (zlt 0 (Ptrofs.unsigned sz));
-      check (dec_not (in_frames_dec (Mem.stack_adt m) b));
+      check (dec_not (in_stack_dec (Mem.stack_adt m) b));
       do m' <- Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz);
       Some(w, E0, Vundef, m')
   | _ => None
@@ -2042,16 +2042,72 @@ Proof.
   eapply PTree.elements_complete. eauto. eauto.
 Qed.
 
+Lemma list_norepet_map:
+  forall {A B} (f: A -> B) (l: list A) (lnr: list_norepet (map f l)),
+    list_norepet l.
+Proof.
+  induction l; simpl; intros; inv lnr; constructor; eauto. intro NIN; apply H1, in_map; auto.
+Qed.
+
+Lemma do_alloc_variables_norepet:
+  forall
+    v (lnr: list_norepet (map fst v)) e m e' m'
+    (DAV: do_alloc_variables e m v = (e', m'))
+    (REC: forall i1 i2 (diff: i1 <> i2) b1 b2 t1 t2
+              (EQ1: e ! i1 = Some (b1,t1))
+              (EQ2: e ! i2 = Some (b2,t2)),
+          b1 <> b2)
+      (VALID: forall i b t, e ! i = Some (b, t) -> Plt b (Mem.nextblock m))
+      i1 i2 (diff: i1 <> i2) b1 b2 t1 t2
+      (EQ1: e' ! i1 = Some (b1,t1))
+      (EQ2: e' ! i2 = Some (b2,t2)),
+      b1 <> b2.
+Proof.
+  induction v; simpl; intros; eauto.
+  inv DAV; eauto.
+  repeat destr_in DAV.
+  inv lnr. trim IHv. auto.
+  eapply IHv; eauto.
+  {
+    intros i0 i3 diff0 b0 b3 t0 t3.
+    rewrite ! PTree.gsspec.
+    destr. inversion 1; subst.
+    apply Mem.alloc_result in Heqp0. subst.
+    destr. intro EQ3. apply VALID in EQ3. intro; subst. xomega.
+    intro EQ0. 
+    destr. intro EQ3. inv EQ3.
+    apply VALID in EQ0. apply Mem.alloc_result in Heqp0. intro; subst. xomega.
+    intros. eauto.
+  }
+  {
+    intros. exploit Mem.nextblock_alloc. eauto. intro NB; rewrite NB.
+    rewrite PTree.gsspec in H. destr_in H. inv H.
+    exploit Mem.alloc_result. eauto. intro; subst; xomega.
+    eapply VALID in H. xomega.
+  }
+Qed.
+
 Program Definition alloc_variables_record f m sz : option (env * mem) :=
   check (list_norepet_dec ident_eq (var_names (fn_params f) ++ var_names (fn_vars f)));
     let '(e,m1) := do_alloc_variables empty_env m (f.(fn_params) ++ f.(fn_vars)) in
-    do m1 <- Mem.record_stack_blocks_none m1 (blocks_with_info ge e) sz _;
+    do m1 <- Mem.record_stack_blocks m1 (Build_frame_adt (blocks_with_info ge e) (Z.max 0 sz) _ _);
       Some (e,m1).
 Next Obligation.
-  generalize (do_alloc_variables_perms _ _ _ _ 
-                                       (do_alloc_variables_sound (fn_params f ++ fn_vars f) empty_env m)).
-  rewrite <- Heq_anonymous. simpl. intro A; apply A.
-  rewrite map_app. eauto.
+  unfold blocks_with_info. unfold blocks_of_env.
+  rewrite ! map_map.
+  apply list_map_norepet.
+  eapply list_norepet_map.
+  apply PTree.elements_keys_norepet.
+  simpl; intros. unfold block_of_binding. repeat destr.
+  subst. repeat destr_in Heqp. repeat destr_in Heqp1. simpl. intro; subst.
+  apply PTree.elements_complete in H0.
+  apply PTree.elements_complete in H1.
+  destruct (peq i i0). subst. apply H2. congruence.
+  exploit do_alloc_variables_norepet. 2: eauto. rewrite map_app. apply H. setoid_rewrite PTree.gempty; congruence.
+  setoid_rewrite PTree.gempty; congruence. apply n. eauto. eauto. auto. auto.
+Qed.
+Next Obligation.
+  apply Z.le_max_l.
 Qed.
 
 Lemma destr_dep_match:
@@ -2114,8 +2170,8 @@ Lemma alloc_variables_record_spec:
     exists m1 fa,
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 /\
       frame_adt_blocks fa = blocks_with_info ge e /\
-      frame_adt_size fa = sz /\
-      Mem.record_stack_blocks m1 fa m'.
+      frame_adt_size fa = Z.max 0 sz /\
+      Mem.record_stack_blocks m1 fa = Some m'.
 Proof.
   unfold alloc_variables_record.
   intros f m sz e m' AV.
@@ -2125,19 +2181,16 @@ Proof.
             exists (m1 : mem) (fa : frame_adt),
               alloc_variables ge empty_env m (fn_params f ++ fn_vars f) (fst em) m1 /\
               frame_adt_blocks fa = blocks_with_info ge (fst em) /\
-              frame_adt_size fa = sz /\ Mem.record_stack_blocks m1 fa (snd em)) (e,m')).
+              frame_adt_size fa = Z.max 0 sz /\ Mem.record_stack_blocks m1 fa = Some (snd em)) (e,m')).
   eapply (destr_dep_let (B:=env*mem) (do_alloc_variables empty_env m (fn_params f ++ fn_vars f))).
   apply AV. clear AV.
   intros.
   simpl in H. destr_in H. inv H.
   exploit do_alloc_variables_sound. rewrite <- pf. simpl.
   intro AV.
-  edestruct Mem.record_stack_blocks_none_correct.
-  clear H0. trim H. eexists; eauto.
-  destruct H as (f1 & RSB & FABLOCKS & FASIZE).
-  exists b, f1; split; eauto.   
+  eexists b, _; repeat split; eauto.
+  reflexivity. reflexivity.
 Qed.
-
 
 Function sem_bind_parameters (w: world) (e: env) (m: mem) (l: list (ident * type)) (lv: list val)
                           {struct l} : option mem :=
@@ -2182,7 +2235,7 @@ Definition expr_final_state (f: function) (k: cont) (e: env) (C_rd: (expr -> exp
   match snd C_rd with
   | Lred rule a m => TR rule E0 (ExprState f (fst C_rd a) k e m)
   | Rred rule a m t => TR rule t (ExprState f (fst C_rd a) k e m)
-  | Callred rule fd vargs ty m i => TR rule E0 (Callstate fd vargs (Kcall f e (fst C_rd) ty k) m (fn_stack_requirements i))
+  | Callred rule fd vargs ty m i => TR rule E0 (Callstate fd vargs (Kcall f e (fst C_rd) ty k) (Mem.push_new_stage m) (fn_stack_requirements i))
   | Stuckred => TR "step_stuck" E0 Stuckstate
   end.
 
@@ -2298,7 +2351,7 @@ Definition do_step (w: world) (s: state) : list transition :=
       end
 
   | Callstate (Internal f) vargs k m sz =>
-    match alloc_variables_record f m sz with
+    match alloc_variables_record f m (Z.max 0 sz) with
       Some (e,m1) =>
       do m2 <- sem_bind_parameters w e m1 f.(fn_params) vargs;
         ret "step_internal_function" (State f f.(fn_body) k e m2)
@@ -2368,7 +2421,7 @@ Proof with try (left; right; econstructor; eauto; fail).
   (* rred *)
   destruct RD. left; left; apply step_rred; auto.
   (* callred *)
-  destruct RD; subst m'. left; left; apply step_call; eauto.
+  destruct RD; subst m'. left; left; eapply step_call; eauto.
   (* stuck rred *)
   exploit not_imm_safe_t; eauto. intros [R | R]; eauto.
 (* callstate *)
@@ -2379,7 +2432,7 @@ Proof with try (left; right; econstructor; eauto; fail).
   myinv. left; right.
   exploit alloc_variables_record_spec; eauto.
   intros (lnr & m2 & fa & AV & fablocks & fasize & RSB).
-  eapply step_internal_function. auto. eauto. eauto. auto. eauto. 
+  eapply step_internal_function. auto. eauto. eauto. rewrite fasize. rewrite Z.max_r. auto. apply Z.le_max_l. eauto. 
   eapply sem_bind_parameters_sound; eauto.
   (* external *)
   destruct p as [[[w' tr] v] m']. myinv. left; right; constructor.
@@ -2410,8 +2463,7 @@ Lemma frame_adt_eq:
     fa1 = fa2.
 Proof.
   destruct fa1, fa2. simpl. intros A B.
-  subst. f_equal.
-  apply proof_irr.
+  subst. f_equal; apply proof_irr.
 Qed.
 
 Lemma alloc_variables_record_complete:
@@ -2419,19 +2471,16 @@ Lemma alloc_variables_record_complete:
     list_norepet (var_names (fn_params f) ++ var_names (fn_vars f)) ->
     alloc_variables ge empty_env m (fn_params f ++ fn_vars f) e m1 ->
     frame_adt_blocks fa = blocks_with_info ge e ->
-    Mem.record_stack_blocks m1 fa m1' ->
+    Mem.record_stack_blocks m1 fa = Some m1' ->
     alloc_variables_record f m (frame_adt_size fa) = Some (e,m1').
 Proof.
   intros.
   unfold alloc_variables_record.
   destr.
   Focus 2. exfalso; apply n; auto.
-  eapply constr_let. 
-  generalize (Mem.record_stack_blocks_none_correct m1 (blocks_with_info ge e) (frame_adt_size fa) m1').
-  intros (A & B).
-  trim B. eexists; split. eauto. split; auto. destruct B as (pf & RSB).
-  erewrite (proof_irr pf) in RSB. rewrite RSB.
-  auto.
+  eapply constr_let.
+  erewrite (frame_adt_eq fa) in H2.
+  rewrite H2. eauto. rewrite H1; reflexivity. simpl. rewrite Z.max_r; auto. destruct fa; auto.
   Unshelve.
   eapply do_alloc_variables_complete. eauto.
 Qed.
@@ -2468,7 +2517,7 @@ Proof with (unfold ret; eauto with coqlib).
   unfold do_step; rewrite NOTVAL.
   exploit callred_topred; eauto. instantiate (1 := w). instantiate (1 := e).
   intros (rule & STEP). exists rule.
-  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) m (fn_stack_requirements i)))
+  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) (Mem.push_new_stage m) (fn_stack_requirements i)))
     with (expr_final_state f k e (C, Callred rule fd vargs ty m i)).
   apply in_map.
   generalize (step_expr_context e w _ _ _ H1 a m). unfold reducts_incl.
@@ -2504,7 +2553,7 @@ Proof with (unfold ret; eauto with coqlib).
   rewrite H0...
 
   (* Call step *)
-  erewrite alloc_variables_record_complete; eauto.
+  rewrite <- H3. erewrite alloc_variables_record_complete; eauto.
   rewrite (sem_bind_parameters_complete _ _ _ _ _ _ H5)...
   exploit do_ef_external_complete; eauto. intro EQ; rewrite EQ. auto with coqlib.
 Qed.

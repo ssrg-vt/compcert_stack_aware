@@ -153,22 +153,19 @@ Inductive stackframe : Type :=
   | Stackframe:
       forall (res: reg)            (**r where to store the result, if [None] *)
         (f: function)         (**r calling function *)
-        (tc: bool)
-             (sp: val)             (**r stack pointer in calling function *)
-             (pc: node)            (**r program point in calling function *)
-             (rs: regset),         (**r register state in calling function *)
-        stackframe
-  | StackframeTailcalled: bool -> stackframe.
+        (sp: val)             (**r stack pointer in calling function *)
+        (pc: node)            (**r program point in calling function *)
+        (rs: regset),         (**r register state in calling function *)
+        stackframe.
 
 Inductive state `{memory_model_ops: Mem.MemoryModelOps} : Type :=
   | State:
       forall (stack: list stackframe) (**r call stack *)
         (f: function)            (**r current function *)
-        (tailcalled: bool)          (**r has [f] been tailcalled ([true]) or regularly called ([false])? *)
-             (sp: val)           (**r stack pointer *)
-             (pc: node)          (**r current program point in [c] *)
-             (rs: regset)        (**r register state *)
-             (m: mem),           (**r memory state *)
+        (sp: val)           (**r stack pointer *)
+        (pc: node)          (**r current program point in [c] *)
+        (rs: regset)        (**r register state *)
+        (m: mem),           (**r memory state *)
       state
   | Callstate:
       forall (stack: list stackframe) (**r call stack *)
@@ -215,87 +212,77 @@ Definition ros_is_function (ros: reg + ident) (rs: regset) (i: ident) : Prop :=
   | inr symb => i = symb
   end.
 
-Fixpoint pop_tailcalled_frames (s: list stackframe) : option (stackframe * list stackframe) :=
-  match s with
-  | nil => None
-  | fr :: s =>
-    match fr with
-    | Stackframe _ _ _ _ _ _ => Some (fr, s)
-    | StackframeTailcalled _ => pop_tailcalled_frames s
-    end
-  end.
-
 Inductive step : state -> trace -> state -> Prop :=
   | exec_Inop:
-      forall s f tc sp pc rs m pc',
+      forall s f sp pc rs m pc',
       (fn_code f)!pc = Some(Inop pc') ->
-      step (State s f tc sp pc rs m)
-        E0 (State s f tc sp pc' rs m)
+      step (State s f sp pc rs m)
+        E0 (State s f sp pc' rs m)
   | exec_Iop:
-      forall s f tc sp pc rs m op args res pc' v,
+      forall s f sp pc rs m op args res pc' v,
       (fn_code f)!pc = Some(Iop op args res pc') ->
       eval_operation ge sp op rs##args m = Some v ->
-      step (State s f tc sp pc rs m)
-        E0 (State s f tc sp pc' (rs#res <- v) m)
+      step (State s f sp pc rs m)
+        E0 (State s f sp pc' (rs#res <- v) m)
   | exec_Iload:
-      forall s f tc sp pc rs m chunk addr args dst pc' a v,
+      forall s f sp pc rs m chunk addr args dst pc' a v,
       (fn_code f)!pc = Some(Iload chunk addr args dst pc') ->
       eval_addressing ge sp addr rs##args = Some a ->
       Mem.loadv chunk m a = Some v ->
-      step (State s f tc sp pc rs m)
-        E0 (State s f tc sp pc' (rs#dst <- v) m)
+      step (State s f sp pc rs m)
+        E0 (State s f sp pc' (rs#dst <- v) m)
   | exec_Istore:
-      forall s f tc sp pc rs m chunk addr args src pc' a m',
+      forall s f sp pc rs m chunk addr args src pc' a m',
       (fn_code f)!pc = Some(Istore chunk addr args src pc') ->
       eval_addressing ge sp addr rs##args = Some a ->
       Mem.storev chunk m a rs#src = Some m' ->
-      step (State s f tc sp pc rs m)
-        E0 (State s f tc sp pc' rs m')
+      step (State s f sp pc rs m)
+        E0 (State s f sp pc' rs m')
   | exec_Icall:
-      forall s f tc sp pc rs m sig ros args res pc' fd id
+      forall s f sp pc rs m sig ros args res pc' fd id
         (RIF: ros_is_function ros rs id),
         (fn_code f)!pc = Some(Icall sig ros args res pc') ->
         find_function ros rs = Some fd ->
         funsig fd = sig ->
-        step (State s f tc sp pc rs m)
-             E0 (Callstate (Stackframe res f tc sp pc' rs :: s) fd rs##args m (fn_stack_requirements id) false)
+        step (State s f sp pc rs m)
+             E0 (Callstate (Stackframe res f sp pc' rs :: s) fd rs##args m (fn_stack_requirements id) false)
   | exec_Itailcall:
-      forall s f tc stk pc rs m sig ros args fd m' id
+      forall s f stk pc rs m sig ros args fd m' id
         (RIF: ros_is_function ros rs id),
       (fn_code f)!pc = Some(Itailcall sig ros args) ->
       find_function ros rs = Some fd ->
       funsig fd = sig ->
       Mem.free m stk 0 f.(fn_stacksize) = Some m' ->
-      step (State s f tc (Vptr stk Ptrofs.zero) pc rs m)
-        E0 (Callstate (StackframeTailcalled tc :: s) fd rs##args m' (fn_stack_requirements id) true)
+      step (State s f (Vptr stk Ptrofs.zero) pc rs m)
+        E0 (Callstate s fd rs##args m' (fn_stack_requirements id) true)
   | exec_Ibuiltin:
-      forall s f tc sp pc rs m ef args res pc' vargs t vres m',
+      forall s f sp pc rs m ef args res pc' vargs t vres m',
       (fn_code f)!pc = Some(Ibuiltin ef args res pc') ->
       eval_builtin_args ge (fun r => rs#r) sp m args vargs ->
       external_call ef ge vargs m t vres m' ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
-        step (State s f tc sp pc rs m)
-             t (State s f tc sp pc' (regmap_setres res vres rs) m')
+        step (State s f sp pc rs m)
+             t (State s f sp pc' (regmap_setres res vres rs) m')
   | exec_Icond:
-      forall s f tc sp pc rs m cond args ifso ifnot b pc',
+      forall s f sp pc rs m cond args ifso ifnot b pc',
       (fn_code f)!pc = Some(Icond cond args ifso ifnot) ->
       eval_condition cond rs##args m = Some b ->
       pc' = (if b then ifso else ifnot) ->
-      step (State s f tc sp pc rs m)
-        E0 (State s f tc sp pc' rs m)
+      step (State s f sp pc rs m)
+        E0 (State s f sp pc' rs m)
   | exec_Ijumptable:
-      forall s f tc sp pc rs m arg tbl n pc',
+      forall s f sp pc rs m arg tbl n pc',
       (fn_code f)!pc = Some(Ijumptable arg tbl) ->
       rs#arg = Vint n ->
       list_nth_z tbl (Int.unsigned n) = Some pc' ->
-      step (State s f tc sp pc rs m)
-        E0 (State s f tc sp pc' rs m)
+      step (State s f sp pc rs m)
+        E0 (State s f sp pc' rs m)
   | exec_Ireturn:
-      forall s f tc stk pc rs m or m' m'',
+      forall s f stk pc rs m or m' m'',
       (fn_code f)!pc = Some(Ireturn or) ->
       Mem.free m stk 0 f.(fn_stacksize) = Some m' ->
       Mem.unrecord_stack_block m' = Some m'' ->
-      step (State s f tc (Vptr stk Ptrofs.zero) pc rs m)
+      step (State s f (Vptr stk Ptrofs.zero) pc rs m)
         E0 (Returnstate s (regmap_optget or Vundef rs) m'')
   | exec_function_internal:
       forall s f args m m' stk m'' sz (tail:bool ) mns,
@@ -304,7 +291,7 @@ Inductive step : state -> trace -> state -> Prop :=
         Mem.record_stack_blocks mns (make_singleton_frame_adt stk (fn_stacksize f) sz) = Some m'' ->
       step (Callstate s (Internal f) args m sz tail)
         E0 (State s
-                  f tail
+                  f
                   (Vptr stk Ptrofs.zero)
                   f.(fn_entrypoint)
                   (init_regs args f.(fn_params))
@@ -315,30 +302,29 @@ Inductive step : state -> trace -> state -> Prop :=
       step (Callstate s (External ef) args m sz false)
          t (Returnstate s res m')
   | exec_return:
-      forall res f tc sp pc rs s s' vres m,
-        pop_tailcalled_frames s = Some (Stackframe res f tc sp pc rs,  s') ->
-        step (Returnstate s vres m)
-             E0 (State s' f false sp pc (rs#res <- vres) m).
+      forall res f sp pc rs s vres m,
+        step (Returnstate (Stackframe res f sp pc rs :: s) vres m)
+             E0 (State s f sp pc (rs#res <- vres) m).
 
 Lemma exec_Iop':
-  forall s f tc sp pc rs m op args res pc' rs' v,
+  forall s f sp pc rs m op args res pc' rs' v,
   (fn_code f)!pc = Some(Iop op args res pc') ->
   eval_operation ge sp op rs##args m = Some v ->
   rs' = (rs#res <- v) ->
-  step (State s f tc sp pc rs m)
-    E0 (State s f tc sp pc' rs' m).
+  step (State s f sp pc rs m)
+    E0 (State s f sp pc' rs' m).
 Proof.
   intros. subst rs'. eapply exec_Iop; eauto.
 Qed.
 
 Lemma exec_Iload':
-  forall s f tc sp pc rs m chunk addr args dst pc' rs' a v,
+  forall s f sp pc rs m chunk addr args dst pc' rs' a v,
   (fn_code f)!pc = Some(Iload chunk addr args dst pc') ->
   eval_addressing ge sp addr rs##args = Some a ->
   Mem.loadv chunk m a = Some v ->
   rs' = (rs#dst <- v) ->
-  step (State s f tc sp pc rs m)
-    E0 (State s f tc sp pc' rs' m).
+  step (State s f sp pc rs m)
+    E0 (State s f sp pc' rs' m).
 Proof.
   intros. subst rs'. eapply exec_Iload; eauto.
 Qed.
@@ -383,7 +369,7 @@ Proof.
     intros. subst. inv H0. exists s1; auto.
   inversion H; subst; auto.
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
-  exists (State s0 f tc sp pc' (regmap_setres res vres2 rs) m2). eapply exec_Ibuiltin; eauto.
+  exists (State s0 f sp pc' (regmap_setres res vres2 rs) m2). eapply exec_Ibuiltin; eauto.
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
   exists (Returnstate s0 vres2 m2). econstructor; eauto.
 (* trace length *)
