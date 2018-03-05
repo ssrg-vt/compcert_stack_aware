@@ -865,10 +865,8 @@ Definition state := Asm.state.
 Definition State := Asm.State.
 Definition set_res := Asm.set_res.
 Definition preg_of := Asm.preg_of.
-Definition no_rsp_builtin_preg := Asm.no_rsp_builtin_preg.
 Definition set_pair := Asm.set_pair.
 Definition loc_external_result := Asm.loc_external_result.
-Definition no_rsp_pair := Asm.no_rsp_pair.
 Definition extcall_arguments := Asm.extcall_arguments.
 
 Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} 
@@ -888,7 +886,6 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
       eval_builtin_args _ _ preg ge rs (rs RSP) m args vargs ->
         external_call ef dummy_senv vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
-        no_rsp_builtin_preg res ->
         rs' = nextinstr_nf
                 (set_res res vres
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) (sect_block_size blk) ->
@@ -912,7 +909,6 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         (RA_NOT_VUNDEF: rs RA <> Vundef)
       ,      (* CompCertX: END additional conditions for calling convention *)
         external_call ef dummy_senv args m t res m' ->
-        no_rsp_pair (loc_external_result (ef_sig ef)) ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
         step ge (State rs m) t (State rs' m').
 
@@ -1144,10 +1140,10 @@ Ltac Equalities :=
 + discriminate.
 + discriminate.
 + assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0.
-  exploit external_call_determ. eexact H5. eexact H12. intros [A B].
+  exploit external_call_determ. eexact H5. eexact H11. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
-  exploit external_call_determ. eexact H5. eexact H12. intros [A B].
+  exploit external_call_determ. eexact H5. eexact H11. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 - (* trace length *)
   red; intros; inv H; simpl.

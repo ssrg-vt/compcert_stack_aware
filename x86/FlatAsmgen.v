@@ -176,7 +176,7 @@ Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list sect_label) :=
   end.
 
 (** Translation of an instruction *)
-Definition transl_instr (fid : ident) (i:Asm.instruction) : res FlatAsm.instruction :=
+Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruction :=
   match i with
   (** Moves *)
   | Asm.Pmov_rr rd r1 => OK (Pmov_rr rd r1)
@@ -423,6 +423,11 @@ Definition transl_instr (fid : ident) (i:Asm.instruction) : res FlatAsm.instruct
     Error (MSG (Asm.instr_to_string i) :: MSG " not supported" :: nil)
   end.
 
+Definition transl_instr (ofs:Z) (fid: ident) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
+    let sz := si_size (snd i) in
+    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    do instr <- transl_instr' fid (fst i);
+    OK (instr, sblk).
 
 (** Translation of a sequence of instructions in a function *)
 Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instr_with_info) : res (Z * list instr_with_info) :=
@@ -430,11 +435,10 @@ Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instr_with_info) : 
   | nil => OK (ofs, nil)
   | i::instrs' =>
     let sz := si_size (snd i) in
-    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
     let nofs := ofs+sz in
-    do instr <- transl_instr fid (fst i);
+    do instr <- transl_instr ofs fid i;
     do (fofs, tinstrs') <- transl_instrs fid nofs instrs';
-    OK (fofs, (instr,sblk) :: tinstrs')
+    OK (fofs, instr :: tinstrs')
   end.
 
 (** Tranlsation of a function *)
@@ -567,8 +571,6 @@ mkCinfo{
   ci_lmap : LABEL_MAP_TYPE; (**r The mapping for labels in functions *)
 }.
 
-
-Definition transl_instr_dummy := transl_instr default_gid_map default_label_map 1%positive.
 
 (** Update the gid mapping for a single instruction *)
 Definition update_instr_map (fid:ident) (ci:cinfo) (instr:Asm.instr_with_info) : cinfo :=
