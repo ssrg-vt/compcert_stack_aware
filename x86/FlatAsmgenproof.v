@@ -15,6 +15,7 @@ Require Import StackADT.
 Require Import Linking Errors.
 Require Import Globalenvs FlatAsmGlobenv.
 Require Import RawAsmgen.
+Require Import AsmFacts.
 
 Section WITHMEMORYMODEL.
   
@@ -158,6 +159,51 @@ Proof.
   eapply Val.inject_ptr. apply H0. eauto. auto.
 Qed.
 
+Lemma undef_regs_pres_inject : forall j rs rs' regs,
+  regset_inject j rs rs' ->
+  regset_inject j (undef_regs regs rs) (undef_regs regs rs').
+Proof.
+  unfold regset_inject. intros. apply val_inject_undef_regs.
+  auto.
+Qed.    
+
+Lemma Pregmap_gsspec_alt : forall (A : Type) (i j : Pregmap.elt) (x : A) (m : Pregmap.t A),
+    (m # j <- x) i  = (if Pregmap.elt_eq i j then x else m i).
+Proof.
+  intros. apply Pregmap.gsspec.
+Qed.
+
+Lemma set_res_pres_inject : forall res j rs1 rs2,
+    regset_inject j rs1 rs2 ->
+    forall vres1 vres2,
+    Val.inject j vres1 vres2 ->
+    regset_inject j (set_res res vres1 rs1) (set_res res vres2 rs2).
+Proof.
+  induction res; auto; simpl; unfold regset_inject; intros.
+  - rewrite Pregmap_gsspec_alt. destruct (Pregmap.elt_eq r x); subst.
+    + rewrite Pregmap.gss. auto.
+    + rewrite Pregmap.gso; auto.
+  - exploit (Val.hiword_inject j vres1 vres2); eauto. intros. 
+    exploit (Val.loword_inject j vres1 vres2); eauto. intros.
+    apply IHres2; auto.
+Qed.
+
+
+Lemma nextinstr_pres_inject : forall j rs1 rs2 sz,
+    regset_inject j rs1 rs2 ->
+    regset_inject j (nextinstr rs1 sz) (nextinstr rs2 sz).
+Proof.
+  unfold nextinstr, regset_inject. intros.
+  repeat rewrite Pregmap_gsspec_alt.
+  destruct (Pregmap.elt_eq r PC); subst; simpl.
+  - unfold Val.offset_ptr. specialize (H PC). 
+    destruct (rs1 PC); inversion H; subst; auto.
+    rewrite <- H2 in *. 
+    exploit Val.offset_ptr_inject; eauto.
+  - auto.
+Qed.
+
+
 Theorem step_simulation:
   forall S1 t S2,
     RawAsmgen.step ge S1 t S2 ->
@@ -206,10 +252,31 @@ Proof.
     + admit.
     + admit.
     + subst rs'. unfold regset_inject. intros. subst pbsect; simpl.
-      unfold nextinstr_nf.
-      admit.
+      unfold nextinstr_nf, Asm.nextinstr_nf.
+      assert (regset_inject j' rs rs'0) by 
+          (eapply regset_inject_incr; eauto).
+      set (dregs := (map Asm.preg_of (Machregs.destroyed_by_builtin ef))) in *.
+      unfold preg_of. fold dregs.
+      generalize (undef_regs_pres_inject j' rs rs'0 dregs H5). intros.
+      unfold undef_regs. unfold set_res.
 
       
+      set (rs1 := (Asm.undef_regs dregs rs)) in *.
+      set (rs2 := (Asm.undef_regs dregs rs'0)) in *.
+      generalize (set_res_pres_inject res j' 
+                  rs1 rs2 H9 vres vres2 RESINJ).
+      set (rs3 := (Asm.set_res res vres rs1)) in *.
+      set (rs4 := (Asm.set_res res vres2 rs2)) in *.
+      intros.
+      fold ZF CF PF SF OF.
+      set (fregs := (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil)) in *.
+      generalize (undef_regs_pres_inject j' rs3 rs4 fregs H10).
+      intros.         
+      generalize (nextinstr_pres_inject j'  
+                    (undef_regs fregs rs3) (undef_regs fregs rs4) 
+                    (Ptrofs.repr (si_size sz)) H11).
+      intros. unfold regset_inject in H12.
+      apply H12.
 
   - (* External call *)
     admit.
