@@ -146,7 +146,17 @@ Lemma external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
       Val.inject j' vres1 vres2 /\ Mem.inject j' (def_frame_inj m1') m1' m2' /\
       inject_incr j j'.
 Admitted.
-      
+
+Lemma regset_inject_incr : forall j j' rs rs',
+    regset_inject j rs rs' ->
+    inject_incr j j' ->
+    regset_inject j' rs rs'.
+Proof.
+  unfold inject_incr, regset_inject. intros.
+  specialize (H r).
+  destruct (rs r); inversion H; subst; auto.
+  eapply Val.inject_ptr. apply H0. eauto. auto.
+Qed.
 
 Theorem step_simulation:
   forall S1 t S2,
@@ -195,8 +205,11 @@ Proof.
     + admit.
     + admit.
     + admit.
-    + subst rs'. unfold regset_inject. intros.
+    + subst rs'. unfold regset_inject. intros. subst pbsect; simpl.
+      unfold nextinstr_nf.
       admit.
+
+      
 
   - (* External call *)
     admit.
