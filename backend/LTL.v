@@ -231,7 +231,7 @@ Inductive step: state -> trace -> state -> Prop :=
       find_function ros rs = Some fd ->
       funsig fd = sig ->
       step (Block s f sp (Lcall sig ros :: bb) rs m)
-        E0 (Callstate (Stackframe f sp rs bb :: s) fd rs (Mem.push_new_stage m) (fn_stack_requirements id) false)
+        E0 (Callstate (Stackframe f sp rs bb :: s) fd rs m (fn_stack_requirements id) false)
   | exec_Ltailcall: forall s f sp sig ros bb rs m fd rs' m' id (IFI: ros_is_function ros rs' id),
       rs' = return_regs (parent_locset s) rs ->
       find_function ros rs' = Some fd ->
@@ -298,7 +298,7 @@ Inductive initial_state (p: program): state -> Prop :=
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m1,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
-      initial_state p (Callstate nil f (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p)) false).
+      initial_state p (Callstate nil f (Locmap.init Vundef) m2 (fn_stack_requirements (prog_main p)) false).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m retcode,

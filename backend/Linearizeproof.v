@@ -540,11 +540,11 @@ Inductive match_states: LTL.state -> Linear.state -> Prop :=
       match_states (LTL.Block s f sp bb ls m)
                    (Linear.State ts tf sp (linearize_block bb c) ls m)
   | match_states_call:
-      forall s f ls m tf ts sz,
+      forall s f ls m tf ts sz tc,
       list_forall2 match_stackframes s ts ->
       transf_fundef f = OK tf ->
-      match_states (LTL.Callstate s f ls m sz)
-                   (Linear.Callstate ts tf ls m sz)
+      match_states (LTL.Callstate s f ls m sz tc)
+                   (Linear.Callstate ts tf ls m sz tc)
   | match_states_return:
       forall s ls m ts,
       list_forall2 match_stackframes s ts ->
@@ -713,7 +713,7 @@ Proof.
   (* internal functions *)
   assert (REACH: (reachable f)!!(LTL.fn_entrypoint f) = true).
     apply reachable_entrypoint.
-  monadInv H9.
+  monadInv H10.
   left; econstructor; split.
   apply plus_one. eapply exec_function_internal; eauto.
   rewrite (stacksize_preserved _ _ EQ). eauto.
@@ -722,7 +722,7 @@ Proof.
   econstructor; eauto. simpl. eapply is_tail_add_branch. constructor.
 
   (* external function *)
-  monadInv H9. left; econstructor; split.
+  monadInv H10. left; econstructor; split.
   apply plus_one. eapply exec_function_external; eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   econstructor; eauto.
@@ -740,7 +740,7 @@ Lemma transf_initial_states:
 Proof.
   intros. inversion H.
   exploit function_ptr_translated; eauto. intros [tf [A B]].
-  exists (Callstate nil tf (Locmap.init Vundef) m2 (fn_stack_requirements (prog_main tprog))); split.
+  exists (Callstate nil tf (Locmap.init Vundef) m2 (fn_stack_requirements (prog_main tprog)) false); split.
   econstructor; eauto. eapply (Genv.init_mem_transf_partial TRANSF); eauto.
   rewrite (match_program_main TRANSF).
   rewrite symbols_preserved. eauto.

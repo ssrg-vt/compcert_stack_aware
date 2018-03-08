@@ -172,8 +172,7 @@ Inductive state `{memory_model_ops: Mem.MemoryModelOps} : Type :=
              (f: fundef)              (**r function to call *)
              (args: list val)         (**r arguments to the call *)
              (m: mem)                (**r memory state *)
-             (sz: Z)
-             (tailcall: bool),
+             (sz: Z) (tc: bool),
       state
   | Returnstate:
       forall (stack: list stackframe) (**r call stack *)
@@ -285,11 +284,11 @@ Inductive step : state -> trace -> state -> Prop :=
       step (State s f (Vptr stk Ptrofs.zero) pc rs m)
         E0 (Returnstate s (regmap_optget or Vundef rs) m'')
   | exec_function_internal:
-      forall s f args m m' stk m'' sz (tail:bool ) mns,
+      forall s f args m m' stk m'' sz (tc: bool),
         Mem.alloc m 0 f.(fn_stacksize) = (m', stk) ->
-        (if tail then m' else Mem.push_new_stage m') = mns ->
-        Mem.record_stack_blocks mns (make_singleton_frame_adt stk (fn_stacksize f) sz) = Some m'' ->
-      step (Callstate s (Internal f) args m sz tail)
+        Mem.record_stack_blocks (if tc then m' else Mem.push_new_stage m')
+                                (make_singleton_frame_adt stk (fn_stacksize f) sz) = Some m'' ->
+      step (Callstate s (Internal f) args m sz tc)
         E0 (State s
                   f
                   (Vptr stk Ptrofs.zero)
@@ -297,9 +296,9 @@ Inductive step : state -> trace -> state -> Prop :=
                   (init_regs args f.(fn_params))
                   m'')
   | exec_function_external:
-      forall s ef args res t m m' sz,
+      forall s ef args res t m m' sz tc,
       external_call ef ge args m t res m' ->
-      step (Callstate s (External ef) args m sz false)
+      step (Callstate s (External ef) args m sz tc)
          t (Returnstate s res m')
   | exec_return:
       forall res f sp pc rs s vres m,

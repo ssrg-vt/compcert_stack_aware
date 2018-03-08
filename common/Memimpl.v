@@ -9199,7 +9199,7 @@ Proof.
   }
   intros; eapply record_stack_blocks_inject_neutral; eauto.
   intros; eapply unrecord_stack_block_inject_parallel; eauto.
-  intros; eapply unrecord_stack_block_inject_left; eauto.
+  intros; eapply unrecord_stack_block_inject_left; eauto. intuition.
   intros; eapply unrecord_stack_block_extends; eauto.
   intros; eapply unrecord_stack_block_mem_unchanged; eauto.
   intros; eapply unrecord_stack_adt; eauto.
@@ -9215,17 +9215,50 @@ Proof.
   simpl. unfold stack_limit. exists 512; omega.
   intros. simpl. eapply stack_inv_below_limit, mem_stack_inv.
   intros; eapply record_stack_block_inject_left_zero; eauto.
+  specialize (FI _ (or_introl eq_refl)). auto.
   intros; eapply unrecord_stack_block_inject_left_zero; eauto.
   intros; eapply mem_inject_ext; eauto.
-  intros; eapply record_stack_blocks_intro; eauto.
+  {
+    intros.  simpl in *. unfold record_stack_blocks.
+    simpl in *.
+    repeat destr; eauto.
+    - inversion H3.
+      eexists. eapply constr_match.
+      instantiate (3 := (f::tf)::r).
+      eauto.
+    - exfalso; apply n. red. eapply Forall_impl. 2: apply H1. simpl; intros. destruct a. intros. simpl in *; eauto.
+    - exfalso; apply n; apply H3.
+    - exfalso. rewrite Z.max_r in g by (destruct f; auto). omega.
+    - exfalso; apply n.
+      rewrite Forall_forall in H0 |- *.
+      intros (b & fi) IN. apply H0. apply in_map. auto.
+    - exfalso; apply n; apply H.
+      Unshelve.
+      rewrite <- H4. reflexivity.
+  }
+  
   simpl; intros; eapply mext_length_stack; eauto.
   simpl; intros; eapply stack_inv_norepet, mem_stack_inv.
+
   intros; eapply mem_inject_ext'; eauto.
   intros; eapply  unrecord_stack_block_inject_right; eauto.
   intros; eapply inject_unrecord_parallel_frameinj_flat; eauto.
-  intros; eapply record_stack_block_inject_flat; eauto.
+  intros; eapply record_stack_block_inject_flat; eauto. 
   intros; eapply unrecord_stack_block_inject_parallel_flat; eauto.
+
   eapply record_stack_blocks_stack_adt_original.
+
+  reflexivity. 
+  simpl. unfold load, push_new_stage. simpl. intros; repeat destruct valid_access_dec; auto.
+  exfalso; apply n. destruct v as (v1 & v2 & v3); repeat split; eauto. inversion 1.
+  exfalso; apply n. destruct v as (v1 & v2 & v3); repeat split; eauto. inversion 1.
+  intros; eapply inject_push_new_stage; eauto.
+  intros; eapply inject_push_new_stage_left; eauto.
+  reflexivity.
+  reflexivity.
+  simpl. inversion 1. inv mi_inj0. inv mi_stack_blocks0. auto.
+  intros. tauto.
+  
 Qed.
 
 End Mem.

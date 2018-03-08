@@ -689,17 +689,14 @@ Qed.
 
 Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
   match Mem.stack_adt m with
-    fr::r =>
-    Forall_dec
-      _ (fun bfi => match_frame_dec bfi stk sz)
-      (frame_adt_blocks fr)
-      && zeq sz (frame_adt_size fr)
+    (fr::_)::r =>
+    Forall_dec _ (fun bfi => match_frame_dec bfi stk sz) (frame_adt_blocks fr) && zeq sz (frame_adt_size fr)
   | _ => false
   end.
 
 Definition parent_pointer (m: mem) : option (block*Z) :=
   match Mem.stack_adt m with
-  | _::fr::_ =>
+  | _::(fr::_)::_ =>
     match frame_adt_blocks fr with
       (b,fi)::nil =>
       Some (b, frame_size fi)
@@ -727,7 +724,7 @@ Notation " 'check' A ; B" := (if A then B else Stuck)
 Definition check_init_sp_in_stack (m: mem) :=
   match init_sp with
     Vptr b o =>
-    in_frames_dec (Mem.stack_adt m) b 
+    in_stack_dec (Mem.stack_adt m) b 
   | _ => true
   end.
 
@@ -1075,8 +1072,10 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (nextinstr rs) m
   | Pallocframe fi ofs_ra (* ofs_link *) =>
     check (check_alloc_frame fi) ;
-      do m4,b <- Mem.push_frame m fi ((Mptr,ofs_ra, rs#RA)::nil);
-      Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- (Vptr b Ptrofs.zero))) m4
+      let (m1,b) := Mem.alloc m 0 (frame_size fi) in
+      do m2 <- Mem.store Mptr m1 b (Ptrofs.unsigned ofs_ra) rs#RA;
+      do m3 <- Mem.record_stack_blocks (Mem.push_new_stage m2) (make_singleton_frame_adt' b fi (frame_size fi));
+      Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- (Vptr b Ptrofs.zero))) m3
   | Pfreeframe sz ofs_ra (* ofs_link *) =>
       do ra <- Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
         match rs#RSP with
@@ -1268,7 +1267,7 @@ Inductive initial_state {F V} (p: AST.program F V): state -> Prop :=
   | initial_state_intro: forall m0 m1 b m2,
       Genv.init_mem p = Some m0 ->
       Mem.alloc m0 0 0 = (m1,b) ->
-      Mem.record_stack_blocks m1 (make_singleton_frame_adt b 0 0) m2 ->
+      Mem.record_stack_blocks m1 (make_singleton_frame_adt b 0 0) = Some m2 ->
       let ge := Genv.globalenv p in
       let rs0 :=
         (Pregmap.init Vundef)
@@ -1339,11 +1338,8 @@ Ltac Equalities :=
   eapply external_call_trace_length; eauto.
 - (* initial states *)
   inv H; inv H0.
-  assert (m0 = m3) by congruence. subst.
-  rewrite H2 in H4; inv H4.
-  exploit Mem.record_stack_block_det. apply H3. apply H5.
-  intro; subst.
-  f_equal.
+  unfold rs0 , rs1, ge, ge0.
+  congruence. 
 - (* final no step *)
   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
   { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. }

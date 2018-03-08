@@ -1690,7 +1690,7 @@ for [unchanged_on]. *)
      (forall (b1 b2 : block) (delta : Z), j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2) ->
      frame_adt_size fi1 = frame_adt_size fi2 ->
      record_stack_blocks m1 fi1 = Some m1' ->
-     (* top_tframe_no_perm (perm m2) (stack_adt m2) -> *)
+     top_tframe_no_perm (perm m2) (stack_adt m2) ->
      g O = Some O ->
      exists m2',
        record_stack_blocks m2 fi2 = Some m2' /\
@@ -1702,7 +1702,7 @@ for [unchanged_on]. *)
       record_stack_blocks m1 fi = Some m1' ->
       (forall b, in_frame fi b -> ~ in_stack ( (stack_adt m2)) b ) ->
       frame_agree_perms (perm m2) fi ->
-      (* top_tframe_no_perm (perm m2) (stack_adt m2) -> *)
+      top_tframe_no_perm (perm m2) (stack_adt m2) ->
       exists m2',
         record_stack_blocks m2 fi = Some m2' /\
         extends m1' m2';
@@ -1883,7 +1883,7 @@ for [unchanged_on]. *)
              perm m1 (fst bfi) o k p -> (0 <= o < frame_size (snd bfi))%Z) 
         (frame_adt_blocks f) ->
       (size_stack (stack_adt m1) + align (frame_adt_size f) 8 < stack_limit)%Z ->
-      (* top_tframe_no_perm (perm m1) (stack_adt m1) -> *)
+      top_tframe_no_perm (perm m1) (stack_adt m1) ->
       exists m2,
         record_stack_blocks m1 f = Some m2;
 
@@ -1936,7 +1936,7 @@ record_stack_block_inject_flat {injperm: InjectPerm}:
      (EQINF: forall (b1 b2 : block) (delta : Z), j b1 = Some (b2, delta) -> in_frame f1 b1 <-> in_frame f2 b2)
      (EQsz: frame_adt_size f1 = frame_adt_size f2)
      (RSB: record_stack_blocks m1 f1 = Some m1')
-     (* (TNF: top_tframe_no_perm (perm m2) (stack_adt m2)) *),
+     (TNF: top_tframe_no_perm (perm m2) (stack_adt m2)),
      exists m2',
        record_stack_blocks m2 f2 = Some m2' /\
        inject j (flat_frameinj (length (stack_adt m1'))) m1' m2' /\

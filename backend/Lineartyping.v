@@ -234,11 +234,11 @@ Inductive wt_state `{memory_model_ops: Mem.MemoryModelOps}: state -> Prop :=
         (WTC: wt_code f c = true)
         (WTRS: wt_locset rs),
       wt_state (State s f sp c rs m)
-  | wt_call_state: forall s fd rs m sz
+  | wt_call_state: forall s fd rs m sz tc
         (WTSTK: wt_callstack s)
         (WTFD: wt_fundef fd)
         (WTRS: wt_locset rs),
-      wt_state (Callstate s fd rs m sz)
+      wt_state (Callstate s fd rs m sz tc)
   | wt_return_state: forall s rs m
         (WTSTK: wt_callstack s)
         (WTRS: wt_locset rs),
@@ -412,8 +412,8 @@ Proof.
 Qed.
 
 Lemma wt_callstate_wt_regs:
-  forall s f rs m sz,
-  wt_state init_ls (Callstate s f rs m sz) ->
+  forall s f rs m sz tc,
+  wt_state init_ls (Callstate s f rs m sz tc) ->
   forall r, Val.has_type (rs (R r)) (mreg_type r).
 Proof.
   intros. inv H. apply WTRS.

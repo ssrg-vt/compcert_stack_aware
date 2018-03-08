@@ -1403,7 +1403,7 @@ Fixpoint nostackinfo (adt: stack_adt) (k: cont) : Prop :=
     match adt with
       nil => False
     | a::r => nostackinfo r k /\
-              Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)
+             Forall (fun a =>Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)) a
     end
   end.
 
@@ -1653,8 +1653,11 @@ Proof.
   repeat destr_in TOPNOINFO.
   unfold is_stack_top. simpl. intros. destr_in H6.
   rewrite Forall_forall in H4.
-  eapply get_assoc_in in H6.
-  specialize (H4  _ H6). eapply H4.
+  eapply get_assoc_tframes_in in H6.
+  destruct H6 as (fa & IN & INblocks).
+  specialize (H4  _ IN). rewrite Forall_forall in H4.
+  specialize (H4 _ INblocks).
+  eapply H4.
   exfalso; apply n. auto.
   eapply match_states_skip; eauto.
   erewrite assign_loc_stack_adt; eauto.
@@ -1680,7 +1683,7 @@ Proof.
   econstructor; eauto.
   eapply match_Kcall with (ce := prog_comp_env cu') (cu := cu); eauto.
   simpl. auto.
-
+ 
 - (* builtin *)
   monadInv TR. inv MTR.
   econstructor; split.
@@ -1780,7 +1783,7 @@ Proof.
   eapply match_returnstate with (ce := prog_comp_env cu); eauto.
   eapply match_cont_call_cont. eauto.
   simpl in TOPNOINFO. repeat destr_in TOPNOINFO.
-  erewrite <- Mem.free_list_stack_blocks in Heql; eauto.
+  erewrite <- Mem.free_list_stack_blocks in Heqs; eauto.
   exploit Mem.unrecord_stack_block_succeeds. eauto. rewrite H0.
   intros (m'0 & EQ & ADT). inv EQ. 
   eapply nostackinfo_call_cont; eauto.
@@ -1795,7 +1798,7 @@ Proof.
   eapply match_cont_call_cont. eauto.
   simpl in TOPNOINFO.
   repeat destr_in TOPNOINFO.
-  erewrite <- Mem.free_list_stack_blocks in Heql; eauto.
+  erewrite <- Mem.free_list_stack_blocks in Heqs; eauto.
   exploit Mem.unrecord_stack_block_succeeds. eauto. rewrite H2.
   intros (m'0 & EQ' & ADT). inv EQ'. 
   eapply nostackinfo_call_cont; eauto.
@@ -1808,7 +1811,7 @@ Proof.
   eapply match_env_free_blocks; eauto. eauto.
   eapply match_returnstate with (ce := prog_comp_env cu); eauto.
   simpl in TOPNOINFO. repeat destr_in TOPNOINFO.
-  erewrite <- Mem.free_list_stack_blocks in Heql; eauto.
+  erewrite <- Mem.free_list_stack_blocks in Heqs; eauto.
   exploit Mem.unrecord_stack_block_succeeds. eauto. rewrite H1.
   intros (m'0 & EQ & ADT). inv EQ. 
   auto.
@@ -1872,7 +1875,7 @@ Proof.
   intros [te1 [C D]].
   econstructor; split.
   apply plus_one. eapply step_internal_function.
-  eauto. eauto. 
+  (* eauto. eauto.  *)
   simpl. erewrite transl_vars_names by eauto. assumption.
   simpl. assumption.
   simpl. assumption.
@@ -1884,9 +1887,10 @@ Proof.
   simpl. econstructor; eauto.
   unfold transl_function. rewrite EQ; simpl. rewrite EQ1; simpl. auto.
   constructor.
-  erewrite Mem.record_stack_blocks_stack_adt. 2: eauto. simpl.
+  erewrite Mem.record_stack_blocks_stack_adt. 2: eauto. 2: apply Mem.push_new_stage_stack. simpl.
   erewrite alloc_variables_stack_adt. 2: eauto.
   split; auto.
+  constructor; auto.
   rewrite H4. rewrite Forall_forall. unfold Clight.blocks_with_info. 
   intros x1. rewrite in_map_iff.
   intros (((b2 & lo) & hi) & EQ2 & IN).
@@ -1920,7 +1924,8 @@ Proof.
   { eapply transl_fundef_sig2; eauto. }
   econstructor; split.
   econstructor; eauto. apply (Genv.init_mem_match TRANSL). eauto.
-  inv TRANSL. inv H6. rewrite H7.
+  destruct TRANSL as (DEF & MAIN & PUBLIC).
+  rewrite MAIN. simpl.
   econstructor; eauto. instantiate (1 := prog_comp_env cu). constructor; auto. exact I.
   simpl; auto.
 Qed.

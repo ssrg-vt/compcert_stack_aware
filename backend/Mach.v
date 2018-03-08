@@ -421,7 +421,7 @@ Inductive step: state -> trace -> state -> Prop :=
       let sp := Vptr stk Ptrofs.zero in
       (* store_stack m1 sp Tptr f.(fn_link_ofs) (parent_sp s) = Some m2 -> *)
       store_stack m1 sp Tptr f.(fn_retaddr_ofs) (parent_ra s) = Some m3 ->
-      Mem.record_stack_blocks m3 (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) m1_ ->
+      Mem.record_stack_blocks m3 (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) = Some m1_ ->
       rs' = undef_regs destroyed_at_function_entry rs ->
       step (Callstate s fb rs m)
         E0 (State s fb sp f.(fn_code) rs' m1_)
@@ -457,7 +457,7 @@ Inductive initial_state (p: program): state -> Prop :=
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some fb ->
       Mem.alloc m0 0 0 = (m1,b) ->
-      Mem.record_stack_blocks m1 (make_singleton_frame_adt b 0 0) m2 ->
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b 0 0) = Some m2 ->
       initial_state p (Callstate nil fb (Regmap.init Vundef) m2).
 
 Inductive final_state: state -> int -> Prop :=

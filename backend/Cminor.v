@@ -470,7 +470,7 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       step (State f (Scall optid sig a bl) k sp e m)
-        E0 (Callstate fd vargs (Kcall optid f sp e k) (Mem.push_new_stage m) (fn_stack_requirements id))
+        E0 (Callstate fd vargs (Kcall optid f sp e k) m (fn_stack_requirements id))
 
   | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' id (IFI: is_function_ident ge vf id),
       eval_expr (Vptr sp Ptrofs.zero) e m a vf ->
@@ -545,7 +545,7 @@ Inductive step: state -> trace -> state -> Prop :=
 
   | step_internal_function: forall f vargs k m m' sp e m'' sz,
       Mem.alloc m 0 f.(fn_stackspace) = (m', sp) ->
-      Mem.record_stack_blocks m' (make_singleton_frame_adt sp (fn_stackspace f) sz)  = Some m'' ->
+      Mem.record_stack_blocks (Mem.push_new_stage m') (make_singleton_frame_adt sp (fn_stackspace f) sz)  = Some m'' ->
       set_locals f.(fn_vars) (set_params vargs f.(fn_params)) = e ->
       step (Callstate (Internal f) vargs k m sz)
         E0 (State f f.(fn_body) k (Vptr sp Ptrofs.zero) e m'')
@@ -574,7 +574,7 @@ Inductive initial_state (p: program): state -> Prop :=
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m1,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
-      initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
+      initial_state p (Callstate f nil Kstop m2 (fn_stack_requirements (prog_main p))).
 
 (** A final state is a [Returnstate] with an empty continuation. *)
 
@@ -660,7 +660,7 @@ Inductive eval_funcall:
   | eval_funcall_internal:
       forall m f vargs m1 sp e t e2 m1' m2 out vres m3 sz,
         Mem.alloc m 0 f.(fn_stackspace) = (m1, sp) ->
-        Mem.record_stack_blocks m1 (make_singleton_frame_adt sp (fn_stackspace f) sz) = Some m1' ->
+        Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt sp (fn_stackspace f) sz) = Some m1' ->
         set_locals f.(fn_vars) (set_params vargs f.(fn_params)) = e ->
         exec_stmt f (Vptr sp Ptrofs.zero) e m1' f.(fn_body) t e2 m2 out ->
         outcome_result_value out f.(fn_sig).(sig_res) vres ->
@@ -702,7 +702,7 @@ with exec_stmt:
       eval_exprlist ge sp e m bl vargs ->
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
-      eval_funcall (Mem.push_new_stage m) fd vargs t m' vres (fn_stack_requirements id) ->
+      eval_funcall m fd vargs t m' vres (fn_stack_requirements id) ->
       e' = set_optvar optid vres e ->
       exec_stmt f sp e m (Scall optid sig a bl) t e' m' Out_normal
   | exec_Sbuiltin:
@@ -787,7 +787,7 @@ CoInductive evalinf_funcall:
   | evalinf_funcall_internal:
       forall m f vargs m1 m1' sp e t sz,
         Mem.alloc m 0 f.(fn_stackspace) = (m1, sp) ->
-        Mem.record_stack_blocks m1 (make_singleton_frame_adt sp (fn_stackspace f) sz) = Some m1' ->
+        Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt sp (fn_stackspace f) sz) = Some m1' ->
       set_locals f.(fn_vars) (set_params vargs f.(fn_params)) = e ->
       execinf_stmt f (Vptr sp Ptrofs.zero) e m1' f.(fn_body) t ->
       evalinf_funcall m (Internal f) vargs t sz
@@ -804,7 +804,7 @@ with execinf_stmt:
       eval_exprlist ge sp e m bl vargs ->
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
-      evalinf_funcall (Mem.push_new_stage m) fd vargs t (fn_stack_requirements id) ->
+      evalinf_funcall m fd vargs t (fn_stack_requirements id) ->
       execinf_stmt f sp e m (Scall optid sig a bl) t
   | execinf_Sifthenelse:
       forall f sp e m a s1 s2 v b t,
@@ -860,7 +860,7 @@ Inductive bigstep_program_terminates (p: program): trace -> int -> Prop :=
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m01,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m01) (make_singleton_frame_adt b1 0 0) = Some m02 ->
-      eval_funcall ge (Mem.push_new_stage m02) f nil t m (Vint r) (fn_stack_requirements (prog_main p)) ->
+      eval_funcall ge m02 f nil t m (Vint r) (fn_stack_requirements (prog_main p)) ->
       bigstep_program_terminates p t r.
 
 Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
@@ -873,7 +873,7 @@ Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m01,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m01) (make_singleton_frame_adt b1 0 0) = Some m02 ->
-      evalinf_funcall ge (Mem.push_new_stage m02) f nil t (fn_stack_requirements (prog_main p)) ->
+      evalinf_funcall ge m02 f nil t (fn_stack_requirements (prog_main p)) ->
       bigstep_program_diverges p t.
 
 Definition bigstep_semantics (p: program) :=

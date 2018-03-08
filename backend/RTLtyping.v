@@ -976,7 +976,7 @@ Proof.
   econstructor; eauto.
   inv WTI; simpl. auto. unfold proj_sig_res; rewrite H3. auto.
   (* internal function *)
-  simpl in *. inv H9.
+  simpl in *. inv H8.
   econstructor; eauto.
   inv H2. apply wt_init_regs; auto. rewrite wt_params0. auto.
   (* external function *)
