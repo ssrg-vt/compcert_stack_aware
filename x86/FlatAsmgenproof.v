@@ -105,6 +105,9 @@ Definition match_find_funct (j:meminj) :=
   j b = Some (mem_block, ofs) ->
   Genv.find_funct_offset tge (Ptrofs.repr ofs) = Some (External f).
 
+Definition glob_block_valid (m:mem) := 
+  forall b g, Genv.find_def ge b = Some g -> Mem.valid_block m b.
+
 Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
 | match_states_intro: forall (j:meminj) (rs: regset) (m: mem) (rs': regset) (m':mem)
                         (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (sm: section_map)
@@ -114,7 +117,8 @@ Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
                         (INSTRINTERNAL: valid_instr_offset_is_internal j)
                         (EXTEXTERNAL: extfun_entry_is_external j)
                         (MATCHFINDFUNCT: match_find_funct j)
-                        (RSINJ: regset_inject j rs rs'),
+                        (RSINJ: regset_inject j rs rs')
+                        (GBVALID: glob_block_valid m),
     match_states (State rs m) (State rs' m').
 
 
@@ -172,8 +176,18 @@ Axiom external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
     exists j' vres2 m2',
       external_call ef dummy_senv vargs2 m2 t vres2 m2' /\ 
       Val.inject j' vres1 vres2 /\ Mem.inject j' (def_frame_inj m1') m1' m2' /\
-      inject_incr j j'.
+      inject_incr j j' /\
+      inject_separated j j' m1 m2.
 
+Axiom  external_call_valid_block: forall ef ge vargs m1 t vres m2 b,
+    external_call ef ge vargs m1 t vres m2 -> Mem.valid_block m1 b -> Mem.valid_block m2 b.
+
+Lemma extcall_pres_glob_block_valid : forall ef ge vargs m1 t vres m2,
+  external_call ef ge vargs m1 t vres m2 -> glob_block_valid m1 -> glob_block_valid m2.
+Proof.
+  unfold glob_block_valid in *. intros.
+  eapply external_call_valid_block; eauto.
+Qed.
 
 Lemma regset_inject_incr : forall j j' rs rs',
     regset_inject j rs rs' ->
@@ -262,21 +276,62 @@ Proof.
   congruence.
 Qed.
 
-Lemma inject_pres_globs_inj_into_flatmem : forall j j',
-    inject_incr j j' -> globs_inj_into_flatmem j -> globs_inj_into_flatmem j'.
-Admitted.
+Lemma inject_decr : forall b j j' m1 m2 b' ofs,
+  Mem.valid_block m1 b -> inject_incr j j' -> inject_separated j j' m1 m2 ->
+  j' b = Some (b', ofs) -> j b = Some (b', ofs).
+Proof.
+  intros. destruct (j b) eqn:JB.
+  - unfold inject_incr in *. destruct p. exploit H0; eauto.
+    intros. congruence.
+  - unfold inject_separated in *. exploit H1; eauto.
+    intros (NVALID1 & NVALID2). congruence.
+Qed.
 
-Lemma inject_pres_valid_instr_offset_is_internal : forall j j',
-    inject_incr j j' -> valid_instr_offset_is_internal j -> valid_instr_offset_is_internal j'.
-Admitted.
+Lemma inject_pres_globs_inj_into_flatmem : forall j j' m1 m2,
+    glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
+    globs_inj_into_flatmem j -> globs_inj_into_flatmem j'.
+Proof.
+  unfold globs_inj_into_flatmem, glob_block_valid. intros.
+  exploit H; eauto. intros.
+  assert (j b = Some (b', ofs')) by (eapply inject_decr; eauto).
+  eapply H2; eauto.
+Qed.
 
-Lemma inject_pres_extfun_entry_is_external : forall j j',
-    inject_incr j j' -> extfun_entry_is_external j -> extfun_entry_is_external j'.
-Admitted.
+Lemma inject_pres_valid_instr_offset_is_internal : forall j j' m1 m2,
+    glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
+    valid_instr_offset_is_internal j -> valid_instr_offset_is_internal j'.
+Proof.
+  unfold glob_block_valid.
+  unfold valid_instr_offset_is_internal. intros.
+  eapply H2; eauto.
+  unfold Genv.find_funct_ptr in H3. destruct (Genv.find_def ge b) eqn:FDEF; try congruence.
+  exploit H; eauto. intros.
+  eapply inject_decr; eauto.
+Qed.
 
-Lemma inject_pres_match_find_funct : forall j j',
-    inject_incr j j' -> match_find_funct j -> match_find_funct j'.
-Admitted.
+Lemma inject_pres_extfun_entry_is_external : forall j j' m1 m2,
+    glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
+    extfun_entry_is_external j -> extfun_entry_is_external j'.
+Proof.
+  unfold glob_block_valid.
+  unfold extfun_entry_is_external. intros.
+  eapply H2; eauto.
+  instantiate (1:=b').
+  unfold Genv.find_funct_ptr in H3. destruct (Genv.find_def ge b) eqn:FDEF; try congruence.
+  exploit H; eauto. intros.
+  eapply inject_decr; eauto.
+Qed.
+
+Lemma inject_pres_match_find_funct : forall j j' m1 m2,
+    glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
+    match_find_funct j -> match_find_funct j'.
+Proof.
+  unfold glob_block_valid, match_find_funct. intros.
+  eapply H2; eauto.
+  unfold Genv.find_funct_ptr in H3. destruct (Genv.find_def ge b) eqn:FDEF; try congruence.
+  exploit H; eauto. intros.
+  eapply inject_decr; eauto.
+Qed.  
 
 
 Theorem step_simulation:
@@ -314,7 +369,7 @@ Proof.
     exploit (eval_builtin_args_inject gm lm sm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
     intros (vargs' & EBARGS & ARGSINJ).
     generalize (external_call_inject j vargs vargs' m m'0 m' vres t ef ARGSINJ MINJ H3).
-    intros (j' & vres2 & m2' & EXTCALL & RESINJ & MINJ' & INJINCR).
+    intros (j' & vres2 & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     set (rs' := nextinstr_nf (set_res res vres2 (undef_regs (map preg_of (Machregs.destroyed_by_builtin ef)) rs'0)) (sect_block_size pbsect)).
     exploit (FlatAsm.exec_step_builtin tge (Ptrofs.add ofs (Ptrofs.repr delta))
                                        ef x0 res rs'0  m'0 vargs' t vres2 rs' m2' pbsect); auto.
@@ -324,10 +379,10 @@ Proof.
     eapply match_states_intro with (j:=j'); eauto.
     (* Supposely the following propreties can proved by separation property of injections *)
     + apply (inject_pres_match_sminj j); eauto.
-    + apply (inject_pres_globs_inj_into_flatmem j); auto.
-    + apply (inject_pres_valid_instr_offset_is_internal j); auto.
-    + apply (inject_pres_extfun_entry_is_external j); auto.
-    + apply (inject_pres_match_find_funct j); auto.
+    + eapply (inject_pres_globs_inj_into_flatmem j); eauto.
+    + eapply (inject_pres_valid_instr_offset_is_internal j); eauto.
+    + eapply (inject_pres_extfun_entry_is_external j); eauto.
+    + eapply (inject_pres_match_find_funct j); eauto.
     + subst rs'. unfold regset_inject. intros. subst pbsect; simpl.
       unfold nextinstr_nf, Asm.nextinstr_nf.
       assert (regset_inject j' rs rs'0) by 
@@ -352,6 +407,7 @@ Proof.
                     (Ptrofs.repr (si_size sz)) H11).
       intros. unfold regset_inject in H12.
       apply H12.
+    + eapply extcall_pres_glob_block_valid; eauto.
 
   - (* External call *)
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
@@ -360,7 +416,7 @@ Proof.
     generalize (extcall_arg_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
     intros (args2 & ARGSINJ & EXTCALLARGS).
     exploit (external_call_inject j args args2 m m'0 m' res t ef); eauto.
-    intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR).
+    intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     exploit (FlatAsm.exec_step_external tge (Ptrofs.repr delta) ef args2 res'); eauto.
     + generalize (RSINJ Asm.RSP). intros. 
       eapply vinject_pres_has_type; eauto.
@@ -372,11 +428,11 @@ Proof.
       eapply vinject_pres_not_vundef; eauto.
     + intros FSTEP. eexists. split. apply FSTEP.
       eapply match_states_intro with (j := j'); eauto.
-      * apply (inject_pres_match_sminj j); eauto.
-      * apply (inject_pres_globs_inj_into_flatmem j); auto.
-      * apply (inject_pres_valid_instr_offset_is_internal j); auto.
-      * apply (inject_pres_extfun_entry_is_external j); auto.
-      * apply (inject_pres_match_find_funct j); auto.
+      * eapply (inject_pres_match_sminj j); eauto.
+      * eapply (inject_pres_globs_inj_into_flatmem j); eauto.
+      * eapply (inject_pres_valid_instr_offset_is_internal j); eauto.
+      * eapply (inject_pres_extfun_entry_is_external j); eauto.
+      * eapply (inject_pres_match_find_funct j); eauto.
       * assert (regset_inject j' rs rs'0) by 
             (eapply regset_inject_incr; eauto).
         unfold preg_of. 
@@ -395,6 +451,7 @@ Proof.
         intros.
         apply regset_inject_expand; auto.
         apply regset_inject_expand; auto.
+    * eapply extcall_pres_glob_block_valid; eauto.
 Qed.        
 
 End PRESERVATION.
