@@ -17,6 +17,61 @@ Require Import Globalenvs FlatAsmGlobenv.
 Require Import RawAsmgen.
 Require Import AsmFacts.
 
+Ltac monadInvX1 H :=
+  match type of H with
+  | (OK _ = OK _) =>
+      inversion H; clear H; try subst
+  | (Error _ = OK _) =>
+      discriminate
+  | (bind ?F ?G = OK ?X) =>
+      let x := fresh "x" in (
+      let EQ1 := fresh "EQ" in (
+      let EQ2 := fresh "EQ" in (
+      destruct (bind_inversion F G H) as [x [EQ1 EQ2]];
+      clear H;
+      try (monadInvX1 EQ2))))
+  | (bind2 ?F ?G = OK ?X) =>
+      let x1 := fresh "x" in (
+      let x2 := fresh "x" in (
+      let EQ1 := fresh "EQ" in (
+      let EQ2 := fresh "EQ" in (
+      destruct (bind2_inversion F G H) as [x1 [x2 [EQ1 EQ2]]];
+      clear H;
+      try (monadInvX1 EQ2)))))
+  | (match ?X with left _ => _ | right _ => assertion_failed end = OK _) =>
+      destruct X; [try (monadInvX1 H) | discriminate]
+  | (match (negb ?X) with true => _ | false => assertion_failed end = OK _) =>
+      destruct X as [] eqn:?; [discriminate | try (monadInvX1 H)]
+  | (match ?X with true => _ | false => assertion_failed end = OK _) =>
+      destruct X as [] eqn:?; [try (monadInvX1 H) | discriminate]
+  | (mmap ?F ?L = OK ?M) =>
+      generalize (mmap_inversion F L H); intro
+  | (match ?X with Some _ => _ | None => _ end = OK _) =>
+      destruct X eqn:EQ; [try (monadInvX1 H) | discriminate]
+  end.
+
+Ltac monadInvX H :=
+  monadInvX1 H ||
+  match type of H with
+  | (?F _ _ _ _ _ _ _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ _ _ _ _ _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ _ _ _ _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ _ _ _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ _ _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  | (?F _ = OK _) =>
+      ((progress simpl in H) || unfold F in H); monadInvX1 H
+  end.
+
+
 Section WITHMEMORYMODEL.
   
 Context `{memory_model: Mem.MemoryModel }.
@@ -42,20 +97,30 @@ Definition regset_inject (j:meminj) (rs rs' : regset) : Prop :=
     the mappings for sections, global id and labels *)    
 Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (sm: section_map) (mj: meminj) : Type :=
   mk_match_sminj {
-      (* agree_sminj : forall b id sid ofs ofs',  *)
+      (* agree_sminj : forall b id sid ofs ofs', *)
       (*   Genv.find_symbol ge id = Some b -> *)
-      (*   gm id = Some (sid,ofs) -> PTree.get sid sm = Some ofs' ->  *)
+      (*   gm id = Some (sid,ofs) -> PTree.get sid sm = Some ofs' -> *)
       (*   mj b = Some (mem_block, Ptrofs.unsigned (Ptrofs.add ofs ofs')); *)
  
       agree_sminj_instr :  forall b b' f ofs ofs' i,
-          Genv.find_funct_ptr ge b = Some (Internal f) -> 
-          Asm.find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
-          mj b = Some (b', ofs') -> 
-          exists id i' ofs1, 
-            Genv.find_instr tge (Ptrofs.add ofs (Ptrofs.repr ofs')) = Some i' /\
-            Genv.find_symbol ge id = Some b /\
-            transl_instr gm lm ofs1 id i = OK i';
-    }.  
+        Genv.find_funct_ptr ge b = Some (Internal f) -> 
+        Asm.find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
+        mj b = Some (b', ofs') -> 
+        exists id i' ofs1, 
+          Genv.find_instr tge (Ptrofs.add ofs (Ptrofs.repr ofs')) = Some i' /\
+          Genv.find_symbol ge id = Some b /\
+          transl_instr gm lm ofs1 id i = OK i';
+
+      agree_sminj_glob : forall id b gloc,
+        Genv.find_symbol ge id = Some b ->
+        gm id = Some gloc ->
+        exists ofs', Genv.get_label_offset0 tge gloc = Some ofs' /\
+                mj b = Some (mem_block, Ptrofs.unsigned ofs');
+      
+    }.
+
+Definition gid_map_for_undef_syms (gm: GID_MAP_TYPE) :=
+  forall id, Genv.find_symbol ge id = None -> gm id = None.
 
 
 Definition globs_inj_into_flatmem (mj:meminj) := 
@@ -113,7 +178,8 @@ Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
                         (EXTEXTERNAL: extfun_entry_is_external j)
                         (MATCHFINDFUNCT: match_find_funct j)
                         (RSINJ: regset_inject j rs rs')
-                        (GBVALID: glob_block_valid m),
+                        (GBVALID: glob_block_valid m)
+                        (GMUNDEF: gid_map_for_undef_syms gm),
     match_states (State rs m) (State rs' m').
 
 
@@ -135,6 +201,7 @@ Admitted.
 
 Lemma eval_builtin_arg_inject : forall gm lm sm j m m' rs rs' sp sp' arg varg arg',
     match_sminj gm lm sm j ->
+    gid_map_for_undef_syms gm ->
     Mem.inject j (def_frame_inj m) m m' ->
     regset_inject j rs rs' ->
     Val.inject j sp sp' ->
@@ -142,10 +209,60 @@ Lemma eval_builtin_arg_inject : forall gm lm sm j m m' rs rs' sp sp' arg varg ar
     eval_builtin_arg ge rs sp m arg varg ->
     exists varg', FlatAsmBuiltin.eval_builtin_arg _ _ preg tge rs' sp' m' arg' varg' /\
              Val.inject j varg varg'.
-Admitted.
+Proof.
+  unfold regset_inject. 
+  induction arg; intros; inv H5;
+    try (eexists; split; auto; monadInv H4; constructor).
+  - monadInv H4. exploit Mem.loadv_inject; eauto.
+    eapply Val.offset_ptr_inject; eauto.
+    intros (v2 & MVLOAD & LINJ).
+    eexists; split; eauto.
+    constructor; auto.
+  - monadInv H4. 
+    exists (Val.offset_ptr sp' ofs). split; try (eapply Val.offset_ptr_inject; eauto).
+    constructor.
+  - monadInvX H4. unfold Senv.symbol_address in H10.
+    destruct (Senv.find_symbol ge id) eqn:FINDSYM.
+    + inv H. exploit agree_sminj_glob0; eauto. 
+      unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM. apply FINDSYM.
+      intros (ofs' & GLOFS & JB).
+      exploit Mem.loadv_inject; eauto.
+      intros (varg' & LOADV & VARGINJ).
+      exists varg'. split; auto.
+      apply FlatAsmBuiltin.eval_BA_loadglobal with (Ptrofs.add ofs ofs').
+      * unfold Genv.get_label_offset0 in GLOFS.
+        unfold Genv.get_label_offset in *.
+        exploit (get_sect_label_offset_incr (Genv.genv_smap tge)s Ptrofs.zero ofs' ofs); auto.
+        rewrite Ptrofs.add_zero_l. rewrite Ptrofs.add_commut. auto.
+      * rewrite Ptrofs.repr_unsigned in *. auto.
+    + simpl in H10. congruence.
+  - monadInvX H4. unfold Senv.symbol_address.
+    destruct (Senv.find_symbol ge id) eqn:FINDSYM.
+    + inv H. exploit agree_sminj_glob0; eauto. 
+      unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM. apply FINDSYM.
+      intros (ofs' & GLOFS & JB).
+      exists (flatptr (Ptrofs.add ofs ofs')). split; auto.
+      apply FlatAsmBuiltin.eval_BA_addrglobal.
+      * unfold Genv.get_label_offset0 in GLOFS.
+        unfold Genv.get_label_offset in *.
+        exploit (get_sect_label_offset_incr (Genv.genv_smap tge)s Ptrofs.zero ofs' ofs); auto.
+        rewrite Ptrofs.add_zero_l. rewrite Ptrofs.add_commut. auto.
+      * unfold flatptr. eapply Val.inject_ptr; eauto.
+        rewrite Ptrofs.repr_unsigned. auto.
+    + unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM.
+      unfold gid_map_for_undef_syms in *. exploit H0; eauto.
+      congruence.
+  - monadInv H4.
+    exploit IHarg1; eauto. intros (vhi' & EVAL1 & VINJ1).
+    exploit IHarg2; eauto. intros (vlo' & EVAL2 & VINJ2).
+    exists (Val.longofwords vhi' vlo'); split.
+    + constructor; auto.
+    + apply Val.longofwords_inject; eauto.
+Qed.
 
 Lemma eval_builtin_args_inject : forall gm lm sm j m m' rs rs' sp sp' args vargs args',
     match_sminj gm lm sm j ->
+    gid_map_for_undef_syms gm ->
     Mem.inject j (def_frame_inj m) m m' ->
     regset_inject j rs rs' ->
     Val.inject j sp sp' ->
@@ -153,7 +270,19 @@ Lemma eval_builtin_args_inject : forall gm lm sm j m m' rs rs' sp sp' args vargs
     eval_builtin_args ge rs sp m args vargs ->
     exists vargs', FlatAsmBuiltin.eval_builtin_args _ _ preg tge rs' sp' m' args' vargs' /\
              Val.inject_list j vargs vargs'.
-Admitted.
+Proof.
+  induction args; intros; simpl. 
+  - inv H4. inv H5. exists nil. split; auto.
+    unfold FlatAsmBuiltin.eval_builtin_args. apply list_forall2_nil.
+  - monadInv H4. inv H5.
+    exploit eval_builtin_arg_inject; eauto. 
+    intros (varg' & EVARG & VINJ).
+    exploit IHargs; eauto. 
+    intros (vargs' & EVARGS & VSINJ).
+    exists (varg' :: vargs'). split; auto.
+    unfold FlatAsmBuiltin.eval_builtin_args. 
+    apply list_forall2_cons; auto.
+Qed.
 
 Lemma extcall_arg_inject : forall rs1 rs2 m1 m2 ef args1 j,
     Asm.extcall_arguments rs1 m1 (ef_sig ef) args1 ->
@@ -288,12 +417,17 @@ Lemma inject_pres_match_sminj :
     match_sminj gm lm sm j'.
 Proof.
   unfold glob_block_valid.
-  intros. inversion ms. constructor. intros.
-  eapply agree_sminj_instr0; eauto.
-  instantiate (1:=b').
-  unfold Genv.find_funct_ptr in H2. destruct (Genv.find_def ge b) eqn:FDEF; try congruence.
-  exploit H; eauto. intros.
-  eapply inject_decr; eauto.
+  intros. inversion ms. constructor; intros.
+  - 
+    eapply agree_sminj_instr0; eauto.
+    instantiate (1:=b').
+    unfold Genv.find_funct_ptr in H2. destruct (Genv.find_def ge b) eqn:FDEF; try congruence.
+    exploit H; eauto. intros.
+    eapply inject_decr; eauto.
+  - 
+    exploit agree_sminj_glob0; eauto. 
+    intros (ofs' & GLBL & JB).
+    eexists; eauto.
 Qed.
 
 Lemma inject_pres_globs_inj_into_flatmem : forall j j' m1 m2,

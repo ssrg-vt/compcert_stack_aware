@@ -94,3 +94,13 @@ Definition get_sect_block_range (smap:section_map) (sb:sect_block) : option (ptr
                       Ptrofs.add ofs (Ptrofs.add (sect_block_start sb) (sect_block_size sb)))
   end.
 
+Lemma get_sect_label_offset_incr : forall sm s ofs1 ofs1' ofs2,
+    get_sect_label_offset sm s ofs1 = Some ofs1' ->
+    get_sect_label_offset sm s (Ptrofs.add ofs1 ofs2) = Some (Ptrofs.add ofs1' ofs2).
+Proof.
+  unfold get_sect_label_offset in *. intros.
+  destruct (sm ! (fst s)).
+  - inversion H. 
+    rewrite (Ptrofs.add_assoc (Ptrofs.add i (snd s)) ofs1). auto.
+  - congruence.
+Qed.
