@@ -182,7 +182,7 @@ Qed.
 
 Lemma undef_regs_pres_inject : forall j rs rs' regs,
   regset_inject j rs rs' ->
-  regset_inject j (undef_regs regs rs) (undef_regs regs rs').
+  regset_inject j (Asm.undef_regs regs rs) (Asm.undef_regs regs rs').
 Proof.
   unfold regset_inject. intros. apply val_inject_undef_regs.
   auto.
@@ -192,6 +192,16 @@ Lemma Pregmap_gsspec_alt : forall (A : Type) (i j : Pregmap.elt) (x : A) (m : Pr
     (m # j <- x) i  = (if Pregmap.elt_eq i j then x else m i).
 Proof.
   intros. apply Pregmap.gsspec.
+Qed.
+
+Lemma regset_inject_expand : forall j rs1 rs2 v1 v2 r,
+  regset_inject j rs1 rs2 ->
+  Val.inject j v1 v2 ->
+  regset_inject j (rs1 # r <- v1) (rs2 # r <- v2).
+Proof.
+  intros. unfold regset_inject. intros.
+  repeat rewrite Pregmap_gsspec_alt. 
+  destruct (Pregmap.elt_eq r0 r); auto.
 Qed.
 
 Lemma set_res_pres_inject : forall res j rs1 rs2,
@@ -214,14 +224,21 @@ Lemma nextinstr_pres_inject : forall j rs1 rs2 sz,
     regset_inject j rs1 rs2 ->
     regset_inject j (nextinstr rs1 sz) (nextinstr rs2 sz).
 Proof.
-  unfold nextinstr, regset_inject. intros.
-  repeat rewrite Pregmap_gsspec_alt.
-  destruct (Pregmap.elt_eq r PC); subst; simpl.
-  - unfold Val.offset_ptr. specialize (H PC). 
-    destruct (rs1 PC); inversion H; subst; auto.
-    rewrite <- H2 in *. 
-    exploit Val.offset_ptr_inject; eauto.
-  - auto.
+  unfold nextinstr. intros. apply regset_inject_expand; auto.
+  apply Val.offset_ptr_inject. auto.
+Qed.  
+
+Lemma set_pair_pres_inject : forall j rs1 rs2 v1 v2 loc,
+    regset_inject j rs1 rs2 ->
+    Val.inject j v1 v2 ->
+    regset_inject j (set_pair loc v1 rs1) (set_pair loc v2 rs2).
+Proof.
+  intros. unfold set_pair, Asm.set_pair. destruct loc; simpl.
+  - apply regset_inject_expand; auto.
+  - apply regset_inject_expand; auto.
+    apply regset_inject_expand; auto.
+    apply Val.hiword_inject; auto.
+    apply Val.loword_inject; auto.
 Qed.
 
 Lemma vinject_pres_not_vundef : forall j v1 v2,
@@ -342,8 +359,25 @@ Proof.
       * admit.
       * admit.
       * admit.
-      * admit.
-    
+      * assert (regset_inject j' rs rs'0) by 
+            (eapply regset_inject_incr; eauto).
+        unfold preg_of. 
+        set (dregs := (map Asm.preg_of Conventions1.destroyed_at_call)) in *.
+        generalize (undef_regs_pres_inject j' rs rs'0 dregs H4). intros.
+        unfold undef_regs. unfold ZF, CF, PF, SF, OF.
+        set (rs1 := (Asm.undef_regs dregs rs)) in *.
+        set (rs2 := (Asm.undef_regs dregs rs'0)) in *.
+        set (cdregs := (CR Asm.ZF :: CR Asm.CF :: CR Asm.PF :: CR Asm.SF :: CR Asm.OF :: nil)) in *.
+        generalize (undef_regs_pres_inject j' rs1 rs2 cdregs H8). intros.
+        set (rs3 := (Asm.undef_regs cdregs rs1)) in *.
+        set (rs4 := (Asm.undef_regs cdregs rs2)) in *.
+        generalize (set_pair_pres_inject j' rs3 rs4 res res' 
+                                         (Asm.loc_external_result (ef_sig ef))
+                                         H9 RESINJ).
+        intros.
+        apply regset_inject_expand; auto.
+        apply regset_inject_expand; auto.
+        
 Admitted.
 
 End PRESERVATION.
