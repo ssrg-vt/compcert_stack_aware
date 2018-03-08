@@ -55,12 +55,7 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (sm: section_map) (mj
             Genv.find_instr tge (Ptrofs.add ofs (Ptrofs.repr ofs')) = Some i' /\
             Genv.find_symbol ge id = Some b /\
             transl_instr gm lm ofs1 id i = OK i';
-    }.
-
-Lemma inject_pres_match_sminj : 
-  forall j j' gm lm sm (ms: match_sminj gm lm sm j), 
-    inject_incr j j' -> match_sminj gm lm sm j'.
-Admitted.
+    }.  
 
 
 Definition globs_inj_into_flatmem (mj:meminj) := 
@@ -287,6 +282,20 @@ Proof.
     intros (NVALID1 & NVALID2). congruence.
 Qed.
 
+Lemma inject_pres_match_sminj : 
+  forall j j' m1 m2 gm lm sm (ms: match_sminj gm lm sm j), 
+    glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
+    match_sminj gm lm sm j'.
+Proof.
+  unfold glob_block_valid.
+  intros. inversion ms. constructor. intros.
+  eapply agree_sminj_instr0; eauto.
+  instantiate (1:=b').
+  unfold Genv.find_funct_ptr in H2. destruct (Genv.find_def ge b) eqn:FDEF; try congruence.
+  exploit H; eauto. intros.
+  eapply inject_decr; eauto.
+Qed.
+
 Lemma inject_pres_globs_inj_into_flatmem : forall j j' m1 m2,
     glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
     globs_inj_into_flatmem j -> globs_inj_into_flatmem j'.
@@ -378,7 +387,7 @@ Proof.
     intros FSTEP. eexists; split; eauto.
     eapply match_states_intro with (j:=j'); eauto.
     (* Supposely the following propreties can proved by separation property of injections *)
-    + apply (inject_pres_match_sminj j); eauto.
+    + eapply (inject_pres_match_sminj j); eauto.
     + eapply (inject_pres_globs_inj_into_flatmem j); eauto.
     + eapply (inject_pres_valid_instr_offset_is_internal j); eauto.
     + eapply (inject_pres_extfun_entry_is_external j); eauto.
