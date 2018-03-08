@@ -64,7 +64,7 @@ Definition globs_inj_into_flatmem (mj:meminj) :=
 
 Definition funs_inj_into_flatmem (mj:meminj) := 
   forall b f b' ofs',
-    Genv.find_funct_ptr ge b = Some (Internal f) -> 
+    Genv.find_funct_ptr ge b = Some f -> 
     mj b = Some (b', ofs') -> b' = mem_block.
 
 Lemma globs_to_funs_inj_into_flatmem : forall (j:meminj),
@@ -83,10 +83,21 @@ Definition valid_instr_offset_is_internal (mj:meminj) :=
     Genv.find_funct_ptr ge b = Some (Internal f) ->
     find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
     mj b = Some (mem_block, ofs') ->
-    Genv.genv_is_instr_internal tge (Ptrofs.add ofs (Ptrofs.repr ofs')) = true.
+    Genv.genv_is_instr_internal tge (Ptrofs.add ofs (Ptrofs.repr ofs')) = true.    
 
+Definition extfun_entry_is_external (mj:meminj) :=
+  forall b b' f ofs,
+    Genv.find_funct_ptr ge b = Some (External f) ->
+    mj b = Some (b', ofs) ->
+    Genv.genv_is_instr_internal tge (Ptrofs.repr ofs) = false.
 
 Definition def_frame_inj m := (fun n => if lt_dec n (length (Mem.stack_adt m)) then Some O else None).
+
+Definition match_find_funct (j:meminj) :=
+  forall b f ofs,
+  Genv.find_funct_ptr ge b = Some (External f) ->
+  j b = Some (mem_block, ofs) ->
+  Genv.find_funct_offset tge (Ptrofs.repr ofs) = Some (External f).
 
 Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
 | match_states_intro: forall (j:meminj) (rs: regset) (m: mem) (rs': regset) (m':mem)
@@ -95,6 +106,8 @@ Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
                         (MATCHSMINJ: match_sminj gm lm sm j)
                         (GINJFLATMEM: globs_inj_into_flatmem j)
                         (INSTRINTERNAL: valid_instr_offset_is_internal j)
+                        (EXTEXTERNAL: extfun_entry_is_external j)
+                        (MATCHFINDFUNCT: match_find_funct j)
                         (RSINJ: regset_inject j rs rs'),
     match_states (State rs m) (State rs' m').
 
@@ -137,8 +150,16 @@ Lemma eval_builtin_args_inject : forall gm lm sm j m m' rs rs' sp sp' args vargs
              Val.inject_list j vargs vargs'.
 Admitted.
 
+    Lemma extcall_arg_inject : forall rs1 rs2 m1 m2 ef args1 j,
+        Asm.extcall_arguments rs1 m1 (ef_sig ef) args1 ->
+        Mem.inject j (def_frame_inj m1) m1 m2 ->
+        regset_inject j rs1 rs2 ->
+        exists args2,
+          Val.inject_list j args1 args2 /\
+          Asm.extcall_arguments rs2 m2 (ef_sig ef) args2.
+    Admitted.
 
-Lemma external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
+Axiom external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
     Val.inject_list j vargs1 vargs2 ->
     Mem.inject j (def_frame_inj m1) m1 m2 ->
     external_call ef ge vargs1 m1 t vres1 m1' ->
@@ -146,7 +167,7 @@ Lemma external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
       external_call ef dummy_senv vargs2 m2 t vres2 m2' /\ 
       Val.inject j' vres1 vres2 /\ Mem.inject j' (def_frame_inj m1') m1' m2' /\
       inject_incr j j'.
-Admitted.
+
 
 Lemma regset_inject_incr : forall j j' rs rs',
     regset_inject j rs rs' ->
@@ -251,6 +272,8 @@ Proof.
     + admit.
     + admit.
     + admit.
+    + admit.
+    + admit.
     + subst rs'. unfold regset_inject. intros. subst pbsect; simpl.
       unfold nextinstr_nf, Asm.nextinstr_nf.
       assert (regset_inject j' rs rs'0) by 
@@ -259,8 +282,6 @@ Proof.
       unfold preg_of. fold dregs.
       generalize (undef_regs_pres_inject j' rs rs'0 dregs H5). intros.
       unfold undef_regs. unfold set_res.
-
-      
       set (rs1 := (Asm.undef_regs dregs rs)) in *.
       set (rs2 := (Asm.undef_regs dregs rs'0)) in *.
       generalize (set_res_pres_inject res j' 
@@ -279,8 +300,31 @@ Proof.
       apply H12.
 
   - (* External call *)
+    unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
+    inversion 1; subst. rewrite Ptrofs.add_zero_l in H6.
+    unfold extfun_entry_is_external in EXTEXTERNAL.
+    specialize (EXTEXTERNAL b b2 ef delta H0 H7).
+    exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst.
+    unfold match_find_funct in MATCHFINDFUNCT.
+    specialize (MATCHFINDFUNCT b ef delta H0 H7).
+    generalize (extcall_arg_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
+    intros (args2 & ARGSINJ & EXTCALLARGS).
+    exploit (external_call_inject j args args2 m m'0 m' res t ef); eauto.
+    intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR).
+    exploit (FlatAsm.exec_step_external tge (Ptrofs.repr delta) ef args2 res'); eauto.
     admit.
-
+    admit.
+    admit.
+    admit.
+    intros FSTEP. eexists. split. apply FSTEP.
+    eapply match_states_intro with (j := j'); eauto.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    + admit.
+    
 Admitted.
 
 End PRESERVATION.
