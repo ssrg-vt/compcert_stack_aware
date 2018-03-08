@@ -95,7 +95,7 @@ Definition regset_inject (j:meminj) (rs rs' : regset) : Prop :=
 
 (** Agreement between a memory injection from Asm to the flat memory and 
     the mappings for sections, global id and labels *)    
-Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (sm: section_map) (mj: meminj) : Type :=
+Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :=
   mk_match_sminj {
       (* agree_sminj : forall b id sid ofs ofs', *)
       (*   Genv.find_symbol ge id = Some b -> *)
@@ -170,9 +170,9 @@ Definition glob_block_valid (m:mem) :=
 
 Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
 | match_states_intro: forall (j:meminj) (rs: regset) (m: mem) (rs': regset) (m':mem)
-                        (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (sm: section_map)
+                        (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE)
                         (MINJ: Mem.inject j (def_frame_inj m) m m')
-                        (MATCHSMINJ: match_sminj gm lm sm j)
+                        (MATCHSMINJ: match_sminj gm lm j)
                         (GINJFLATMEM: globs_inj_into_flatmem j)
                         (INSTRINTERNAL: valid_instr_offset_is_internal j)
                         (EXTEXTERNAL: extfun_entry_is_external j)
@@ -188,19 +188,24 @@ Context `{!EnableBuiltins mem}.
 Existing Instance Asm.mem_accessors_default.
 Existing Instance FlatAsm.mem_accessors_default.
 
-Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm sm i i' id ofs f,
+Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f,
     regset_inject j rs1 rs2 ->
     Mem.inject j (def_frame_inj m1) m1 m2 ->
-    match_sminj gm lm sm j ->
+    match_sminj gm lm j ->
     RawAsmgen.exec_instr ge f i rs1 m1 = Next rs1' m1' ->
     transl_instr gm lm ofs id i = OK i' ->
     exists rs2' m2',
       FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
       match_states (State rs1' m1') (State rs2' m2').
-Admitted.
+(* Proof. *)
+(*   intros. destruct i. destruct i; inv H2; inv H3; simpl in *. *)
+(*   - eexists; eexists; split; eauto. *)
+(*     unfold instr_size; simpl. *)
+    (* inv H1; apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm) (sm:=sm; eauto. *)
+Admitted.  
 
-Lemma eval_builtin_arg_inject : forall gm lm sm j m m' rs rs' sp sp' arg varg arg',
-    match_sminj gm lm sm j ->
+Lemma eval_builtin_arg_inject : forall gm lm j m m' rs rs' sp sp' arg varg arg',
+    match_sminj gm lm j ->
     gid_map_for_undef_syms gm ->
     Mem.inject j (def_frame_inj m) m m' ->
     regset_inject j rs rs' ->
@@ -260,8 +265,8 @@ Proof.
     + apply Val.longofwords_inject; eauto.
 Qed.
 
-Lemma eval_builtin_args_inject : forall gm lm sm j m m' rs rs' sp sp' args vargs args',
-    match_sminj gm lm sm j ->
+Lemma eval_builtin_args_inject : forall gm lm j m m' rs rs' sp sp' args vargs args',
+    match_sminj gm lm j ->
     gid_map_for_undef_syms gm ->
     Mem.inject j (def_frame_inj m) m m' ->
     regset_inject j rs rs' ->
@@ -475,9 +480,9 @@ Proof.
 Qed.
 
 Lemma inject_pres_match_sminj : 
-  forall j j' m1 m2 gm lm sm (ms: match_sminj gm lm sm j), 
+  forall j j' m1 m2 gm lm (ms: match_sminj gm lm j), 
     glob_block_valid m1 -> inject_incr j j' -> inject_separated j j' m1 m2 -> 
-    match_sminj gm lm sm j'.
+    match_sminj gm lm j'.
 Proof.
   unfold glob_block_valid.
   intros. inversion ms. constructor; intros.
@@ -553,10 +558,10 @@ Proof.
   - (* Internal step *)
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
     inversion 1; subst.
-    exploit (agree_sminj_instr gm lm sm j MATCHSMINJ b b2 f ofs delta i); auto.
+    exploit (agree_sminj_instr gm lm j MATCHSMINJ b b2 f ofs delta i); auto.
     intros (id & i' & ofs1 & FITARG & FSYMB & TRANSL).
     exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst.
-    exploit (exec_instr_step j rs rs'0 m m'0 rs' m' gm lm sm i i' id ofs1 f); auto.
+    exploit (exec_instr_step j rs rs'0 m m'0 rs' m' gm lm i i' id ofs1 f); auto.
     intros (rs2' & m2' & FEXEC & MS1).
     exists (State rs2' m2'). split; auto.
     apply FlatAsm.exec_step_internal with (Ptrofs.add ofs (Ptrofs.repr delta)) i'; auto.
@@ -566,13 +571,13 @@ Proof.
   - (* Builtin *)
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H.
     inversion 1; subst.
-    exploit (agree_sminj_instr gm lm sm j MATCHSMINJ b b2 f ofs delta (Asm.Pbuiltin ef args res, sz)); auto.
+    exploit (agree_sminj_instr gm lm j MATCHSMINJ b b2 f ofs delta (Asm.Pbuiltin ef args res, sz)); auto.
     intros (id & i' & ofs1 & FITARG & FSYMB & TRANSL).
     exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst.
     monadInv TRANSL. monadInv EQ.
     set (pbsect := {| sect_block_id := code_sect_id; sect_block_start := Ptrofs.repr ofs1; sect_block_size := Ptrofs.repr (si_size sz) |}).
     fold pbsect in FITARG.
-    exploit (eval_builtin_args_inject gm lm sm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
+    exploit (eval_builtin_args_inject gm lm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
     intros (vargs' & EBARGS & ARGSINJ).
     generalize (external_call_inject j vargs vargs' m m'0 m' vres t ef ARGSINJ MINJ H3).
     intros (j' & vres2 & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
