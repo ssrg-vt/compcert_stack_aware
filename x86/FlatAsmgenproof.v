@@ -57,6 +57,12 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (sm: section_map) (mj
             transl_instr gm lm ofs1 id i = OK i';
     }.
 
+Lemma inject_pres_match_sminj : 
+  forall j j' gm lm sm (ms: match_sminj gm lm sm j), 
+    inject_incr j j' -> match_sminj gm lm sm j'.
+Admitted.
+
+
 Definition globs_inj_into_flatmem (mj:meminj) := 
   forall b g b' ofs',
     Genv.find_def ge b = Some g -> 
@@ -256,6 +262,22 @@ Proof.
   congruence.
 Qed.
 
+Lemma inject_pres_globs_inj_into_flatmem : forall j j',
+    inject_incr j j' -> globs_inj_into_flatmem j -> globs_inj_into_flatmem j'.
+Admitted.
+
+Lemma inject_pres_valid_instr_offset_is_internal : forall j j',
+    inject_incr j j' -> valid_instr_offset_is_internal j -> valid_instr_offset_is_internal j'.
+Admitted.
+
+Lemma inject_pres_extfun_entry_is_external : forall j j',
+    inject_incr j j' -> extfun_entry_is_external j -> extfun_entry_is_external j'.
+Admitted.
+
+Lemma inject_pres_match_find_funct : forall j j',
+    inject_incr j j' -> match_find_funct j -> match_find_funct j'.
+Admitted.
+
 
 Theorem step_simulation:
   forall S1 t S2,
@@ -301,11 +323,11 @@ Proof.
     intros FSTEP. eexists; split; eauto.
     eapply match_states_intro with (j:=j'); eauto.
     (* Supposely the following propreties can proved by separation property of injections *)
-    + admit.
-    + admit.
-    + admit.
-    + admit.
-    + admit.
+    + apply (inject_pres_match_sminj j); eauto.
+    + apply (inject_pres_globs_inj_into_flatmem j); auto.
+    + apply (inject_pres_valid_instr_offset_is_internal j); auto.
+    + apply (inject_pres_extfun_entry_is_external j); auto.
+    + apply (inject_pres_match_find_funct j); auto.
     + subst rs'. unfold regset_inject. intros. subst pbsect; simpl.
       unfold nextinstr_nf, Asm.nextinstr_nf.
       assert (regset_inject j' rs rs'0) by 
@@ -334,11 +356,7 @@ Proof.
   - (* External call *)
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
     inversion 1; subst. rewrite Ptrofs.add_zero_l in H6.
-    unfold extfun_entry_is_external in EXTEXTERNAL.
-    specialize (EXTEXTERNAL b b2 ef delta H0 H7).
     exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst.
-    unfold match_find_funct in MATCHFINDFUNCT.
-    specialize (MATCHFINDFUNCT b ef delta H0 H7).
     generalize (extcall_arg_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
     intros (args2 & ARGSINJ & EXTCALLARGS).
     exploit (external_call_inject j args args2 m m'0 m' res t ef); eauto.
@@ -354,11 +372,11 @@ Proof.
       eapply vinject_pres_not_vundef; eauto.
     + intros FSTEP. eexists. split. apply FSTEP.
       eapply match_states_intro with (j := j'); eauto.
-      * admit.
-      * admit.
-      * admit.
-      * admit.
-      * admit.
+      * apply (inject_pres_match_sminj j); eauto.
+      * apply (inject_pres_globs_inj_into_flatmem j); auto.
+      * apply (inject_pres_valid_instr_offset_is_internal j); auto.
+      * apply (inject_pres_extfun_entry_is_external j); auto.
+      * apply (inject_pres_match_find_funct j); auto.
       * assert (regset_inject j' rs rs'0) by 
             (eapply regset_inject_incr; eauto).
         unfold preg_of. 
@@ -377,8 +395,7 @@ Proof.
         intros.
         apply regset_inject_expand; auto.
         apply regset_inject_expand; auto.
-        
-Admitted.
+Qed.        
 
 End PRESERVATION.
 
