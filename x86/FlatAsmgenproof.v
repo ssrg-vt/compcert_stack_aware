@@ -150,14 +150,14 @@ Lemma eval_builtin_args_inject : forall gm lm sm j m m' rs rs' sp sp' args vargs
              Val.inject_list j vargs vargs'.
 Admitted.
 
-    Lemma extcall_arg_inject : forall rs1 rs2 m1 m2 ef args1 j,
-        Asm.extcall_arguments rs1 m1 (ef_sig ef) args1 ->
-        Mem.inject j (def_frame_inj m1) m1 m2 ->
-        regset_inject j rs1 rs2 ->
-        exists args2,
-          Val.inject_list j args1 args2 /\
-          Asm.extcall_arguments rs2 m2 (ef_sig ef) args2.
-    Admitted.
+Lemma extcall_arg_inject : forall rs1 rs2 m1 m2 ef args1 j,
+    Asm.extcall_arguments rs1 m1 (ef_sig ef) args1 ->
+    Mem.inject j (def_frame_inj m1) m1 m2 ->
+    regset_inject j rs1 rs2 ->
+    exists args2,
+      Val.inject_list j args1 args2 /\
+      Asm.extcall_arguments rs2 m2 (ef_sig ef) args2.
+Admitted.
 
 Axiom external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
     Val.inject_list j vargs1 vargs2 ->
@@ -222,6 +222,21 @@ Proof.
     rewrite <- H2 in *. 
     exploit Val.offset_ptr_inject; eauto.
   - auto.
+Qed.
+
+Lemma vinject_pres_not_vundef : forall j v1 v2,
+  Val.inject j v1 v2 -> v1 <> Vundef -> v2 <> Vundef.
+Proof.
+  intros. destruct v1; inversion H; subst; auto.
+  congruence.
+Qed.
+
+Lemma vinject_pres_has_type : forall j v1 v2 t,
+    Val.inject j v1 v2 -> v1 <> Vundef ->
+    Val.has_type v1 t -> Val.has_type v2 t.
+Proof.
+  intros. destruct v1; inversion H; subst; simpl in H; auto. 
+  congruence.
 Qed.
 
 
@@ -312,18 +327,22 @@ Proof.
     exploit (external_call_inject j args args2 m m'0 m' res t ef); eauto.
     intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR).
     exploit (FlatAsm.exec_step_external tge (Ptrofs.repr delta) ef args2 res'); eauto.
-    admit.
-    admit.
-    admit.
-    admit.
-    intros FSTEP. eexists. split. apply FSTEP.
-    eapply match_states_intro with (j := j'); eauto.
-    + admit.
-    + admit.
-    + admit.
-    + admit.
-    + admit.
-    + admit.
+    + generalize (RSINJ Asm.RSP). intros. 
+      eapply vinject_pres_has_type; eauto.
+    + generalize (RSINJ Asm.RA). intros. 
+      eapply vinject_pres_has_type; eauto.
+    + generalize (RSINJ Asm.RSP). intros. 
+      eapply vinject_pres_not_vundef; eauto.
+    + generalize (RSINJ Asm.RA). intros. 
+      eapply vinject_pres_not_vundef; eauto.
+    + intros FSTEP. eexists. split. apply FSTEP.
+      eapply match_states_intro with (j := j'); eauto.
+      * admit.
+      * admit.
+      * admit.
+      * admit.
+      * admit.
+      * admit.
     
 Admitted.
 
