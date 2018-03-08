@@ -284,14 +284,77 @@ Proof.
     apply list_forall2_cons; auto.
 Qed.
 
-Lemma extcall_arg_inject : forall rs1 rs2 m1 m2 ef args1 j,
+Lemma extcall_arg_inject : forall rs1 rs2 m1 m2 l arg1 j,
+    extcall_arg rs1 m1 l arg1 ->
+    Mem.inject j (def_frame_inj m1) m1 m2 ->
+    regset_inject j rs1 rs2 ->
+    exists arg2,
+      Val.inject j arg1 arg2 /\
+      extcall_arg rs2 m2 l arg2.
+Proof.
+  intros. inv H.
+  - unfold regset_inject in *.
+    specialize (H1 (Asm.preg_of r)). eexists; split; eauto.
+    constructor.
+  - exploit Mem.loadv_inject; eauto.
+    apply Val.offset_ptr_inject. apply H1.
+    intros (arg2 & MLOADV & ARGINJ).
+    exists arg2. split; auto.
+    eapply extcall_arg_stack; eauto.
+Qed.
+
+Lemma extcall_arg_pair_inject : forall rs1 rs2 m1 m2 lp arg1 j,
+    extcall_arg_pair rs1 m1 lp arg1 ->
+    Mem.inject j (def_frame_inj m1) m1 m2 ->
+    regset_inject j rs1 rs2 ->
+    exists arg2,
+      Val.inject j arg1 arg2 /\
+      extcall_arg_pair rs2 m2 lp arg2.
+Proof.
+  intros. inv H.
+  - exploit extcall_arg_inject; eauto. 
+    intros (arg2 & VINJ & EXTCALL).
+    exists arg2. split; auto. constructor. auto.
+  - exploit (extcall_arg_inject rs1 rs2 m1 m2 hi vhi); eauto. 
+    intros (arghi & VINJHI & EXTCALLHI).
+    exploit (extcall_arg_inject rs1 rs2 m1 m2 lo vlo); eauto. 
+    intros (arglo & VINJLO & EXTCALLLO).
+    exists (Val.longofwords arghi arglo). split.
+    + apply Val.longofwords_inject; auto.
+    + constructor; auto.
+Qed.
+
+Lemma extcall_arguments_inject_aux : forall rs1 rs2 m1 m2 locs args1 j,
+   list_forall2 (extcall_arg_pair rs1 m1) locs args1 ->
+    Mem.inject j (def_frame_inj m1) m1 m2 ->
+    regset_inject j rs1 rs2 ->
+    exists args2,
+      Val.inject_list j args1 args2 /\
+      list_forall2 (extcall_arg_pair rs2 m2) locs args2.
+Proof.
+  induction locs; simpl; intros; inv H.
+  - exists nil. split.
+    + apply Val.inject_list_nil.
+    + unfold Asm.extcall_arguments. apply list_forall2_nil.
+  - exploit extcall_arg_pair_inject; eauto.
+    intros (arg2 & VINJARG2 & EXTCALLARG2).
+    exploit IHlocs; eauto.
+    intros (args2 & VINJARGS2 & EXTCALLARGS2).
+    exists (arg2 :: args2). split; auto.
+    apply list_forall2_cons; auto.
+Qed.
+
+Lemma extcall_arguments_inject : forall rs1 rs2 m1 m2 ef args1 j,
     Asm.extcall_arguments rs1 m1 (ef_sig ef) args1 ->
     Mem.inject j (def_frame_inj m1) m1 m2 ->
     regset_inject j rs1 rs2 ->
     exists args2,
       Val.inject_list j args1 args2 /\
       Asm.extcall_arguments rs2 m2 (ef_sig ef) args2.
-Admitted.
+Proof.
+  unfold Asm.extcall_arguments. intros.
+  eapply extcall_arguments_inject_aux; eauto.
+Qed.
 
 Axiom external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
     Val.inject_list j vargs1 vargs2 ->
@@ -556,7 +619,7 @@ Proof.
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
     inversion 1; subst. rewrite Ptrofs.add_zero_l in H6.
     exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst.
-    generalize (extcall_arg_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
+    generalize (extcall_arguments_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
     intros (args2 & ARGSINJ & EXTCALLARGS).
     exploit (external_call_inject j args args2 m m'0 m' res t ef); eauto.
     intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
