@@ -29,24 +29,28 @@ Definition sect_label: Type := ident * ptrofs.
 Definition section_map := PTree.t ptrofs.
 
 (** Get the offset of a label in a section *)
-Definition get_sect_label_offset (smap:section_map) (l:sect_label) (ofs:ptrofs) : option ptrofs :=
+Definition get_sect_label_offset0 smap l :=
   match PTree.get (fst l) smap with
   | None => None
-  | Some ss => Some (Ptrofs.add (Ptrofs.add ss (snd l)) ofs)
+  | Some ss => Some (Ptrofs.add ss (snd l))
   end.
 
-Definition get_sect_label_offset0 smap l :=
-  get_sect_label_offset smap l Ptrofs.zero.
+Definition get_sect_label_offset (smap:section_map) (l:sect_label) (ofs:ptrofs) : option ptrofs :=
+  match (get_sect_label_offset0 smap l) with
+  | None => None
+  | Some ss => Some (Ptrofs.add ss ofs)
+  end.
 
 (** Get the address of a label in a section *)
-Definition get_sect_label_addr (smap:section_map) (l:sect_label) (ofs:ptrofs) : val :=
-  match (get_sect_label_offset smap l ofs) with
+Definition get_sect_label_addr0 smap l :=
+  match (get_sect_label_offset0 smap l) with
   | None => Vundef
   | Some ofs' => flatptr ofs'
   end.
+  
+Definition get_sect_label_addr (smap:section_map) (l:sect_label) (ofs:ptrofs) : val :=
+  Val.offset_ptr (get_sect_label_addr0 smap l) ofs.
 
-Definition get_sect_label_addr0 smap l :=
-  get_sect_label_addr smap l Ptrofs.zero.
 
 (** Get the range of a section *)
 Definition get_section_range (smap:section_map) (s:section) : option (ptrofs * ptrofs) :=
@@ -70,21 +74,19 @@ Definition sect_block_to_label (sb: sect_block) : sect_label :=
   (sect_block_id sb,  sect_block_start sb).
 
 (** Get the offset of a block in a section *)
+Definition get_sect_block_offset0 smap sb :=
+  get_sect_label_offset0 smap (sect_block_to_label sb).
+
 Definition get_sect_block_offset (smap:section_map) (sb:sect_block) (ofs:ptrofs) : option ptrofs :=
   get_sect_label_offset smap (sect_block_to_label sb) ofs.
 
-Definition get_sect_block_offset0 smap sb :=
-  get_sect_block_offset smap sb Ptrofs.zero.
 
 (** Get the address of a block *)
 Definition get_sect_block_addr smap sb ofs : val :=
-  match (get_sect_block_offset smap sb ofs) with
-  | None => Vundef
-  | Some ofs' => flatptr ofs'
-  end.
+  get_sect_label_addr smap (sect_block_to_label sb) ofs.
 
 Definition get_sect_block_addr0 smap sb : val :=
-  get_sect_block_addr smap sb Ptrofs.zero.
+  get_sect_label_addr0 smap (sect_block_to_label sb).
 
 (** Get the range of a block *)
 Definition get_sect_block_range (smap:section_map) (sb:sect_block) : option (ptrofs * ptrofs) :=
@@ -94,21 +96,30 @@ Definition get_sect_block_range (smap:section_map) (sb:sect_block) : option (ptr
                       Ptrofs.add ofs (Ptrofs.add (sect_block_start sb) (sect_block_size sb)))
   end.
 
-Lemma get_sect_label_offset_incr : forall sm s ofs1 ofs1' ofs2,
-    get_sect_label_offset sm s ofs1 = Some ofs1' ->
-    get_sect_label_offset sm s (Ptrofs.add ofs1 ofs2) = Some (Ptrofs.add ofs1' ofs2).
+Lemma get_sect_label_offset0_offset : forall sm s ofs ofs',
+  get_sect_label_offset0 sm s = Some ofs -> 
+  get_sect_label_offset sm s ofs' = Some (Ptrofs.add ofs' ofs).
 Proof.
-  unfold get_sect_label_offset in *. intros.
-  destruct (sm ! (fst s)).
-  - inversion H. 
-    rewrite (Ptrofs.add_assoc (Ptrofs.add i (snd s)) ofs1). auto.
-  - congruence.
+  unfold get_sect_label_offset. intros.
+  rewrite H. rewrite Ptrofs.add_commut. auto.
 Qed.
 
-Lemma get_sect_lbl_offset_to_addr : forall sm l ofs ofs',
-    get_sect_label_offset sm l ofs = Some ofs' ->
-    get_sect_label_addr sm l ofs = (flatptr ofs').
-Proof.
-  intros. unfold get_sect_label_addr.
-  rewrite H. auto.
-Qed.
+(* Lemma get_sect_label_offset_incr : forall sm s ofs1 ofs1' ofs2, *)
+(*     get_sect_label_offset sm s ofs1 = Some ofs1' -> *)
+(*     get_sect_label_offset sm s (Ptrofs.add ofs1 ofs2) = Some (Ptrofs.add ofs1' ofs2). *)
+(* Proof. *)
+(*   unfold get_sect_label_offset in *. intros. *)
+(*   destruct (get_sect_label_offset0 sm s). *)
+(*   - inv H. rewrite Ptrofs.add_assoc. auto. *)
+(*   - congruence. *)
+(* Qed. *)
+
+(* Lemma get_sect_lbl_offset_to_addr : forall sm l ofs ofs', *)
+(*     get_sect_label_offset sm l ofs = Some ofs' -> *)
+(*     get_sect_label_addr sm l ofs = (flatptr ofs'). *)
+(* Proof. *)
+(*   intros. unfold get_sect_label_addr. *)
+(*   unfold get_sect_label_offset in H. unfold get_sect_label_addr0. *)
+(*   destruct (get_sect_label_offset0 sm l); try congruence. *)
+(*   inv H; auto. *)
+(* Qed. *)

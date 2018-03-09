@@ -46,9 +46,15 @@ Ltac monadInvX1 H :=
       destruct X as [] eqn:?; [try (monadInvX1 H) | discriminate]
   | (mmap ?F ?L = OK ?M) =>
       generalize (mmap_inversion F L H); intro
-  | (match ?X with Some _ => _ | None => _ end = OK _) =>
+  | (match ?X with Some _ => _ | None => _ end = _) =>
       let EQ := fresh "EQ" in (
-      destruct X eqn:EQ; [try (monadInvX1 H) | discriminate])
+      destruct X eqn:EQ; try (monadInvX1 H))
+  (* | (match ?X with inl _ => _ | inr _ => _ end = OK _) => *)
+  (*     let EQ := fresh "EQ" in ( *)
+  (*     destruct X eqn:EQ; try (monadInvX1 H)) *)
+  (* | (match ?X with Asm.Addrmode _ _ _ => _ end = _) => *)
+  (*     let EQ := fresh "EQ" in ( *)
+  (*       destruct X eqn:EQ; try (monadInvX1 H)) *)
   end.
 
 Ltac monadInvX H :=
@@ -115,7 +121,7 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :
       agree_sminj_glob : forall id b gloc,
         Genv.find_symbol ge id = Some b ->
         gm id = Some gloc ->
-        exists ofs', Genv.get_label_offset0 tge gloc = Some ofs' /\
+        exists ofs', get_sect_label_offset0 (Genv.genv_smap tge) gloc = Some ofs' /\
                 mj b = Some (mem_block, Ptrofs.unsigned ofs');
       
     }.
@@ -158,7 +164,28 @@ Definition extfun_entry_is_external (mj:meminj) :=
     mj b = Some (b', ofs) ->
     Genv.genv_is_instr_internal tge (Ptrofs.repr ofs) = false.
 
+
 Definition def_frame_inj m := (fun n => if lt_dec n (length (Mem.stack_adt m)) then Some O else None).
+
+
+Lemma store_pres_def_frame_inj : forall chunk m1 b ofs v m1',
+    Mem.store chunk m1 b ofs v = Some m1' -> 
+    forall n, def_frame_inj m1 n = def_frame_inj m1' n.
+Proof.
+  unfold def_frame_inj. intros.
+  exploit Mem.store_stack_blocks; eauto. intros. rewrite H0.
+  auto.
+Qed.
+
+Lemma storev_pres_def_frame_inj : forall chunk m1 a r m1',
+    Mem.storev chunk m1 a r = Some m1' -> 
+    forall n, def_frame_inj m1 n = def_frame_inj m1' n.
+Proof.
+  unfold Mem.storev. intros.
+  destruct a in H; try congruence.
+  eapply store_pres_def_frame_inj; eauto.
+Qed.
+  
 
 Definition match_find_funct (j:meminj) :=
   forall b f ofs,
@@ -220,10 +247,7 @@ Proof.
       intros (varg' & LOADV & VARGINJ).
       exists varg'. split; auto.
       apply FlatAsmBuiltin.eval_BA_loadglobal with (Ptrofs.add ofs ofs').
-      * unfold Genv.get_label_offset0 in GLOFS.
-        unfold Genv.get_label_offset in *.
-        exploit (get_sect_label_offset_incr (Genv.genv_smap tge)s Ptrofs.zero ofs' ofs); auto.
-        rewrite Ptrofs.add_zero_l. rewrite Ptrofs.add_commut. auto.
+      * exploit get_sect_label_offset0_offset; eauto.
       * rewrite Ptrofs.repr_unsigned in *. auto.
     + simpl in H10. congruence.
   - monadInvX H4. unfold Senv.symbol_address.
@@ -233,10 +257,7 @@ Proof.
       intros (ofs' & GLOFS & JB).
       exists (flatptr (Ptrofs.add ofs ofs')). split; auto.
       apply FlatAsmBuiltin.eval_BA_addrglobal.
-      * unfold Genv.get_label_offset0 in GLOFS.
-        unfold Genv.get_label_offset in *.
-        exploit (get_sect_label_offset_incr (Genv.genv_smap tge)s Ptrofs.zero ofs' ofs); auto.
-        rewrite Ptrofs.add_zero_l. rewrite Ptrofs.add_commut. auto.
+      * exploit get_sect_label_offset0_offset; eauto.
       * unfold flatptr. eapply Val.inject_ptr; eauto.
         rewrite Ptrofs.repr_unsigned. auto.
     + unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM.
@@ -529,7 +550,300 @@ Proof.
   eapply inject_decr; eauto.
 Qed.  
 
+Remark mul_inject:
+  forall f v1 v1' v2 v2',
+  Val.inject f v1 v1' ->
+  Val.inject f v2 v2' ->
+  Val.inject f (Val.mul v1 v2) (Val.mul v1' v2').
+Proof.
+  intros. unfold Val.mul. destruct v1, v2; simpl; auto.
+  inversion H; inversion H0; subst. auto.
+Qed.
 
+Remark mull_inject:
+  forall f v1 v1' v2 v2',
+  Val.inject f v1 v1' ->
+  Val.inject f v2 v2' ->
+  Val.inject f (Val.mull v1 v2) (Val.mull v1' v2').
+Proof.
+Proof.
+  intros. unfold Val.mull. destruct v1, v2; simpl; auto.
+  inversion H; inversion H0; subst. auto.
+Qed.
+
+
+Lemma inject_symbol_sectlabel : forall gm lm j id lbl ofs,
+    match_sminj gm lm j ->
+    gm id = Some lbl ->
+    Val.inject j (Genv.symbol_address ge id ofs) (Genv.get_label_addr tge lbl ofs).
+Proof.
+  unfold Genv.symbol_address, Genv.get_label_addr.
+  unfold get_sect_label_addr. intros.
+  destruct (Genv.find_symbol ge id) eqn:FINDSYM; auto.
+  inv H. exploit agree_sminj_glob0; eauto.
+  intros (ofs' & SBOFS & JB).
+  unfold get_sect_label_addr0. rewrite SBOFS.
+  unfold flatptr; simpl. 
+  eapply Val.inject_ptr. eauto.
+  rewrite Ptrofs.repr_unsigned. apply Ptrofs.add_commut.
+Qed.
+
+Lemma add_undef : forall v,
+  Val.add v Vundef = Vundef.
+Proof.
+  intros; destruct v; simpl; auto.
+Qed.
+
+Lemma addl_undef : forall v,
+  Val.addl v Vundef = Vundef.
+Proof.
+  intros; destruct v; simpl; auto.
+Qed.
+
+
+Lemma eval_addrmode32_inject: forall gm lm j a1 a2 rs1 rs2,
+    match_sminj gm lm j ->
+    regset_inject j rs1 rs2 ->
+    transl_addr_mode gm a1 = OK a2 ->
+    Val.inject j (Asm.eval_addrmode32 ge a1 rs1) (FlatAsm.eval_addrmode32 tge a2 rs2).
+Proof.
+  intros. unfold Asm.eval_addrmode32, FlatAsm.eval_addrmode32.
+  destruct a1, a2. destruct base, ofs, const; simpl in *; inv H1.
+  - destruct p. apply Val.add_inject; auto.
+    destruct (zeq z0 1); apply Val.add_inject; auto.
+    apply mul_inject; auto.
+  - destruct p0. monadInvX H3. monadInvX EQ.
+    destruct p. apply Val.add_inject; auto.
+    destruct (zeq z 1). 
+    + apply Val.add_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+    + apply Val.add_inject; auto.
+      apply mul_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+  - apply Val.add_inject; auto.
+    simpl. repeat rewrite Int.add_zero_l. 
+    auto.
+  - monadInvX H3. destruct p. monadInvX EQ.
+    destruct (Genv.symbol_address ge i0 i1) eqn:SYMADDR; 
+      try now (rewrite add_undef; auto).
+    apply Val.add_inject; eauto.
+    simpl. rewrite Int.add_zero_l.
+    exploit inject_symbol_sectlabel; eauto.
+    rewrite SYMADDR. intros. inv H1.
+    rewrite Int.add_zero_l. auto.
+  - destruct p. destruct (zeq z0 1); simpl.
+    + destruct (Val.add (rs1 i) (Vint (Int.repr z))) eqn:EQ; auto.
+      assert (Val.inject j (Val.add (rs1 i) (Vint (Int.repr z))) (Val.add (rs2 i) (Vint (Int.repr z)))).
+      apply Val.add_inject; auto.
+      rewrite EQ in *. inv H1. setoid_rewrite <- H4. auto.
+    + destruct (Val.add (Val.mul (rs1 i) (Vint (Int.repr z0))) (Vint (Int.repr z))) eqn:EQ; auto.
+      assert (Val.inject j (Val.add (Val.mul (rs1 i) (Vint (Int.repr z0))) (Vint (Int.repr z)))
+                           (Val.add (Val.mul (rs2 i) (Vint (Int.repr z0))) (Vint (Int.repr z)))).
+      apply Val.add_inject; auto. apply mul_inject; auto.
+      rewrite EQ in *. inv H1. setoid_rewrite <- H4. auto.
+  - monadInvX H3. destruct p0. monadInvX EQ.
+    destruct p. destruct (zeq z 1).
+    + destruct (Val.add (rs1 i1) (Genv.symbol_address ge i i0)) eqn:EQ; auto.
+      rewrite Int.add_zero_l. simpl.
+      assert (Val.inject j (Val.add (rs1 i1) (Genv.symbol_address ge i i0))
+                           (Val.add (rs2 i1) (Genv.get_label_addr tge s i0))).
+      apply Val.add_inject; auto. eapply inject_symbol_sectlabel; eauto.
+      rewrite EQ in *. inv H1.  setoid_rewrite <- H4. 
+      rewrite Int.add_zero_l. auto.
+    + destruct (Val.add (Val.mul (rs1 i1) (Vint (Int.repr z))) (Genv.symbol_address ge i i0)) eqn:EQ; auto.
+      rewrite Int.add_zero_l. simpl.
+      assert (Val.inject j (Val.add (Val.mul (rs1 i1) (Vint (Int.repr z))) (Genv.symbol_address ge i i0))
+                           (Val.add (Val.mul (rs2 i1) (Vint (Int.repr z))) (Genv.get_label_addr tge s i0))).
+      apply Val.add_inject. apply mul_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      rewrite EQ in *. inv H1.  setoid_rewrite <- H4. 
+      rewrite Int.add_zero_l. auto.
+  - simpl. repeat rewrite Int.add_zero_l.  auto.
+  - monadInvX H3. destruct p. monadInvX EQ.
+    destruct (Genv.symbol_address ge i i0) eqn:SYMBEQ; auto.
+    exploit inject_symbol_sectlabel; eauto.
+    rewrite SYMBEQ. intro INJ. inv INJ.
+    simpl. repeat rewrite Int.add_zero_l. auto.
+Qed.
+
+Lemma eval_addrmode64_inject: forall gm lm j a1 a2 rs1 rs2,
+    match_sminj gm lm j ->
+    regset_inject j rs1 rs2 ->
+    transl_addr_mode gm a1 = OK a2 ->
+    Val.inject j (Asm.eval_addrmode64 ge a1 rs1) (FlatAsm.eval_addrmode64 tge a2 rs2).
+Proof.
+  intros. unfold Asm.eval_addrmode64, FlatAsm.eval_addrmode64.
+  destruct a1, a2. destruct base, ofs, const; simpl in *; inv H1.
+  - destruct p. apply Val.addl_inject; auto.
+    destruct (zeq z0 1); apply Val.addl_inject; auto.
+    apply mull_inject; auto.
+  - destruct p0. monadInvX H3. monadInvX EQ.
+    destruct p. apply Val.addl_inject; auto.
+    destruct (zeq z 1). 
+    + apply Val.addl_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+    + apply Val.addl_inject; auto.
+      apply mull_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+  - apply Val.addl_inject; auto.
+    simpl. repeat rewrite Int.add_zero_l. 
+    auto.
+  - monadInvX H3. destruct p. monadInvX EQ.
+    destruct (Genv.symbol_address ge i0 i1) eqn:SYMADDR; 
+      try now (rewrite addl_undef; auto).
+    + apply Val.addl_inject; eauto.
+      simpl. rewrite Int64.add_zero_l.
+      exploit inject_symbol_sectlabel; eauto.
+      rewrite SYMADDR. intros. inv H1.
+      rewrite Int64.add_zero_l. auto.
+    + rewrite Ptrofs.add_zero.
+      destruct Archi.ptr64 eqn:ARCH. 
+      * simpl. apply Val.addl_inject; auto.
+        exploit inject_symbol_sectlabel; eauto. rewrite SYMADDR.
+        inversion 1; subst. rewrite ARCH.
+        rewrite Ptrofs.add_zero. rewrite <- H4 in *. auto.
+      * simpl. apply Val.addl_inject; auto.
+  - destruct p. destruct (zeq z0 1); simpl.
+    + destruct (Val.addl (rs1 i) (Vlong (Int64.repr z))) eqn:EQ; auto.
+      * assert (Val.inject j (Val.addl (rs1 i) (Vlong (Int64.repr z))) (Val.addl (rs2 i) (Vlong (Int64.repr z)))).
+        apply Val.addl_inject; auto.
+        rewrite EQ in *. inv H1. setoid_rewrite <- H4. auto.
+      * assert (Val.inject j (Val.addl (rs1 i) (Vlong (Int64.repr z)))
+                             (Val.addl (rs2 i) (Vlong (Int64.repr z)))).
+        apply Val.addl_inject; auto.
+        rewrite EQ in *. inversion H1; subst. destruct Archi.ptr64; auto.
+        rewrite Ptrofs.add_zero. setoid_rewrite <- H4.
+        rewrite Ptrofs.add_zero. congruence.
+    + assert (Val.inject j (Val.addl (Val.mull (rs1 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z)))
+                         (Val.addl (Val.mull (rs2 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z)))).
+      apply Val.addl_inject; auto. apply mull_inject; auto.
+      destruct (Val.addl (Val.mull (rs1 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z))) eqn:EQ; auto.
+      * inversion H1; subst. setoid_rewrite <- H4. auto.
+      * destruct Archi.ptr64 eqn:ARCHI; auto.
+        inversion H1; subst. setoid_rewrite <- H4. 
+        repeat rewrite Ptrofs.add_zero. congruence.
+  - monadInvX H3. destruct p0. monadInvX EQ.
+    destruct p. destruct (zeq z 1).
+    + simpl.
+      assert (Val.inject j (Val.addl (rs1 i1) (Genv.symbol_address ge i i0))
+                           (Val.addl (rs2 i1) (Genv.get_label_addr tge s i0))).
+      apply Val.addl_inject; auto. eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.addl (rs1 i1) (Genv.symbol_address ge i i0)) eqn:EQ; auto.
+      * rewrite Int64.add_zero_l. inversion H1; subst. setoid_rewrite <- H4.
+        rewrite Int64.add_zero_l. auto.
+      * destruct Archi.ptr64 eqn:ARCHI; auto.
+        rewrite Ptrofs.add_zero. inversion H1; subst. setoid_rewrite <- H4.
+        rewrite Ptrofs.add_zero. congruence.
+    + simpl.
+      assert (Val.inject j (Val.addl (Val.mull (rs1 i1) (Vlong (Int64.repr z))) (Genv.symbol_address ge i i0))
+                           (Val.addl (Val.mull (rs2 i1) (Vlong (Int64.repr z))) (Genv.get_label_addr tge s i0))).
+      apply Val.addl_inject; auto. apply mull_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.addl (Val.mull (rs1 i1) (Vlong (Int64.repr z))) (Genv.symbol_address ge i i0)); auto.
+      * inversion H1; subst. rewrite Int64.add_zero_l.
+        setoid_rewrite <- H4. rewrite Int64.add_zero_l. auto.
+      * destruct Archi.ptr64 eqn:ARCHI; auto.
+        rewrite Ptrofs.add_zero. inversion H1; subst. setoid_rewrite <- H4.
+        rewrite Ptrofs.add_zero. congruence. 
+  - simpl. repeat rewrite Int64.add_zero_l. auto.
+  - monadInvX H3. destruct p. monadInvX EQ.
+    destruct (Genv.symbol_address ge i i0) eqn:SYMBEQ; auto.
+    + exploit inject_symbol_sectlabel; eauto.
+      rewrite SYMBEQ. intro INJ. inv INJ.
+      simpl. repeat rewrite Int.add_zero_l. auto.
+    + destruct Archi.ptr64 eqn:ARCHI; auto. simpl.
+      repeat rewrite Ptrofs.add_zero. 
+      assert (Val.inject j (Genv.symbol_address ge i i0) (Genv.get_label_addr tge s i0)).
+      eapply inject_symbol_sectlabel; eauto.
+      rewrite SYMBEQ in *. inversion H1; subst.
+      destruct Archi.ptr64 eqn:ARCHI1.
+      repeat rewrite Ptrofs.add_zero. congruence.
+      congruence.
+Qed.
+
+Lemma eval_addrmode_inject: forall gm lm j a1 a2 rs1 rs2,
+    match_sminj gm lm j ->
+    regset_inject j rs1 rs2 ->
+    transl_addr_mode gm a1 = OK a2 ->
+    Val.inject j (Asm.eval_addrmode ge a1 rs1) (FlatAsm.eval_addrmode tge a2 rs2).
+Proof.
+  intros. unfold Asm.eval_addrmode, eval_addrmode. destruct Archi.ptr64.
+  + eapply eval_addrmode64_inject; eauto.
+  + eapply eval_addrmode32_inject; eauto.
+Qed.
+
+Lemma exec_load_step: forall j rs1 rs2 m1 m2 rs1' m1' gm lm sz chunk rd a1 a2
+                          (MINJ: Mem.inject j (def_frame_inj m1) m1 m2)
+                          (MATCHSMINJ: match_sminj gm lm j)
+                          (GINJFLATMEM: globs_inj_into_flatmem j)
+                          (INSTRINTERNAL: valid_instr_offset_is_internal j)
+                          (EXTEXTERNAL: extfun_entry_is_external j)
+                          (MATCHFINDFUNCT: match_find_funct j)
+                          (RSINJ: regset_inject j rs1 rs2)
+                          (GBVALID: glob_block_valid m1)
+                          (GMUNDEF: gid_map_for_undef_syms gm),
+    Asm.exec_load ge chunk m1 a1 rs1 rd sz = Next rs1' m1' ->
+    transl_addr_mode gm a1 = OK a2 ->
+    exists rs2' m2',
+      FlatAsm.exec_load tge chunk m2 a2 rs2 rd sz = Next rs2' m2' /\
+      match_states (State rs1' m1') (State rs2' m2').
+Proof.
+  intros. unfold Asm.exec_load in *.  
+  exploit eval_addrmode_inject; eauto. intro EMODINJ. unfold Next in H.
+  destruct (Mem.loadv chunk m1 (Asm.eval_addrmode ge a1 rs1)) eqn:MLOAD; try congruence.
+  exploit Mem.loadv_inject; eauto. intros (v2 & MLOADV & VINJ).
+  eexists. eexists. split.
+  - unfold exec_load. rewrite MLOADV. auto.
+  - inv H. eapply match_states_intro; eauto.
+    apply nextinstr_pres_inject. apply undef_regs_pres_inject.
+    apply regset_inject_expand; eauto.
+Qed.
+
+Lemma store_pres_glob_block_valid : forall m1 chunk b v ofs m2,
+  Mem.store chunk m1 b ofs v = Some m2 -> glob_block_valid m1 -> glob_block_valid m2.
+Proof.
+  unfold glob_block_valid in *. intros.
+  eapply Mem.store_valid_block_1; eauto.
+Qed.
+
+Lemma storev_pres_glob_block_valid : forall m1 chunk ptr v m2,
+  Mem.storev chunk m1 ptr v = Some m2 -> glob_block_valid m1 -> glob_block_valid m2.
+Proof.
+  unfold Mem.storev. intros. destruct ptr; try congruence.
+  eapply store_pres_glob_block_valid; eauto.
+Qed.
+
+Lemma exec_store_step: forall j rs1 rs2 m1 m2 rs1' m1' gm lm sz chunk r a1 a2 dregs
+                         (MINJ: Mem.inject j (def_frame_inj m1) m1 m2)
+                         (MATCHSMINJ: match_sminj gm lm j)
+                         (GINJFLATMEM: globs_inj_into_flatmem j)
+                         (INSTRINTERNAL: valid_instr_offset_is_internal j)
+                         (EXTEXTERNAL: extfun_entry_is_external j)
+                         (MATCHFINDFUNCT: match_find_funct j)
+                         (RSINJ: regset_inject j rs1 rs2)
+                         (GBVALID: glob_block_valid m1)
+                         (GMUNDEF: gid_map_for_undef_syms gm),
+    Asm.exec_store ge chunk m1 a1 rs1 r dregs sz = Next rs1' m1' ->
+    transl_addr_mode gm a1 = OK a2 ->
+    exists rs2' m2',
+      FlatAsm.exec_store tge chunk m2 a2 rs2 r dregs sz = Next rs2' m2' /\
+      match_states (State rs1' m1') (State rs2' m2').
+Proof.
+  intros. unfold Asm.exec_store in *.  
+  exploit eval_addrmode_inject; eauto. intro EMODINJ. unfold Next in H.
+  destruct (Mem.storev chunk m1 (Asm.eval_addrmode ge a1 rs1) (rs1 r)) eqn:MSTORE; try congruence.
+  exploit Mem.storev_mapped_inject; eauto. intros (m2' & MSTOREV & MINJ').
+  eexists. eexists. split.
+  - unfold exec_store. rewrite MSTOREV. auto.
+  - inv H. eapply match_states_intro; eauto.
+    eapply Mem.mem_inject_ext; eauto.
+    eapply storev_pres_def_frame_inj; eauto.
+    apply nextinstr_pres_inject. repeat apply undef_regs_pres_inject. auto.
+    eapply storev_pres_glob_block_valid; eauto.
+Qed.
+  
+
+(** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
                         (MINJ: Mem.inject j (def_frame_inj m1) m1 m2)
                         (MATCHSMINJ: match_sminj gm lm j)
@@ -588,10 +902,7 @@ Proof.
     destruct (Genv.find_symbol ge id0) eqn:FINDSYM; auto.
     exploit agree_sminj_glob0; eauto.
     intros (ofs' & GLBL & JB).
-    unfold Genv.get_label_offset0 in GLBL.
-    unfold Genv.get_label_offset in GLBL.
-    exploit get_sect_lbl_offset_to_addr; eauto. 
-    intros OFSTOADDR. rewrite OFSTOADDR.
+    unfold get_sect_label_addr0. rewrite GLBL.
     rewrite <- (Ptrofs.add_zero_l ofs').
     eapply Val.inject_ptr; eauto.
     rewrite Ptrofs.repr_unsigned. auto.
@@ -599,15 +910,22 @@ Proof.
   - (* Pmovl_rm *)
     monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.
-    eexists; eexists; split. 
-    unfold FlatAsm.exec_instr. simpl.
-    
-    Asm.exec_load ge chunk m1 a
-
-    admit.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
 
   - (* Pmovq_rm *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+
+  - (* Asm.Pmovl_mr *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_store_step; eauto.
+
+  - 
 
   - eexists; eexists; split; eauto.
     unfold instr_size; simpl.
@@ -615,6 +933,7 @@ Proof.
     apply nextinstr_pres_inject.
     apply undef_regs_pres_inject.
     apply regset_inject_expand; auto.
+
   - admit.
   - 
 

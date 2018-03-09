@@ -83,21 +83,21 @@ Definition get_label_offset (ge: t) (l:sect_label) (ofs:ptrofs): option ptrofs :
   get_sect_label_offset (genv_smap ge) l ofs.
 
 Definition get_label_offset0 ge l :=
-  get_label_offset ge l Ptrofs.zero.
+  get_sect_label_offset0 (genv_smap ge) l.
 
 (** Get the address value of a label *)
 Definition get_label_addr (ge: t) (l:sect_label) (ofs:ptrofs) : val :=
   get_sect_label_addr (genv_smap ge) l ofs.
 
 Definition get_label_addr0 ge l :=
-  get_label_addr ge l Ptrofs.zero.
+  get_sect_label_addr0 (genv_smap ge) l.
 
 (** Translate a section block to an offset in the flat memory space *)
 Definition get_block_offset (ge: t) (sb:sect_block) (ofs:ptrofs): option ptrofs :=
   get_sect_block_offset (genv_smap ge) sb ofs.
 
 Definition get_block_offset0 ge sb :=
-  get_block_offset ge sb Ptrofs.zero.
+  get_sect_block_offset0 (genv_smap ge) sb.
 
 
 (** Find an instruction at an offset *)
