@@ -630,12 +630,9 @@ Section STACKINV.
     destruct 1; simpl; intros SI;
       inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
         try solve [inv MSA1; eauto].
-    - edestruct (Mem.record_stack_blocks_stack_eq _ _ _ H0) as (tf & r & EQ1 & EQ2).
-      rewrite EQ2.
-      rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H) in MSA1.
-      destruct tc.
+    - destruct tc; revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       + rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
-      + rewrite Mem.push_new_stage_stack in EQ1; inv EQ1. econstructor; eauto; reflexivity.
+      + inv EQ1. econstructor; eauto; reflexivity.
     - inv MSA1. repeat destr_in H0. econstructor. rewrite <- H. econstructor; eauto.
   Qed.
 

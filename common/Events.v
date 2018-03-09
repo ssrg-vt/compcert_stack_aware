@@ -2119,29 +2119,30 @@ Ltac rewrite_perms_fw :=
     apply (Mem.perm_store_1 _ _ _ _ _ _ H1)
   end.
 
+
 Ltac rewrite_stack_blocks :=
   match goal with
-  | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.stack_adt ?m] =>
-    rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
-  | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.stack_adt ?m] =>
-    rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
-  | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.stack_adt ?m] =>
-    rewrite (Mem.storev_stack_adt _ _ _ _ _ H)
-  | H: external_call _ _ _ _ _ _ ?m |- context [Mem.stack_adt ?m] =>
-    rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
-  | H: Mem.free_list _ _ = Some ?m |- context [Mem.stack_adt ?m] =>
-    rewrite (Mem.free_list_stack_blocks _ _ _ H)
-  | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.stack_adt ?m] =>
-    rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
-  | H: Mem.record_stack_blocks _ _  ?m |- context [Mem.stack_adt ?m] =>
-    rewrite (Mem.record_stack_blocks_stack_adt _ _ _ H)
-  | H: Mem.unrecord_stack_block ?m1 = Some ?m |- context [Mem.stack_adt ?m] =>
+  | H:Mem.alloc _ _ _ = (?m, _) |- context [ Mem.stack_adt ?m ] => rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
+  | H:Mem.store _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
+  | H:Mem.storev _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.storev_stack_adt _ _ _ _ _ H)
+  | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack_adt ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
+  | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
+  | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
+  | H: context[ Mem.stack_adt (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
+  | |- context[ Mem.stack_adt (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
+  | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
+    let f := fresh "f" in
+    let r := fresh "r" in
+    let EQ1 := fresh "EQ1" in
+    let EQ2 := fresh "EQ2" in
+    destruct (Mem.record_stack_blocks_stack_eq _ _ _ H) as (f & r & EQ1 & EQ2); rewrite EQ2
+  | H:Mem.unrecord_stack_block ?m1 = Some ?m
+    |- context [ Mem.stack_adt ?m ] =>
     let f := fresh "f" in
     let EQ := fresh "EQ" in
-    destruct (Mem.unrecord_stack_adt _ _ H) as (f & EQ);
-    replace (Mem.stack_adt m) with (tl (Mem.stack_adt m1)) by (rewrite EQ; reflexivity)
+    destruct (Mem.unrecord_stack_adt _ _ H) as (f, EQ); replace (Mem.stack_adt m) with (tl (Mem.stack_adt m1))
+      by (rewrite EQ; reflexivity)
   end.
-
 
 Ltac rewrite_perms_bw H :=
   match type of H with

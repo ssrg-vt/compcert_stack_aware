@@ -2041,6 +2041,10 @@ wf_stack_mem:
      Mem.record_stack_blocks m1 f = Some m2 ->
      Mem.top_tframe_no_perm (Mem.perm m1) (Mem.stack_adt m1);
 
+ extends_push {injperm: InjectPerm}:
+   forall m1 m2,
+     Mem.extends m1 m2 ->
+     Mem.extends (Mem.push_new_stage m1) (Mem.push_new_stage m2);
 
 }.
 
@@ -2702,6 +2706,16 @@ Proof.
     rewrite H2, H3 in H0. simpl in H0. inv H0. rewrite H5. reflexivity.
 Qed.
 
+
+    Lemma extends_maybe_push:
+      forall m1 m2,
+        Mem.extends m1 m2 ->
+        forall b: bool,
+          Mem.extends (if b then m1 else Mem.push_new_stage m1)
+                      (if b then m2 else Mem.push_new_stage m2).
+    Proof.
+      intros; destruct b; eauto using extends_push.
+    Qed.
 
 End WITHMEMORYMODEL.
 

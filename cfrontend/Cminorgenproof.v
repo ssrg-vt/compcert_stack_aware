@@ -1699,7 +1699,7 @@ Inductive match_states: Csharpminor.state -> Cminor.state -> Prop :=
       match_states (Csharpminor.State fn (Csharpminor.Sseq s1 s2) k e le m)
                    (State tfn ts1 tk (Vptr sp Ptrofs.zero) te tm)
   | match_callstate:
-      forall fd args k m tfd targs tk tm f cs cenv sz 
+      forall fd args k m tfd targs tk tm f cs cenv sz
       (TR: transl_fundef fd = OK tfd)
       (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)
       (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
@@ -1708,7 +1708,7 @@ Inductive match_states: Csharpminor.state -> Cminor.state -> Prop :=
       (ISCC: Csharpminor.is_call_cont k)
       (ARGSINJ: Val.inject_list f args targs),
       match_states (Csharpminor.Callstate fd args k m sz)
-                   (Callstate tfd targs tk tm sz)
+                   (Callstate tfd targs tk tm sz false)
   | match_returnstate:
       forall v k m tv tk tm f cs cenv 
       (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)

@@ -369,14 +369,14 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Scall optid sig a bl) k sp e m)
         E0 (Callstate fd vargs (Kcall optid f sp e k) m (fn_stack_requirements id) false)
 
-  | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' m'' id (IFI: is_function_ident ge vf id),
+  | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' id (IFI: is_function_ident ge vf id),
       eval_expr_or_symbol (Vptr sp Ptrofs.zero) e m nil a vf ->
       eval_exprlist (Vptr sp Ptrofs.zero) e m nil bl vargs ->
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
       step (State f (Stailcall sig a bl) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Callstate fd vargs (call_cont k) m'' (fn_stack_requirements id) true)
+        E0 (Callstate fd vargs (call_cont k) m' (fn_stack_requirements id) true)
 
   | step_builtin: forall f res ef al k sp e m vl t v m',
       list_forall2 (eval_builtin_arg sp e m) al vl ->
@@ -588,6 +588,80 @@ Proof.
   intros. unfold lift. eapply eval_lift_expr.
   eexact H. apply insert_lenv_0.
 Qed.
+
+Section STACKINV.
+
+
+Fixpoint funs_of_cont k : list (option (block * Z)) :=
+  match k with
+  | Kstop => nil
+  | Kseq s k => funs_of_cont k
+  | Kblock k => funs_of_cont k
+  | Kcall oi f (Vptr sp _) e k => Some (sp, fn_stackspace f):: funs_of_cont k
+  | Kcall oi f _ e k => None :: funs_of_cont k
+  end.
+
+  Inductive stack_inv : state -> Prop :=
+  | stack_inv_regular: forall k f s sp m o e
+                         (MSA1: match_stack_adt (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack_adt m)),
+      stack_inv (State f s k (Vptr sp o) e m)
+  | stack_inv_call: forall k fd args m sz (tc: bool)
+                      (MSA1: match_stack_adt (funs_of_cont k) (if tc then tl (Mem.stack_adt m) else Mem.stack_adt m)),
+      stack_inv (Callstate fd args k m sz tc)
+  | stack_inv_return: forall k res m 
+                        (MSA1: match_stack_adt (funs_of_cont k) (Mem.stack_adt m)),
+      stack_inv (Returnstate res k m).
+
+  Lemma funs_of_call_cont:
+    forall k,
+      funs_of_cont (call_cont k) = funs_of_cont k.
+  Proof.
+    induction k; simpl; intros; eauto.
+  Qed.
+
+  Lemma find_label_funs_of_cont:
+    forall lbl s k s' k',
+      find_label lbl s k = Some (s', k') ->
+      funs_of_cont k' = funs_of_cont k.
+  Proof.
+    induction s; simpl; intros; try congruence.
+    - destr_in H; eauto. inv H. apply IHs1 in Heqo. simpl in Heqo. auto.
+    - destr_in H; inv H; eauto.
+    - apply IHs in H. simpl in H; auto.
+    - apply IHs in H. simpl in H; auto.
+    - destr_in H; eauto.
+  Qed.
+  
+  Lemma stack_inv_inv:
+    forall ge S1 t S2,
+      step ge S1 t S2 ->
+      stack_inv S1 -> stack_inv S2.
+  Proof.
+    destruct 1; simpl; intros SI;
+      inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
+        try solve [inv MSA1; simpl; rewrite ?funs_of_call_cont; eauto].
+    - erewrite find_label_funs_of_cont by eauto.
+      rewrite funs_of_call_cont.  auto.
+    - apply Mem.alloc_stack_blocks in H. clear H0.
+      destruct tc.
+      + rewrite <- H, EQ1 in *. simpl in *.
+        econstructor; eauto; reflexivity.
+      + rewrite Mem.push_new_stage_stack in EQ1; inv EQ1.
+        rewrite <- H in *.
+        econstructor; eauto; reflexivity.
+    - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite <- H. econstructor; eauto.
+  Qed.
+
+  Lemma stack_inv_initial:
+    forall p S
+      (INIT: initial_state p S),
+      stack_inv S.
+  Proof.
+    intros; inv INIT; econstructor.
+    constructor.
+  Qed.
+
+End STACKINV.
 
 End WITHEXTCALLSOPS.
 

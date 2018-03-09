@@ -325,3 +325,58 @@ Fixpoint successors_block (b: bblock) : list node :=
   | Lreturn :: _ => nil
   | instr :: b' => successors_block b'
   end.
+
+(** Invariant of RTL programs  *)
+
+Definition block_of_stackframe s: option (block * Z) :=
+  match s with
+    Stackframe f (Vptr sp _) _ _ => Some (sp, fn_stacksize f)
+  | _ => None
+  end.
+
+Section STACKINV.
+  Context `{extcallops: ExternalCalls}.
+
+  Inductive stack_inv : state -> Prop :=
+  | stack_inv_regular: forall s f sp pc rs m o
+                         (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (State s f (Vptr sp o) pc rs m)
+  | stack_inv_block: forall s f sp pc rs m o
+                       (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (Block s f (Vptr sp o) pc rs m)
+  | stack_inv_call: forall s fd args m sz (tc: bool)
+                      (MSA1: match_stack_adt (map block_of_stackframe s) (if tc then tl (Mem.stack_adt m) else Mem.stack_adt m)),
+      stack_inv (Callstate s fd args m sz tc)
+  | stack_inv_return: forall s res m 
+                        (MSA1: match_stack_adt (map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (Returnstate s res m).
+
+  Variable fn_stack_requirements: ident -> Z.
+  Variable p: program.
+  Let ge := Genv.globalenv p.
+  Variable init_ls: locset.
+
+  Lemma stack_inv_inv:
+    forall S1 t S2,
+      step fn_stack_requirements init_ls ge S1 t S2 ->
+      stack_inv S1 -> stack_inv S2.
+  Proof.
+    destruct 1; simpl; intros SI;
+      inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
+        try solve [inv MSA1; eauto].
+    - destruct tail; revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
+      + rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
+      + inv EQ1. econstructor; eauto; reflexivity.
+    - inv MSA1. repeat destr_in H0. econstructor. rewrite <- H. econstructor; eauto.
+  Qed.
+
+  Lemma stack_inv_initial:
+    forall S
+      (INIT: initial_state fn_stack_requirements p S),
+      stack_inv S.
+  Proof.
+    intros; inv INIT; econstructor.
+    constructor.
+  Qed.
+
+End STACKINV.

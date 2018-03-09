@@ -887,16 +887,13 @@ Proof.
     unfold stack_equiv_inv in *; simpl in *; repeat rewrite_stack_blocks; eauto.
   - revert EQ EQ0. repeat rewrite_stack_blocks. intros A B; rewrite A, B. simpl.
     inv SEI. constructor. simpl; auto.
-  - edestruct (Mem.record_stack_blocks_stack_eq _ _ _ H0) as (tf & r & EQ1 & EQ2).
-    edestruct (Mem.record_stack_blocks_stack_eq _ _ _ H9) as (ttf & tr & EQ3 & EQ4).
-    rewrite EQ2, EQ4.
-    revert SEI. rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H).
+  - revert SEI. rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H).
     rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H8).
     intro STRUCT.
     destruct tc.
-    rewrite EQ1, EQ3 in STRUCT. inv STRUCT; constructor; auto.
+    rewrite EQ1, EQ0 in STRUCT. inv STRUCT; constructor; auto.
     constructor; auto.
-    rewrite Mem.push_new_stage_stack in EQ1, EQ3. inv EQ1; inv EQ3. constructor; auto.
+    rewrite Mem.push_new_stage_stack in EQ1, EQ0. inv EQ1; inv EQ0. constructor; auto.
     constructor; auto. constructor.
 Qed.
 
