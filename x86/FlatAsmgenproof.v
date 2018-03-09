@@ -188,22 +188,6 @@ Context `{!EnableBuiltins mem}.
 Existing Instance Asm.mem_accessors_default.
 Existing Instance FlatAsm.mem_accessors_default.
 
-Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f,
-    regset_inject j rs1 rs2 ->
-    Mem.inject j (def_frame_inj m1) m1 m2 ->
-    match_sminj gm lm j ->
-    RawAsmgen.exec_instr ge f i rs1 m1 = Next rs1' m1' ->
-    transl_instr gm lm ofs id i = OK i' ->
-    exists rs2' m2',
-      FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
-      match_states (State rs1' m1') (State rs2' m2').
-(* Proof. *)
-(*   intros. destruct i. destruct i; inv H2; inv H3; simpl in *. *)
-(*   - eexists; eexists; split; eauto. *)
-(*     unfold instr_size; simpl. *)
-    (* inv H1; apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm) (sm:=sm; eauto. *)
-Admitted.  
-
 Lemma eval_builtin_arg_inject : forall gm lm j m m' rs rs' sp sp' arg varg arg',
     match_sminj gm lm j ->
     gid_map_for_undef_syms gm ->
@@ -543,6 +527,45 @@ Proof.
   exploit H; eauto. intros.
   eapply inject_decr; eauto.
 Qed.  
+
+
+Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
+                        (MINJ: Mem.inject j (def_frame_inj m1) m1 m2)
+                        (MATCHSMINJ: match_sminj gm lm j)
+                        (GINJFLATMEM: globs_inj_into_flatmem j)
+                        (INSTRINTERNAL: valid_instr_offset_is_internal j)
+                        (EXTEXTERNAL: extfun_entry_is_external j)
+                        (MATCHFINDFUNCT: match_find_funct j)
+                        (RSINJ: regset_inject j rs1 rs2)
+                        (GBVALID: glob_block_valid m1)
+                        (GMUNDEF: gid_map_for_undef_syms gm),
+    RawAsmgen.exec_instr ge f i rs1 m1 = Next rs1' m1' ->
+    transl_instr gm lm ofs id i = OK i' ->
+    exists rs2' m2',
+      FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
+      match_states (State rs1' m1') (State rs2' m2').
+Proof.
+  intros. destruct i. destruct i; inv H; inv H0; simpl in *.
+  - eexists; eexists; split; eauto.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply regset_inject_expand; auto.
+  - eexists; eexists; split; eauto.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply undef_regs_pres_inject.
+    apply regset_inject_expand; auto.
+  - eexists; eexists; split; eauto.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply undef_regs_pres_inject.
+    apply regset_inject_expand; auto.
+  - admit.
+  - 
+
 
 
 Theorem step_simulation:
