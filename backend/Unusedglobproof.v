@@ -838,15 +838,6 @@ Proof.
 - econstructor; eauto. eapply Plt_Ple_trans; eauto. eapply Plt_Ple_trans; eauto.
 Qed.
 
-Definition mem_state (s: state) : mem :=
-  match s with
-    State _ _ _ _ _ m
-  | Callstate _ _ _ m _ _
-  | Returnstate _ _ m => m
-  end.
-
-
-
 Inductive match_states: state -> state -> Prop :=
   | match_states_regular: forall s f sp pc rs m ts tsp trs tm j 
          (STACKS: match_stacks j s ts sp tsp)
@@ -870,9 +861,6 @@ Inductive match_states: state -> state -> Prop :=
          (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack_adt m))) m tm),
       match_states (Returnstate s res m)
                    (Returnstate ts tres tm).
-
-Definition stack_equiv_inv s1 s2 :=
-  stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt (mem_state s1)) (Mem.stack_adt (mem_state s2)).
 
 Lemma stack_equiv_inv_step:
   forall S1 t S2

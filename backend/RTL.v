@@ -597,6 +597,8 @@ Qed.
 
 (** Invariant of RTL programs  *)
 
+
+
 Definition block_of_stackframe s: option (block * Z) :=
   match s with
     Stackframe _ f (Vptr sp _) _ _ => Some (sp, fn_stacksize f)
@@ -606,6 +608,16 @@ Definition block_of_stackframe s: option (block * Z) :=
 
 Section STACKINV.
   Context `{extcallops: ExternalCalls}.
+
+  Definition mem_state (s: state) : mem :=
+    match s with
+      State _ _ _ _ _ m
+    | Callstate _ _ _ m _ _
+    | Returnstate _ _ m => m
+    end.
+
+  Definition stack_equiv_inv s1 s2 :=
+    stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt (mem_state s1)) (Mem.stack_adt (mem_state s2)).
 
   Inductive stack_inv : state -> Prop :=
   | stack_inv_regular: forall s f sp pc rs m o

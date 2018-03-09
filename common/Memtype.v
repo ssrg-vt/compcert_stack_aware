@@ -2045,6 +2045,11 @@ wf_stack_mem:
    forall m1 m2,
      Mem.extends m1 m2 ->
      Mem.extends (Mem.push_new_stage m1) (Mem.push_new_stage m2);
+ 
+ push_new_stage_unchanged_on:
+   forall P m,
+     Mem.strong_unchanged_on P m (Mem.push_new_stage m);
+
 
 }.
 

@@ -2090,7 +2090,7 @@ Qed.
 Program Definition alloc_variables_record f m sz : option (env * mem) :=
   check (list_norepet_dec ident_eq (var_names (fn_params f) ++ var_names (fn_vars f)));
     let '(e,m1) := do_alloc_variables empty_env m (f.(fn_params) ++ f.(fn_vars)) in
-    do m1 <- Mem.record_stack_blocks m1 (Build_frame_adt (blocks_with_info ge e) (Z.max 0 sz) _ _);
+    do m1 <- Mem.record_stack_blocks (Mem.push_new_stage m1) (Build_frame_adt (blocks_with_info ge e) (Z.max 0 sz) _ _);
       Some (e,m1).
 Next Obligation.
   unfold blocks_with_info. unfold blocks_of_env.
@@ -2171,7 +2171,7 @@ Lemma alloc_variables_record_spec:
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 /\
       frame_adt_blocks fa = blocks_with_info ge e /\
       frame_adt_size fa = Z.max 0 sz /\
-      Mem.record_stack_blocks m1 fa = Some m'.
+      Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some m'.
 Proof.
   unfold alloc_variables_record.
   intros f m sz e m' AV.
@@ -2181,15 +2181,14 @@ Proof.
             exists (m1 : mem) (fa : frame_adt),
               alloc_variables ge empty_env m (fn_params f ++ fn_vars f) (fst em) m1 /\
               frame_adt_blocks fa = blocks_with_info ge (fst em) /\
-              frame_adt_size fa = Z.max 0 sz /\ Mem.record_stack_blocks m1 fa = Some (snd em)) (e,m')).
+              frame_adt_size fa = Z.max 0 sz /\ Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some (snd em)) (e,m')).
   eapply (destr_dep_let (B:=env*mem) (do_alloc_variables empty_env m (fn_params f ++ fn_vars f))).
   apply AV. clear AV.
   intros.
   simpl in H. destr_in H. inv H.
   exploit do_alloc_variables_sound. rewrite <- pf. simpl.
-  intro AV.
+  intro AV. rewrite <- Heqo.
   eexists b, _; repeat split; eauto.
-  reflexivity. reflexivity.
 Qed.
 
 Function sem_bind_parameters (w: world) (e: env) (m: mem) (l: list (ident * type)) (lv: list val)
@@ -2235,7 +2234,7 @@ Definition expr_final_state (f: function) (k: cont) (e: env) (C_rd: (expr -> exp
   match snd C_rd with
   | Lred rule a m => TR rule E0 (ExprState f (fst C_rd a) k e m)
   | Rred rule a m t => TR rule t (ExprState f (fst C_rd a) k e m)
-  | Callred rule fd vargs ty m i => TR rule E0 (Callstate fd vargs (Kcall f e (fst C_rd) ty k) (Mem.push_new_stage m) (fn_stack_requirements i))
+  | Callred rule fd vargs ty m i => TR rule E0 (Callstate fd vargs (Kcall f e (fst C_rd) ty k) m (fn_stack_requirements i))
   | Stuckred => TR "step_stuck" E0 Stuckstate
   end.
 
@@ -2471,7 +2470,7 @@ Lemma alloc_variables_record_complete:
     list_norepet (var_names (fn_params f) ++ var_names (fn_vars f)) ->
     alloc_variables ge empty_env m (fn_params f ++ fn_vars f) e m1 ->
     frame_adt_blocks fa = blocks_with_info ge e ->
-    Mem.record_stack_blocks m1 fa = Some m1' ->
+    Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some m1' ->
     alloc_variables_record f m (frame_adt_size fa) = Some (e,m1').
 Proof.
   intros.
@@ -2517,7 +2516,7 @@ Proof with (unfold ret; eauto with coqlib).
   unfold do_step; rewrite NOTVAL.
   exploit callred_topred; eauto. instantiate (1 := w). instantiate (1 := e).
   intros (rule & STEP). exists rule.
-  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) (Mem.push_new_stage m) (fn_stack_requirements i)))
+  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) m (fn_stack_requirements i)))
     with (expr_final_state f k e (C, Callred rule fd vargs ty m i)).
   apply in_map.
   generalize (step_expr_context e w _ _ _ H1 a m). unfold reducts_incl.

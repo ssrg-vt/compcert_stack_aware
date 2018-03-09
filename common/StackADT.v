@@ -2991,6 +2991,19 @@ Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
                        (SIZE: frame_size bi = z):
     match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
 
+Lemma list_forall2_refl:
+  forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
+  list_forall2 R s s.
+Proof.
+  induction s; constructor; auto.
+Qed.
+
+Lemma stack_equiv_refl:
+  forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
+    stack_equiv R s s.
+Proof.
+  induction s; constructor; eauto using list_forall2_refl.
+Qed.
 
 
 End INJ.

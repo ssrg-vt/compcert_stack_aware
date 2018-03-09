@@ -1665,20 +1665,6 @@ Proof.
     eapply match_env_update_dest; eauto.
 Qed.
 
-Lemma list_forall2_refl:
-  forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
-  list_forall2 R s s.
-Proof.
-  induction s; constructor; auto.
-Qed.
-
-Lemma stack_equiv_refl:
-  forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
-    stack_equiv R s s.
-Proof.
-  induction s; constructor; eauto using list_forall2_refl.
-Qed.
-
 Lemma transl_initial_states:
   forall S, CminorSel.initial_state fn_stack_requirements prog S ->
        exists R, RTL.initial_state fn_stack_requirements tprog R /\ match_states S R.
