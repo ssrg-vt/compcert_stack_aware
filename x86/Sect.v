@@ -104,3 +104,11 @@ Proof.
     rewrite (Ptrofs.add_assoc (Ptrofs.add i (snd s)) ofs1). auto.
   - congruence.
 Qed.
+
+Lemma get_sect_lbl_offset_to_addr : forall sm l ofs ofs',
+    get_sect_label_offset sm l ofs = Some ofs' ->
+    get_sect_label_addr sm l ofs = (flatptr ofs').
+Proof.
+  intros. unfold get_sect_label_addr.
+  rewrite H. auto.
+Qed.

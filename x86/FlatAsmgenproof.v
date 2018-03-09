@@ -47,7 +47,8 @@ Ltac monadInvX1 H :=
   | (mmap ?F ?L = OK ?M) =>
       generalize (mmap_inversion F L H); intro
   | (match ?X with Some _ => _ | None => _ end = OK _) =>
-      destruct X eqn:EQ; [try (monadInvX1 H) | discriminate]
+      let EQ := fresh "EQ" in (
+      destruct X eqn:EQ; [try (monadInvX1 H) | discriminate])
   end.
 
 Ltac monadInvX H :=
@@ -545,18 +546,69 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
       FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
       match_states (State rs1' m1') (State rs2' m2').
 Proof.
-  intros. destruct i. destruct i; inv H; inv H0; simpl in *.
-  - eexists; eexists; split; eauto.
+  intros. destruct i. destruct i; inv H; simpl in *.
+
+  - (* Pmov_rr *)
+    monadInv H0. monadInv EQ.
+    eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
     apply nextinstr_pres_inject.
     apply regset_inject_expand; auto.
-  - eexists; eexists; split; eauto.
+
+  - (* Pmovl_ri *)
+    monadInv H0. monadInv EQ.
+    eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
     apply nextinstr_pres_inject.
     apply undef_regs_pres_inject.
     apply regset_inject_expand; auto.
+
+  - (* Pmovq_ri *)
+    monadInv H0. monadInv EQ.
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply undef_regs_pres_inject.
+    apply regset_inject_expand; auto.
+
+  - (* Pmov_rs *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply undef_regs_pres_inject.
+    apply regset_inject_expand; auto.
+    inv MATCHSMINJ.
+    unfold Genv.symbol_address. unfold Genv.get_label_addr0.
+    unfold Genv.get_label_addr. 
+    destruct (Genv.find_symbol ge id0) eqn:FINDSYM; auto.
+    exploit agree_sminj_glob0; eauto.
+    intros (ofs' & GLBL & JB).
+    unfold Genv.get_label_offset0 in GLBL.
+    unfold Genv.get_label_offset in GLBL.
+    exploit get_sect_lbl_offset_to_addr; eauto. 
+    intros OFSTOADDR. rewrite OFSTOADDR.
+    rewrite <- (Ptrofs.add_zero_l ofs').
+    eapply Val.inject_ptr; eauto.
+    rewrite Ptrofs.repr_unsigned. auto.
+
+  - (* Pmovl_rm *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.
+    eexists; eexists; split. 
+    unfold FlatAsm.exec_instr. simpl.
+    
+    Asm.exec_load ge chunk m1 a
+
+    admit.
+
+  - (* Pmovq_rm *)
+
   - eexists; eexists; split; eauto.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
