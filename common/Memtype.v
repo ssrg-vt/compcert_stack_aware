@@ -2676,6 +2676,32 @@ Proof.
     rewrite Mem.push_new_stage_stack; reflexivity.
 Qed.
 
+Lemma unrecord_parallel_inject_equiv:
+  forall j m1 m2,
+    Mem.inject j (flat_frameinj (length (Mem.stack_adt m1))) m1 m2 ->
+    stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
+    forall m1',
+      Mem.unrecord_stack_block m1 = Some m1' ->
+      exists m2',
+        Mem.unrecord_stack_block m2 = Some m2' /\
+        Mem.inject j (flat_frameinj (length (Mem.stack_adt m1'))) m1' m2'.
+Proof.
+  intros.
+  edestruct Mem.stack_inject_unrecord_parallel_frameinj_flat as (m2' & USB & INJ).
+  - erewrite (stack_equiv_length) in H by eauto. eauto.
+  - eapply stack_equiv_length; eauto.
+  - eauto.
+  - apply stack_equiv_tail in H0. apply stack_equiv_fsize in H0. rewrite H0; omega.
+  - exists m2'; split; eauto.
+    eapply Mem.mem_inject_ext. eauto.
+    unfold flat_frameinj.
+    edestruct unrecord_stack_adt. exact H1.
+    edestruct unrecord_stack_adt. exact USB.
+    rewrite H3. simpl.
+    apply stack_equiv_length in H0.
+    rewrite H2, H3 in H0. simpl in H0. inv H0. rewrite H5. reflexivity.
+Qed.
+
 
 End WITHMEMORYMODEL.
 

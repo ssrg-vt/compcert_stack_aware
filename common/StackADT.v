@@ -2973,6 +2973,16 @@ Proof.
   induction 1; simpl; intros; eauto.
 Qed.
 
+Lemma stack_equiv_tail:
+  forall R s1 s2,
+    stack_equiv R s1 s2 ->
+    stack_equiv R (tl s1) (tl s2).
+Proof.
+  inversion 1; simpl; auto; constructor; auto.
+Qed.
+
+Hint Resolve stack_equiv_tail.
+
 Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
 | match_stack_adt_nil s: match_stack_adt nil s
 | match_stack_adt_cons lsp s f r sp bi z

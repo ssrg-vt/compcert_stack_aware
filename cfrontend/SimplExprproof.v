@@ -39,6 +39,7 @@ Section PRESERVATION.
 Context `{external_calls_prf: ExternalCalls}.
 
 Variable fn_stack_requirements: ident -> Z.
+Hypothesis fn_stack_requirements_pos: forall i, 0 <= fn_stack_requirements i.
 Variable prog: Csyntax.program.
 Variable tprog: Clight.program.
 Hypothesis TRANSL: match_prog prog tprog.
@@ -998,7 +999,7 @@ Inductive match_states: Csem.state -> state -> Prop :=
       match_cont k tk ->
       match_states (Csem.State f s k e m)
                    (State tf ts tk e le m)
-  | match_callstates: forall fd args k m tfd tk sz,
+  | match_callstates: forall fd args k m tfd tk sz (SZpos: 0 <= sz),
       tr_fundef fd tfd ->
       match_cont k tk ->
       match_states (Csem.Callstate fd args k m sz)
@@ -2198,13 +2199,15 @@ Proof.
   econstructor; eauto.
 
 (* internal function *)
-  inv H11. inversion H5; subst.
+  inv H11. inversion H6; subst.
   econstructor; split.
   left; apply plus_one. eapply step_internal_function. econstructor.
-  rewrite H8; rewrite H9; auto.
-  rewrite H8; rewrite H9. eapply alloc_variables_preserved; eauto.
-  unfold blocks_with_info. rewrite blocks_of_env_preserved. eauto. eauto. eauto.
-  rewrite H8. eapply bind_parameters_preserved; eauto.
+  rewrite H9, H10; auto.
+  rewrite H9, H10. eapply alloc_variables_preserved; eauto.
+  unfold blocks_with_info. rewrite blocks_of_env_preserved. eauto.
+  rewrite H2. apply Z.max_r. auto.
+  eauto.
+  rewrite H9. eapply bind_parameters_preserved; eauto.
   eauto.
   constructor; auto.
 
@@ -2254,7 +2257,7 @@ Proof.
   rewrite <- H3. apply type_of_fundef_preserved. auto.
   eauto. eauto.
   destruct TRANSL as ((_ & MAIN & _) & _).
-  setoid_rewrite MAIN. constructor. auto. constructor.
+  setoid_rewrite MAIN. constructor. auto. auto. constructor.
 Qed.
 
 Lemma transl_final_states:
