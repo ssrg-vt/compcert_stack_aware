@@ -296,9 +296,9 @@ Inductive step : state -> trace -> state -> Prop :=
                   (init_regs args f.(fn_params))
                   m'')
   | exec_function_external:
-      forall s ef args res t m m' sz tc,
+      forall s ef args res t m m' sz,
       external_call ef ge args m t res m' ->
-      step (Callstate s (External ef) args m sz tc)
+      step (Callstate s (External ef) args m sz false)
          t (Returnstate s res m')
   | exec_return:
       forall res f sp pc rs s vres m,
@@ -594,3 +594,58 @@ Proof.
   { apply X; auto. }
   unfold max_reg_function. xomega.
 Qed.
+
+(** Invariant of RTL programs  *)
+
+Definition block_of_stackframe s: option (block * Z) :=
+  match s with
+    Stackframe _ f (Vptr sp _) _ _ => Some (sp, fn_stacksize f)
+  | _ => None
+  end.
+
+
+Section STACKINV.
+  Context `{extcallops: ExternalCalls}.
+
+  Inductive stack_inv : state -> Prop :=
+  | stack_inv_regular: forall s f sp pc rs m o
+                         (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (State s f (Vptr sp o) pc rs m)
+  | stack_inv_call: forall s fd args m sz (tc: bool)
+                      (MSA1: match_stack_adt (map block_of_stackframe s) (if tc then tl (Mem.stack_adt m) else Mem.stack_adt m)),
+      stack_inv (Callstate s fd args m sz tc)
+  | stack_inv_return: forall s res m 
+                        (MSA1: match_stack_adt (map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (Returnstate s res m).
+
+  Variable fn_stack_requirements: ident -> Z.
+  Variable p: program.
+  Let ge := Genv.globalenv p.
+  
+  Lemma stack_inv_inv:
+    forall S1 t S2,
+      step fn_stack_requirements ge S1 t S2 ->
+      stack_inv S1 -> stack_inv S2.
+  Proof.
+    destruct 1; simpl; intros SI;
+      inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
+        try solve [inv MSA1; eauto].
+    - edestruct (Mem.record_stack_blocks_stack_eq _ _ _ H0) as (tf & r & EQ1 & EQ2).
+      rewrite EQ2.
+      rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H) in MSA1.
+      destruct tc.
+      + rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
+      + rewrite Mem.push_new_stage_stack in EQ1; inv EQ1. econstructor; eauto; reflexivity.
+    - inv MSA1. repeat destr_in H0. econstructor. rewrite <- H. econstructor; eauto.
+  Qed.
+
+  Lemma stack_inv_initial:
+    forall S
+      (INIT: initial_state fn_stack_requirements p S),
+      stack_inv S.
+  Proof.
+    intros; inv INIT; econstructor.
+    constructor.
+  Qed.
+
+End STACKINV.

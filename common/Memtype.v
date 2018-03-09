@@ -2028,6 +2028,19 @@ push_new_stage_nextblock: forall m, nextblock (push_new_stage m) = nextblock m;
       forall m b o k p,
         perm (push_new_stage m) b o k p <-> perm m b o k p;
 
+wf_stack_mem:
+  forall j m,
+    wf_stack (Mem.perm m) j (Mem.stack_adt m);
+
+ agree_perms_mem:
+  forall m,
+    stack_agree_perms (Mem.perm m) (Mem.stack_adt m);
+
+ record_stack_blocks_top_tframe_no_perm:
+   forall m1 f m2,
+     Mem.record_stack_blocks m1 f = Some m2 ->
+     Mem.top_tframe_no_perm (Mem.perm m1) (Mem.stack_adt m1);
+
 
 }.
 
@@ -2563,6 +2576,104 @@ Proof.
   instantiate (1 := snd a). eexists; split; eauto.
   destruct f; auto.
   rewrite <- surjective_pairing. auto.
+Qed.
+
+
+Lemma noperm_top:
+  forall m,
+    match Mem.stack_adt m with
+      (f::_)::_ => forall b, in_frame f b -> forall o k p, ~ Mem.perm m b o k p
+    | _ => False
+    end ->
+    Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m).
+Proof.
+  intros.
+  repeat destr_in H.
+  constructor.
+  red; intros.
+  rewrite in_frames_cons in H1. destruct H1; eauto.
+  generalize (wf_stack_mem inject_id m); rewrite Heqs. inversion 1. subst.
+  eapply H5. congruence. simpl; assumption.
+Qed.
+
+Lemma record_push_inject:
+  forall j g m1 m2 (MINJ: Mem.inject j g m1 m2)
+    fi1 fi2 (FI: Mem.frame_inject j fi1 fi2)
+    (NINSTACK: forall b, in_stack (Mem.stack_adt m2) b -> in_frame fi2 b -> False)
+    (VALID: Mem.valid_frame fi2 m2)
+    (FAP2: frame_agree_perms (Mem.perm m2) fi2)
+    (INF: forall b1 b2 delta, j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2)
+    (SZ: frame_adt_size fi1 = frame_adt_size fi2)
+    (tc: bool)
+    m1'
+    (RSB: Mem.record_stack_blocks (if tc then m1 else Mem.push_new_stage m1) fi1 = Some m1')
+    (TTNP: tc = true -> Mem.top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
+    newframeinj
+    (NFI: forall b, newframeinj b = (if tc then g else up g) b)
+    (NFI0: newframeinj O = Some O),
+  exists m2', Mem.record_stack_blocks (if tc then m2 else Mem.push_new_stage m2) fi2 = Some m2' /\ Mem.inject j newframeinj m1' m2'.
+Proof.
+  intros.
+  destruct tc.
+  - subst.
+    eapply Mem.record_stack_blocks_inject_parallel.
+    eapply Mem.mem_inject_ext. eauto. eauto. all: eauto.
+  - eapply Mem.record_stack_blocks_inject_parallel.
+    eapply Mem.mem_inject_ext. 
+    apply Mem.push_new_stage_inject. eauto. all: eauto.
+    + rewrite Mem.push_new_stage_stack. setoid_rewrite in_stack_cons. intros b [[]|INS]. eauto.
+    + red; red; intros; rewrite Mem.push_new_stage_nextblock; eauto. apply VALID; auto.
+    + setoid_rewrite Mem.push_new_stage_perm. eauto.
+    + rewrite Mem.push_new_stage_stack. constructor. red. easy.
+Qed.
+
+Lemma record_stack_blocks_length_stack:
+  forall m1 f m2,
+    Mem.record_stack_blocks m1 f = Some m2 ->
+    length (Mem.stack_adt m2) = length (Mem.stack_adt m1).
+Proof.
+  intros.
+  edestruct Mem.record_stack_blocks_tailcall_original_stack as (ff & r & eq); eauto. rewrite eq.
+  eapply Mem.record_stack_blocks_stack_adt in eq; eauto. rewrite eq. reflexivity.
+Qed.
+
+Lemma record_stack_blocks_stack_eq:
+  forall m1 f m2,
+    Mem.record_stack_blocks m1 f = Some m2 ->
+    exists tf r,
+      Mem.stack_adt m1 = tf::r /\ Mem.stack_adt m2 = (f::tf)::r.
+Proof.
+  intros.
+  edestruct Mem.record_stack_blocks_tailcall_original_stack as (ff & r & eq); eauto. rewrite eq.
+  eapply Mem.record_stack_blocks_stack_adt in eq; eauto.
+Qed.
+
+Lemma record_push_inject_flat:
+  forall j m1 m2 (MINJ: Mem.inject j (flat_frameinj (length (Mem.stack_adt m1))) m1 m2)
+    fi1 fi2 (FI: Mem.frame_inject j fi1 fi2)
+    (NINSTACK: forall b, in_stack (Mem.stack_adt m2) b -> in_frame fi2 b -> False)
+    (VALID: Mem.valid_frame fi2 m2)
+    (FAP2: frame_agree_perms (Mem.perm m2) fi2)
+    (INF: forall b1 b2 delta, j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2)
+    (SZ: frame_adt_size fi1 = frame_adt_size fi2)
+    (tc: bool)
+    m1'
+    (RSB: Mem.record_stack_blocks (if tc then m1 else Mem.push_new_stage m1) fi1 = Some m1')
+    (TTNP: tc = true -> Mem.top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2)),
+  exists m2', Mem.record_stack_blocks (if tc then m2 else Mem.push_new_stage m2) fi2 = Some m2' /\
+         Mem.inject j (flat_frameinj (length (Mem.stack_adt m1'))) m1' m2'.
+Proof.
+  intros.
+  eapply record_push_inject; eauto.
+  - intros.
+    rewrite (record_stack_blocks_length_stack _ _ _ RSB).
+    destr.
+    rewrite <- up_flatinj.
+    rewrite Mem.push_new_stage_stack. reflexivity.
+  - rewrite (record_stack_blocks_length_stack _ _ _ RSB).
+    destr.
+    apply record_stack_blocks_top_tframe_no_perm in RSB. inv RSB. reflexivity.
+    rewrite Mem.push_new_stage_stack; reflexivity.
 Qed.
 
 

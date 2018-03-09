@@ -9258,7 +9258,11 @@ Proof.
   reflexivity.
   simpl. inversion 1. inv mi_inj0. inv mi_stack_blocks0. auto.
   intros. tauto.
-  
+
+  apply wf_stack_mem.
+  apply stack_perm.
+  apply record_stack_blocks_top_noperm.
+
 Qed.
 
 End Mem.

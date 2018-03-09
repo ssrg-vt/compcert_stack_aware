@@ -2932,5 +2932,55 @@ Definition down (g: frameinj) : nat -> option nat :=
 Definition up (g: frameinj) : nat -> option nat :=
   fun n => if Nat.eq_dec n O then Some O else option_map S (g (pred n)).
 
+Lemma up_flatinj:
+  forall n b,
+    flat_frameinj (S n) b = up (flat_frameinj n) b.
+Proof.
+  unfold flat_frameinj, up.
+  intros. repeat destr; try omega.
+  simpl. rewrite Nat.succ_pred; auto.
+Qed.
+
+Lemma same_size_frames:
+  forall tf1 tf2
+    (LF2 : list_forall2 (fun f1 f2 : frame_adt => frame_adt_size f1 = frame_adt_size f2) tf1 tf2),
+    size_frames tf2 = size_frames tf1.
+Proof.
+  induction 1; simpl; intros; eauto.
+  unfold size_frames.
+  simpl. setoid_rewrite IHLF2. rewrite H. reflexivity.
+Qed.
+
+Inductive stack_equiv (R: frame_adt -> frame_adt -> Prop) : stack_adt -> stack_adt -> Prop :=
+| stack_equiv_nil: stack_equiv R nil nil
+| stack_equiv_cons s1 s2 tf1 tf2
+                   (SE: stack_equiv R s1 s2)
+                   (LF2: list_forall2 R tf1 tf2):
+  stack_equiv R (tf1::s1) (tf2::s2).
+
+Lemma stack_equiv_fsize:
+  forall s1 s2,
+    stack_equiv (fun f1 f2 => frame_adt_size f1 = frame_adt_size f2) s1 s2 ->
+    size_stack s2 = size_stack s1.
+Proof.
+  induction 1; simpl; intros. reflexivity.
+  f_equal; auto. eapply same_size_frames; eauto.
+Qed.
+
+Lemma stack_equiv_length:
+  forall R s1 s2, stack_equiv R s1 s2 -> length s1 = length s2.
+Proof.
+  induction 1; simpl; intros; eauto.
+Qed.
+
+Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
+| match_stack_adt_nil s: match_stack_adt nil s
+| match_stack_adt_cons lsp s f r sp bi z
+                       (REC: match_stack_adt lsp s)
+                       (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
+                       (SIZE: frame_size bi = z):
+    match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
+
+
 
 End INJ.
