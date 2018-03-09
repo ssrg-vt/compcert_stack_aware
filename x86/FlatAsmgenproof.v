@@ -18,6 +18,28 @@ Require Import RawAsmgen.
 Require Import AsmFacts.
 
 Ltac monadInvX1 H :=
+  let monadInvX H :=  
+      monadInvX1 H ||
+                 match type of H with
+                 | (?F _ _ _ _ _ _ _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ _ _ _ _ _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ _ _ _ _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ _ _ _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ _ _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 | (?F _ = OK _) =>
+                   ((progress simpl in H) || unfold F in H); monadInvX1 H
+                 end
+  in
+
   match type of H with
   | (OK _ = OK _) =>
       inversion H; clear H; try subst
@@ -29,7 +51,7 @@ Ltac monadInvX1 H :=
       let EQ2 := fresh "EQ" in (
       destruct (bind_inversion F G H) as [x [EQ1 EQ2]];
       clear H;
-      try (monadInvX1 EQ1);
+      try (monadInvX EQ1);
       try (monadInvX1 EQ2))))
   | (bind2 ?F ?G = OK ?X) =>
       let x1 := fresh "x" in (
@@ -38,7 +60,7 @@ Ltac monadInvX1 H :=
       let EQ2 := fresh "EQ" in (
       destruct (bind2_inversion F G H) as [x1 [x2 [EQ1 EQ2]]];
       clear H;
-      try (monadInvX1 EQ1);
+      try (monadInvX EQ1);
       try (monadInvX1 EQ2)))))
   | (match ?X with left _ => _ | right _ => assertion_failed end = OK _) =>
       destruct X; [try (monadInvX1 H) | discriminate]
@@ -54,16 +76,6 @@ Ltac monadInvX1 H :=
   | (match ?X with pair _ _ => _ end = OK _) =>
       let EQ := fresh "EQ" in (
       destruct X eqn:EQ; try (monadInvX1 H))
-  (* | (let (_,_) := ?P in ?H1 = OK _) =>  *)
-  (*   match type of H1 with *)
-  (*   | (match _ with _ => _ end) => destruct P; try (monadInvX1 H) *)
-  (*   end *)
-  (* | (match ?X with inl _ => _ | inr _ => _ end = OK _) => *)
-  (*     let EQ := fresh "EQ" in ( *)
-  (*     destruct X eqn:EQ; try (monadInvX1 H)) *)
-  (* | (match ?X with Asm.Addrmode _ _ _ => _ end = _) => *)
-  (*     let EQ := fresh "EQ" in ( *)
-  (*       destruct X eqn:EQ; try (monadInvX1 H)) *)
   end.
 
 Ltac monadInvX H :=
@@ -912,10 +924,9 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
       FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
       match_states (State rs1' m1') (State rs2' m2').
 Proof.
-  intros. destruct i. destruct i; inv H; simpl in *.
+  intros. destruct i. destruct i; inv H; simpl in *; monadInvX H0.
 
   - (* Pmov_rr *)
-    monadInv H0. monadInv EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -923,7 +934,6 @@ Proof.
     apply regset_inject_expand; auto.
 
   - (* Pmovl_ri *)
-    monadInv H0. monadInv EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -932,7 +942,6 @@ Proof.
     apply regset_inject_expand; auto.
 
   - (* Pmovq_ri *)
-    monadInv H0. monadInv EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -941,7 +950,6 @@ Proof.
     apply regset_inject_expand; auto.
 
   - (* Pmov_rs *)
-    monadInvX H0. simpl in EQ. monadInvX EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -960,31 +968,26 @@ Proof.
     rewrite Ptrofs.repr_unsigned. auto.
 
   - (* Pmovl_rm *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_load_step; eauto.
 
   - (* Pmovq_rm *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_load_step; eauto.
 
   - (* Asm.Pmovl_mr *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_store_step; eauto.
 
   - (* Asm.Pmovq_mr *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_store_step; eauto.
 
   - (* Asm.Movsd_ff *)
-    monadInv H0. monadInv EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -992,7 +995,6 @@ Proof.
     apply regset_inject_expand; auto.
 
   - (* Asm.Pmovsd_fi  *)
-    monadInv H0. monadInv EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -1000,19 +1002,16 @@ Proof.
     apply regset_inject_expand; auto.
     
   - (* Asm.Pmovsd_fm *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_load_step; eauto.
 
   - (* Asm.Pmovsd_mf *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_store_step; eauto.
 
   - (* Asm.Pmovss_fi *)
-    monadInv H0. monadInv EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -1020,31 +1019,26 @@ Proof.
     apply regset_inject_expand; auto.
 
   - (* Asm.Pmovss_fm *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_load_step; eauto.
 
   - (* Asm.Pmovss_mf *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_store_step; eauto.
 
   - (* Asm.Pfldl_m *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.
     exploit exec_load_step; eauto.
 
   - (* Asm.Pfstlp_m *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.
     exploit exec_store_step; eauto.
 
   - (* Asm.Pflds_m *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
     unfold Asm.exec_instr in H2; simpl in H2.
     unfold instr_size in H2; simpl in H2.
     exploit exec_load_step; eauto.
