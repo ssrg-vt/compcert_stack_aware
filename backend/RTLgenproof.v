@@ -1216,22 +1216,25 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
         (TF: tr_fun tf map f ngoto nret rret)
         (TK: tr_cont tf.(fn_code) map k ncont nexits ngoto nret rret cs)
         (ME: match_env map e nil rs)
-        (MEXT: Mem.extends m tm),
+        (MEXT: Mem.extends m tm)
+        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
       match_states (CminorSel.State f s k sp e m)
                    (RTL.State cs tf sp ns rs tm)
   | match_callstate:
-      forall f args targs k m tm cs tf sz
+      forall f args targs k m tm cs tf sz tc
         (TF: transl_fundef f = OK tf)
         (MS: match_stacks k cs)
         (LD: Val.lessdef_list args targs)
-        (MEXT: Mem.extends m tm),
-      match_states (CminorSel.Callstate f args k m sz)
-                   (RTL.Callstate cs tf targs tm sz)
+        (MEXT: Mem.extends m tm)
+        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
+      match_states (CminorSel.Callstate f args k m sz tc)
+                   (RTL.Callstate cs tf targs tm sz tc)
   | match_returnstate:
       forall v tv k m tm cs
         (MS: match_stacks k cs)
         (LD: Val.lessdef v tv)
-        (MEXT: Mem.extends m tm),
+        (MEXT: Mem.extends m tm)
+        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
       match_states (CminorSel.Returnstate v k m)
                    (RTL.Returnstate cs tv tm).
 
@@ -1315,11 +1318,15 @@ Proof.
     inv TF. auto.
     edestruct Mem.free_parallel_extends as [tm' []]; eauto.
     constructor.
-    exploit Mem.unrecord_stack_block_extends; eauto. intros (m2' & USB & EXT).
+    exploit Mem.unrecord_stack_block_extends; eauto.
+    apply stack_equiv_tail, stack_equiv_fsize in SE; auto.
+    repeat rewrite_stack_blocks; eauto. omega.
+    intros (m2' & USB & EXT).
     econstructor; split.
     left; apply plus_one. eapply exec_Ireturn. eauto.
     rewrite SZEQ. eauto. eauto.
     constructor; auto.
+    repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
 
   - (* assign *)
     inv TS.
@@ -1328,6 +1335,7 @@ Proof.
     econstructor; split.
     right; split. eauto. Lt_state.
     econstructor; eauto. constructor.
+    repeat rewrite_stack_blocks; eauto.
 
   - (* store *)
     inv TS.
