@@ -29,6 +29,7 @@ Ltac monadInvX1 H :=
       let EQ2 := fresh "EQ" in (
       destruct (bind_inversion F G H) as [x [EQ1 EQ2]];
       clear H;
+      try (monadInvX1 EQ1);
       try (monadInvX1 EQ2))))
   | (bind2 ?F ?G = OK ?X) =>
       let x1 := fresh "x" in (
@@ -37,6 +38,7 @@ Ltac monadInvX1 H :=
       let EQ2 := fresh "EQ" in (
       destruct (bind2_inversion F G H) as [x1 [x2 [EQ1 EQ2]]];
       clear H;
+      try (monadInvX1 EQ1);
       try (monadInvX1 EQ2)))))
   | (match ?X with left _ => _ | right _ => assertion_failed end = OK _) =>
       destruct X; [try (monadInvX1 H) | discriminate]
@@ -49,6 +51,13 @@ Ltac monadInvX1 H :=
   | (match ?X with Some _ => _ | None => _ end = _) =>
       let EQ := fresh "EQ" in (
       destruct X eqn:EQ; try (monadInvX1 H))
+  | (match ?X with pair _ _ => _ end = OK _) =>
+      let EQ := fresh "EQ" in (
+      destruct X eqn:EQ; try (monadInvX1 H))
+  (* | (let (_,_) := ?P in ?H1 = OK _) =>  *)
+  (*   match type of H1 with *)
+  (*   | (match _ with _ => _ end) => destruct P; try (monadInvX1 H) *)
+  (*   end *)
   (* | (match ?X with inl _ => _ | inr _ => _ end = OK _) => *)
   (*     let EQ := fresh "EQ" in ( *)
   (*     destruct X eqn:EQ; try (monadInvX1 H)) *)
@@ -600,6 +609,72 @@ Proof.
   intros; destruct v; simpl; auto.
 Qed.
 
+Ltac simpl_goal :=
+  repeat match goal with
+         | [ |- context [ Int.add Int.zero _ ] ] =>
+           rewrite Int.add_zero_l
+         | [ |- context [ Int64.add Int64.zero _ ] ] =>
+           rewrite Int64.add_zero_l
+         | [ |- context [Ptrofs.add _ (Ptrofs.of_int Int.zero)] ] =>
+           rewrite Ptrofs.add_zero
+         | [ |- context [Ptrofs.add _ (Ptrofs.of_int64 Int64.zero)] ] =>
+           rewrite Ptrofs.add_zero
+         end.
+
+Ltac solve_symb_inj :=
+  match goal with
+  | [  H1 : Genv.symbol_address _ _ _ = _,
+       H2 : Genv.get_label_addr _ _ _ = _ |- _ ] =>
+    exploit inject_symbol_sectlabel; eauto;
+    rewrite H1, H2; auto
+  end.
+
+Ltac destr_pair_if :=
+  repeat match goal with
+         | [ |- context [match ?a with pair _ _ => _ end] ] =>
+           destruct a eqn:?
+         | [ |- context [if ?h then _ else _] ] =>
+           destruct h eqn:?
+         end.
+
+(* Ltac solve_absurd_inj := *)
+(*   match goal with *)
+(*   | [ H : Val.inject _ (Vint _) (Vlong _) |- _] => inversion H *)
+(*   | [ H : Val.inject _ (Vint _) (Vfloat _) |- _] => inversion H *)
+(*   | [ H : Val.inject _ (Vint _) (Vsingle _) |- _] => inversion H *)
+(*   | [ H : Val.inject _ (Vint _) (Vptr _ _) |- _] => inversion H *)
+(*   | [ H : Val.inject _ (Vptr _ _) (Vlong _) |- _] => inversion H *)
+(*   | [ H : Val.inject _ (Vptr _ _) (Vfloat _) |- _] => inversion H *)
+(*   | [ H : Val.inject _ (Vptr _ _) (Vsingle _) |- _] => inversion H *)
+(*   end. *)
+
+Ltac inject_match :=
+  match goal with
+  | [ |- Val.inject ?j (match ?a with _ => _ end) (match ?b with _ => _ end) ] =>
+    assert (Val.inject j a b)
+  end.
+
+Ltac inv_valinj :=
+  match goal with
+         | [ H : Val.inject _ (Vint _) _ |- _ ] =>
+           inversion H; subst
+         | [ H : Val.inject _ (Vlong _) _ |- _ ] =>
+           inversion H; subst
+         | [ H : Val.inject _ (Vptr _ _) _ |- _ ] =>
+           inversion H; subst
+         end.
+
+Ltac destr_valinj_right H :=
+  match type of H with
+  | Val.inject _ _ ?a =>
+    destruct a eqn:?
+  end.
+
+Ltac destr_valinj_left H :=
+  match type of H with
+  | Val.inject _ ?a ?b =>
+    destruct a eqn:?
+  end.
 
 Lemma eval_addrmode32_inject: forall gm lm j a1 a2 rs1 rs2,
     match_sminj gm lm j ->
@@ -608,62 +683,60 @@ Lemma eval_addrmode32_inject: forall gm lm j a1 a2 rs1 rs2,
     Val.inject j (Asm.eval_addrmode32 ge a1 rs1) (FlatAsm.eval_addrmode32 tge a2 rs2).
 Proof.
   intros. unfold Asm.eval_addrmode32, FlatAsm.eval_addrmode32.
-  destruct a1, a2. destruct base, ofs, const; simpl in *; inv H1.
-  - destruct p. apply Val.add_inject; auto.
-    destruct (zeq z0 1); apply Val.add_inject; auto.
+  destruct a1, a2. destruct base, ofs, const; simpl in *; monadInvX H1; simpl; simpl_goal;
+  try apply Val.add_inject; auto.
+  - apply Val.add_inject; auto. destr_pair_if; repeat apply Val.add_inject; auto.
     apply mul_inject; auto.
-  - destruct p0. monadInvX H3. monadInvX EQ.
-    destruct p. apply Val.add_inject; auto.
-    destruct (zeq z 1). 
-    + apply Val.add_inject; auto.
-      eapply inject_symbol_sectlabel; eauto.
-    + apply Val.add_inject; auto.
-      apply mul_inject; auto.
-      eapply inject_symbol_sectlabel; eauto.
-  - apply Val.add_inject; auto.
-    simpl. repeat rewrite Int.add_zero_l. 
-    auto.
-  - monadInvX H3. destruct p. monadInvX EQ.
-    destruct (Genv.symbol_address ge i0 i1) eqn:SYMADDR; 
-      try now (rewrite add_undef; auto).
-    apply Val.add_inject; eauto.
-    simpl. rewrite Int.add_zero_l.
+  - destr_pair_if; 
+      try (repeat apply Val.add_inject; auto);
+      try (eapply inject_symbol_sectlabel; eauto).
+    apply mul_inject; auto.
+  - destruct (Genv.symbol_address ge i0 i1) eqn:SYMADDR; auto.
+    simpl_goal.
     exploit inject_symbol_sectlabel; eauto.
     rewrite SYMADDR. intros. inv H1.
-    rewrite Int.add_zero_l. auto.
-  - destruct p. destruct (zeq z0 1); simpl.
-    + destruct (Val.add (rs1 i) (Vint (Int.repr z))) eqn:EQ; auto.
-      assert (Val.inject j (Val.add (rs1 i) (Vint (Int.repr z))) (Val.add (rs2 i) (Vint (Int.repr z)))).
+    simpl_goal; auto.
+  - destr_pair_if.
+    + inject_match.
       apply Val.add_inject; auto.
-      rewrite EQ in *. inv H1. setoid_rewrite <- H4. auto.
-    + destruct (Val.add (Val.mul (rs1 i) (Vint (Int.repr z0))) (Vint (Int.repr z))) eqn:EQ; auto.
-      assert (Val.inject j (Val.add (Val.mul (rs1 i) (Vint (Int.repr z0))) (Vint (Int.repr z)))
-                           (Val.add (Val.mul (rs2 i) (Vint (Int.repr z0))) (Vint (Int.repr z)))).
-      apply Val.add_inject; auto. apply mul_inject; auto.
-      rewrite EQ in *. inv H1. setoid_rewrite <- H4. auto.
-  - monadInvX H3. destruct p0. monadInvX EQ.
-    destruct p. destruct (zeq z 1).
-    + destruct (Val.add (rs1 i1) (Genv.symbol_address ge i i0)) eqn:EQ; auto.
-      rewrite Int.add_zero_l. simpl.
-      assert (Val.inject j (Val.add (rs1 i1) (Genv.symbol_address ge i i0))
-                           (Val.add (rs2 i1) (Genv.get_label_addr tge s i0))).
-      apply Val.add_inject; auto. eapply inject_symbol_sectlabel; eauto.
-      rewrite EQ in *. inv H1.  setoid_rewrite <- H4. 
-      rewrite Int.add_zero_l. auto.
-    + destruct (Val.add (Val.mul (rs1 i1) (Vint (Int.repr z))) (Genv.symbol_address ge i i0)) eqn:EQ; auto.
-      rewrite Int.add_zero_l. simpl.
-      assert (Val.inject j (Val.add (Val.mul (rs1 i1) (Vint (Int.repr z))) (Genv.symbol_address ge i i0))
-                           (Val.add (Val.mul (rs2 i1) (Vint (Int.repr z))) (Genv.get_label_addr tge s i0))).
-      apply Val.add_inject. apply mul_inject; auto.
+      destruct (Val.add (rs1 i) (Vint (Int.repr z))); auto.
+      inv_valinj. simpl_goal. congruence.
+    + inject_match. apply Val.add_inject; auto.
+      destruct (Val.add (rs1 i) (Vint (Int.repr z))); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.add_inject; auto.
+      apply mul_inject; auto.
+      destruct (Val.add (Val.mul (rs1 i) (Vint (Int.repr z0))) (Vint (Int.repr z))); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.add_inject; auto.
+      apply mul_inject; auto.
+      destruct (Val.add (Val.mul (rs1 i) (Vint (Int.repr z0))) (Vint (Int.repr z))); auto;
+      inv_valinj; simpl_goal; congruence.
+  - destr_pair_if. 
+    + inject_match.
+      apply Val.add_inject; auto.
       eapply inject_symbol_sectlabel; eauto.
-      rewrite EQ in *. inv H1.  setoid_rewrite <- H4. 
-      rewrite Int.add_zero_l. auto.
-  - simpl. repeat rewrite Int.add_zero_l.  auto.
-  - monadInvX H3. destruct p. monadInvX EQ.
-    destruct (Genv.symbol_address ge i i0) eqn:SYMBEQ; auto.
-    exploit inject_symbol_sectlabel; eauto.
-    rewrite SYMBEQ. intro INJ. inv INJ.
-    simpl. repeat rewrite Int.add_zero_l. auto.
+      destruct (Val.add (rs1 i1) (Genv.symbol_address ge i i0)); auto.
+      inv_valinj. simpl_goal. congruence.
+    + inject_match. apply Val.add_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.add (rs1 i1) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.add_inject; auto.
+      apply mul_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.add (Val.mul (rs1 i1) (Vint (Int.repr z))) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.add_inject; auto.
+      apply mul_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.add (Val.mul (rs1 i1) (Vint (Int.repr z))) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+  - inject_match. 
+    inject_match. eapply inject_symbol_sectlabel; eauto.
+    destruct (Genv.symbol_address ge i i0) eqn:EQ; auto.
+    inv_valinj. simpl_goal. auto.
+    destr_valinj_left H1; auto. inv_valinj. auto.
 Qed.
 
 Lemma eval_addrmode64_inject: forall gm lm j a1 a2 rs1 rs2,
@@ -673,92 +746,71 @@ Lemma eval_addrmode64_inject: forall gm lm j a1 a2 rs1 rs2,
     Val.inject j (Asm.eval_addrmode64 ge a1 rs1) (FlatAsm.eval_addrmode64 tge a2 rs2).
 Proof.
   intros. unfold Asm.eval_addrmode64, FlatAsm.eval_addrmode64.
-  destruct a1, a2. destruct base, ofs, const; simpl in *; inv H1.
-  - destruct p. apply Val.addl_inject; auto.
-    destruct (zeq z0 1); apply Val.addl_inject; auto.
-    apply mull_inject; auto.
-  - destruct p0. monadInvX H3. monadInvX EQ.
-    destruct p. apply Val.addl_inject; auto.
-    destruct (zeq z 1). 
-    + apply Val.addl_inject; auto.
+  destruct a1, a2. destruct base, ofs, const; simpl in *; monadInvX H1; simpl; simpl_goal;
+  try apply Val.add_inject; auto.
+  - destr_pair_if.
+    + repeat apply Val.addl_inject; auto.
+    + repeat apply Val.addl_inject; auto.
+      apply mull_inject; auto.
+  - destr_pair_if.
+    + repeat apply Val.addl_inject; auto.
       eapply inject_symbol_sectlabel; eauto.
-    + apply Val.addl_inject; auto.
+    + repeat apply Val.addl_inject; auto.
       apply mull_inject; auto.
       eapply inject_symbol_sectlabel; eauto.
+  - simpl_goal. apply Val.addl_inject; auto.
   - apply Val.addl_inject; auto.
-    simpl. repeat rewrite Int.add_zero_l. 
-    auto.
-  - monadInvX H3. destruct p. monadInvX EQ.
-    destruct (Genv.symbol_address ge i0 i1) eqn:SYMADDR; 
-      try now (rewrite addl_undef; auto).
-    + apply Val.addl_inject; eauto.
-      simpl. rewrite Int64.add_zero_l.
-      exploit inject_symbol_sectlabel; eauto.
-      rewrite SYMADDR. intros. inv H1.
-      rewrite Int64.add_zero_l. auto.
-    + rewrite Ptrofs.add_zero.
-      destruct Archi.ptr64 eqn:ARCH. 
-      * simpl. apply Val.addl_inject; auto.
-        exploit inject_symbol_sectlabel; eauto. rewrite SYMADDR.
-        inversion 1; subst. rewrite ARCH.
-        rewrite Ptrofs.add_zero. rewrite <- H4 in *. auto.
-      * simpl. apply Val.addl_inject; auto.
-  - destruct p. destruct (zeq z0 1); simpl.
-    + destruct (Val.addl (rs1 i) (Vlong (Int64.repr z))) eqn:EQ; auto.
-      * assert (Val.inject j (Val.addl (rs1 i) (Vlong (Int64.repr z))) (Val.addl (rs2 i) (Vlong (Int64.repr z)))).
-        apply Val.addl_inject; auto.
-        rewrite EQ in *. inv H1. setoid_rewrite <- H4. auto.
-      * assert (Val.inject j (Val.addl (rs1 i) (Vlong (Int64.repr z)))
-                             (Val.addl (rs2 i) (Vlong (Int64.repr z)))).
-        apply Val.addl_inject; auto.
-        rewrite EQ in *. inversion H1; subst. destruct Archi.ptr64; auto.
-        rewrite Ptrofs.add_zero. setoid_rewrite <- H4.
-        rewrite Ptrofs.add_zero. congruence.
-    + assert (Val.inject j (Val.addl (Val.mull (rs1 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z)))
-                         (Val.addl (Val.mull (rs2 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z)))).
-      apply Val.addl_inject; auto. apply mull_inject; auto.
-      destruct (Val.addl (Val.mull (rs1 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z))) eqn:EQ; auto.
-      * inversion H1; subst. setoid_rewrite <- H4. auto.
-      * destruct Archi.ptr64 eqn:ARCHI; auto.
-        inversion H1; subst. setoid_rewrite <- H4. 
-        repeat rewrite Ptrofs.add_zero. congruence.
-  - monadInvX H3. destruct p0. monadInvX EQ.
-    destruct p. destruct (zeq z 1).
-    + simpl.
-      assert (Val.inject j (Val.addl (rs1 i1) (Genv.symbol_address ge i i0))
-                           (Val.addl (rs2 i1) (Genv.get_label_addr tge s i0))).
-      apply Val.addl_inject; auto. eapply inject_symbol_sectlabel; eauto.
-      destruct (Val.addl (rs1 i1) (Genv.symbol_address ge i i0)) eqn:EQ; auto.
-      * rewrite Int64.add_zero_l. inversion H1; subst. setoid_rewrite <- H4.
-        rewrite Int64.add_zero_l. auto.
-      * destruct Archi.ptr64 eqn:ARCHI; auto.
-        rewrite Ptrofs.add_zero. inversion H1; subst. setoid_rewrite <- H4.
-        rewrite Ptrofs.add_zero. congruence.
-    + simpl.
-      assert (Val.inject j (Val.addl (Val.mull (rs1 i1) (Vlong (Int64.repr z))) (Genv.symbol_address ge i i0))
-                           (Val.addl (Val.mull (rs2 i1) (Vlong (Int64.repr z))) (Genv.get_label_addr tge s i0))).
-      apply Val.addl_inject; auto. apply mull_inject; auto.
+    inject_match.
+    eapply inject_symbol_sectlabel; eauto.
+    destruct (Genv.symbol_address ge i0 i1); auto.
+    inv_valinj. auto.
+    destruct Archi.ptr64; auto.
+    inv_valinj. simpl_goal. congruence.
+  - destr_pair_if. 
+    + inject_match.
+      apply Val.addl_inject; auto.
+      destruct (Val.addl (rs1 i) (Vlong (Int64.repr z))); simpl_goal; auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. apply Val.addl_inject; auto.
+      destruct (Val.addl (rs1 i) (Vlong (Int64.repr z))); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.addl_inject; auto.
+      apply mull_inject; auto.
+      destruct (Val.addl (Val.mull (rs1 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z))); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.addl_inject; auto.
+      apply mull_inject; auto.
+      destruct (Val.addl (Val.mull (rs1 i) (Vlong (Int64.repr z0))) (Vlong (Int64.repr z))); auto;
+      inv_valinj; simpl_goal; congruence.
+  - destr_pair_if. 
+    + inject_match.
+      apply Val.addl_inject; auto.
       eapply inject_symbol_sectlabel; eauto.
-      destruct (Val.addl (Val.mull (rs1 i1) (Vlong (Int64.repr z))) (Genv.symbol_address ge i i0)); auto.
-      * inversion H1; subst. rewrite Int64.add_zero_l.
-        setoid_rewrite <- H4. rewrite Int64.add_zero_l. auto.
-      * destruct Archi.ptr64 eqn:ARCHI; auto.
-        rewrite Ptrofs.add_zero. inversion H1; subst. setoid_rewrite <- H4.
-        rewrite Ptrofs.add_zero. congruence. 
-  - simpl. repeat rewrite Int64.add_zero_l. auto.
-  - monadInvX H3. destruct p. monadInvX EQ.
-    destruct (Genv.symbol_address ge i i0) eqn:SYMBEQ; auto.
-    + exploit inject_symbol_sectlabel; eauto.
-      rewrite SYMBEQ. intro INJ. inv INJ.
-      simpl. repeat rewrite Int.add_zero_l. auto.
-    + destruct Archi.ptr64 eqn:ARCHI; auto. simpl.
-      repeat rewrite Ptrofs.add_zero. 
-      assert (Val.inject j (Genv.symbol_address ge i i0) (Genv.get_label_addr tge s i0)).
+      destruct (Val.addl (rs1 i1) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. apply Val.addl_inject; auto.
       eapply inject_symbol_sectlabel; eauto.
-      rewrite SYMBEQ in *. inversion H1; subst.
-      destruct Archi.ptr64 eqn:ARCHI1.
-      repeat rewrite Ptrofs.add_zero. congruence.
-      congruence.
+      destruct (Val.addl (rs1 i1) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.addl_inject; auto.
+      apply mull_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.addl (Val.mull (rs1 i1) (Vlong (Int64.repr z))) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+    + inject_match. repeat apply Val.addl_inject; auto.
+      apply mull_inject; auto.
+      eapply inject_symbol_sectlabel; eauto.
+      destruct (Val.addl (Val.mull (rs1 i1) (Vlong (Int64.repr z))) (Genv.symbol_address ge i i0)); auto;
+      inv_valinj; simpl_goal; congruence.
+  - inject_match. 
+    inject_match. eapply inject_symbol_sectlabel; eauto.
+    destruct (Genv.symbol_address ge i i0) eqn:EQ; auto.
+    inv_valinj. simpl_goal. auto.
+    inv_valinj. destruct Archi.ptr64.
+    simpl_goal. congruence. auto.
+    destr_valinj_left H1; auto. inv_valinj. auto. 
+    destruct Archi.ptr64 eqn:ARCHI; auto; simpl_goal.
+    inv_valinj. simpl_goal. congruence.
 Qed.
 
 Lemma eval_addrmode_inject: forall gm lm j a1 a2 rs1 rs2,
@@ -889,7 +941,7 @@ Proof.
     apply regset_inject_expand; auto.
 
   - (* Pmov_rs *)
-    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    monadInvX H0. simpl in EQ. monadInvX EQ.
     eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
@@ -925,6 +977,78 @@ Proof.
     unfold instr_size in H2; simpl in H2.    
     exploit exec_store_step; eauto.
 
+  - (* Asm.Pmovq_mr *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_store_step; eauto.
+
+  - (* Asm.Movsd_ff *)
+    monadInv H0. monadInv EQ.
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply regset_inject_expand; auto.
+
+  - (* Asm.Pmovsd_fi  *)
+    monadInv H0. monadInv EQ.
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply regset_inject_expand; auto.
+    
+  - (* Asm.Pmovsd_fm *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+
+  - (* Asm.Pmovsd_mf *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_store_step; eauto.
+
+  - (* Asm.Pmovss_fi *)
+    monadInv H0. monadInv EQ.
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    apply regset_inject_expand; auto.
+
+  - (* Asm.Pmovss_fm *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+
+  - (* Asm.Pmovss_mf *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_store_step; eauto.
+
+  - (* Asm.Pfldl_m *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.
+    exploit exec_load_step; eauto.
+
+  - (* Asm.Pfstlp_m *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.
+    exploit exec_store_step; eauto.
+
+  - (* Asm.Pflds_m *)
+    monadInv H0. simpl in EQ. monadInvX1 EQ.
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.
+    exploit exec_load_step; eauto.
+    
   - 
 
   - eexists; eexists; split; eauto.
