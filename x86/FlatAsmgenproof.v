@@ -906,6 +906,34 @@ Proof.
     eapply storev_pres_glob_block_valid; eauto.
 Qed.
   
+Lemma zero_ext_inject : forall v1 v2 n j,
+    Val.inject j v1 v2 -> Val.inject j (Val.zero_ext n v1) (Val.zero_ext n v2).
+Proof.
+  intros. unfold Val.zero_ext. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma sign_ext_inject : forall v1 v2 n j,
+    Val.inject j v1 v2 -> Val.inject j (Val.sign_ext n v1) (Val.sign_ext n v2).
+Proof.
+  intros. unfold Val.sign_ext. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma longofintu_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.longofintu v1) (Val.longofintu v2).
+Proof.
+  intros. unfold Val.longofintu. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma longofint_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.longofint v1) (Val.longofint v2).
+Proof.
+  intros. unfold Val.longofint. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
 
 (** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
@@ -1043,18 +1071,169 @@ Proof.
     unfold instr_size in H2; simpl in H2.
     exploit exec_load_step; eauto.
     
-  - 
+  - (* Asm.Pfstps_m *)
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.
+    exploit exec_store_step; eauto.
 
-  - eexists; eexists; split; eauto.
+  - (* Asm.Pxchg_rr *)
+    eexists; eexists; split. constructor.
     unfold instr_size; simpl.
     apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
     apply nextinstr_pres_inject.
-    apply undef_regs_pres_inject.
-    apply regset_inject_expand; auto.
+    repeat apply regset_inject_expand; auto.
+    
+  - (* Asm.Pmovb_mr *)
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_store_step; eauto.
 
-  - admit.
-  - 
+  - (* Asm.Pmovw_mr *)
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_store_step; eauto.
 
+  - (* Asm.Pmovzb_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    apply zero_ext_inject; auto.
+
+  - (* Asm.Pmovzb_rm *)
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+
+  - (* Pmovsb_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    apply sign_ext_inject; auto.
+
+  - (* Asm.Pmovsb_rm *)
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+
+  - (* Asm.Pmovzw_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    apply zero_ext_inject; auto.
+
+  - (* Asm.Pmovzw_rm *)
+    unfold Asm.exec_instr in H2; simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+
+  - (* Asm.Pmovsw_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    apply sign_ext_inject; auto.
+
+  - (* Asm.Pmovsw_rm *)
+    unfold Asm.exec_instr in H2. simpl in H2.
+    unfold instr_size in H2; simpl in H2.    
+    exploit exec_load_step; eauto.
+    
+  - (* Pmovzl_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    apply longofintu_inject; auto.
+
+  - (* Pmovsl_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    apply longofint_inject; auto.
+
+  - (* Pmovls_rr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+
+Lemma loword_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.loword v1) (Val.loword v2).
+Proof.
+  intros. unfold Val.loword. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+    apply loword_inject; auto.
+
+  - (* Pcvtsd2ss_ff *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+
+Lemma singleoffloat_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.singleoffloat v1) (Val.singleoffloat v2).
+Proof.
+  intros. unfold Val.singleoffloat. 
+  destruct v1; auto. inv H. auto.
+Qed.
+    
+   apply singleoffloat_inject; auto.
+
+  - (* Pcvtss2sd_ff *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+
+Lemma floatofsingle_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.floatofsingle v1) (Val.floatofsingle v2).
+Proof.
+  intros. unfold Val.floatofsingle. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+   apply floatofsingle_inject; auto.
+
+  - (* Pcvttsd2si_rf *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    admit.
+
+  - (* Pcvtsi2sd_fr *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    admit.
+
+  - (* Pcvttss2si_rf *)
+    eexists; eexists; split. constructor.
+    unfold instr_size; simpl.
+    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
+    apply nextinstr_pres_inject.
+    repeat apply regset_inject_expand; auto.
+    admit.
+
+Admitted.
 
 
 Theorem step_simulation:
