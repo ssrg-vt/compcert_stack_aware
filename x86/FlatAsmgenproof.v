@@ -461,11 +461,20 @@ Qed.
 
 Lemma nextinstr_pres_inject : forall j rs1 rs2 sz,
     regset_inject j rs1 rs2 ->
-    regset_inject j (nextinstr rs1 sz) (nextinstr rs2 sz).
+    regset_inject j (Asm.nextinstr rs1 sz) (FlatAsm.nextinstr rs2 sz).
 Proof.
   unfold nextinstr. intros. apply regset_inject_expand; auto.
   apply Val.offset_ptr_inject. auto.
 Qed.  
+
+Lemma nextinstr_nf_pres_inject : forall j rs1 rs2 sz,
+    regset_inject j rs1 rs2 ->
+    regset_inject j (Asm.nextinstr_nf rs1 sz) (FlatAsm.nextinstr_nf rs2 sz).
+Proof.
+  intros. apply nextinstr_pres_inject.
+  apply undef_regs_pres_inject. auto.
+Qed. 
+
 
 Lemma set_pair_pres_inject : forall j rs1 rs2 v1 v2 loc,
     regset_inject j rs1 rs2 ->
@@ -589,6 +598,16 @@ Remark mull_inject:
 Proof.
 Proof.
   intros. unfold Val.mull. destruct v1, v2; simpl; auto.
+  inversion H; inversion H0; subst. auto.
+Qed.
+
+Remark mulhs_inject:
+  forall f v1 v1' v2 v2',
+  Val.inject f v1 v1' ->
+  Val.inject f v2 v2' ->
+  Val.inject f (Val.mulhs v1 v2) (Val.mulhs v1' v2').
+Proof.
+  intros. unfold Val.mulhs. destruct v1, v2; simpl; auto.
   inversion H; inversion H0; subst. auto.
 Qed.
 
@@ -905,7 +924,185 @@ Proof.
     apply nextinstr_pres_inject. repeat apply undef_regs_pres_inject. auto.
     eapply storev_pres_glob_block_valid; eauto.
 Qed.
+
+Lemma vzero_inject : forall j,
+  Val.inject j Vzero Vzero.
+Proof.
+  intros. unfold Vzero. auto.
+Qed.
   
+Lemma neg_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.neg v1) (Val.neg v2).
+Proof.
+  intros. unfold Val.neg. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma negl_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.negl v1) (Val.negl v2).
+Proof.
+  intros. unfold Val.negl. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma mullhs_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.mullhs v1 v1') (Val.mullhs v2 v2').
+Proof.
+  intros. unfold Val.mullhs. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma mullhu_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.mullhu v1 v1') (Val.mullhu v2 v2').
+Proof.
+  intros. unfold Val.mullhu. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma mulhu_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.mulhu v1 v1') (Val.mulhu v2 v2').
+Proof.
+  intros. unfold Val.mulhu. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+
+Lemma shr_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.shr v1 v1') (Val.shr v2 v2').
+Proof.
+  intros. unfold Val.shr. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. 
+  destruct (Int.ltu i0 Int.iwordsize); auto.
+Qed.
+
+Lemma shrl_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.shrl v1 v1') (Val.shrl v2 v2').
+Proof.
+  intros. unfold Val.shrl. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. 
+  destruct (Int.ltu i0 Int64.iwordsize'); auto.
+Qed.
+
+Lemma shru_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.shru v1 v1') (Val.shru v2 v2').
+Proof.
+  intros. unfold Val.shru. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. 
+  destruct (Int.ltu i0 Int.iwordsize); auto.
+Qed.
+
+Lemma shrlu_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.shrlu v1 v1') (Val.shrlu v2 v2').
+Proof.
+  intros. unfold Val.shrlu. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. 
+  destruct (Int.ltu i0 Int64.iwordsize'); auto.
+Qed.
+
+Lemma or_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.or v1 v1') (Val.or v2 v2').
+Proof.
+  intros. unfold Val.or. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma orl_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.orl v1 v1') (Val.orl v2 v2').
+Proof.
+  intros. unfold Val.orl. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma ror_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.ror v1 v1') (Val.ror v2 v2').
+Proof.
+  intros. unfold Val.ror. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma rorl_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.rorl v1 v1') (Val.rorl v2 v2').
+Proof.
+  intros. unfold Val.rorl. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+
+Lemma xor_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.xor v1 v1') (Val.xor v2 v2').
+Proof.
+  intros. unfold Val.xor. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma xorl_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.xorl v1 v1') (Val.xorl v2 v2').
+Proof.
+  intros. unfold Val.xorl. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma and_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.and v1 v1') (Val.and v2 v2').
+Proof.
+  intros. unfold Val.and. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma andl_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.andl v1 v1') (Val.andl v2 v2').
+Proof.
+  intros. unfold Val.andl. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma notl_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.notl v1) (Val.notl v2).
+Proof.
+  intros. unfold Val.notl. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma notint_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.notint v1) (Val.notint v2).
+Proof.
+  intros. unfold Val.notint. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma shl_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.shl v1 v1') (Val.shl v2 v2').
+Proof.
+  intros. unfold Val.shl. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. 
+  destruct (Int.ltu i0 Int.iwordsize); auto.
+Qed.
+
+Lemma shll_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.shll v1 v1') (Val.shll v2 v2').
+Proof.
+  intros. unfold Val.shll. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. 
+  destruct (Int.ltu i0 Int64.iwordsize'); auto.
+Qed.
+
 Lemma zero_ext_inject : forall v1 v2 n j,
     Val.inject j v1 v2 -> Val.inject j (Val.zero_ext n v1) (Val.zero_ext n v2).
 Proof.
@@ -934,6 +1131,129 @@ Proof.
   destruct v1; auto. inv H. auto.
 Qed.
 
+Lemma singleoffloat_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.singleoffloat v1) (Val.singleoffloat v2).
+Proof.
+  intros. unfold Val.singleoffloat. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma loword_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.loword v1) (Val.loword v2).
+Proof.
+  intros. unfold Val.loword. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma floatofsingle_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.floatofsingle v1) (Val.floatofsingle v2).
+Proof.
+  intros. unfold Val.floatofsingle. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Inductive opt_val_inject (j:meminj) : option val -> option val -> Prop :=
+| opt_val_inject_none v : opt_val_inject j None v
+| opt_val_inject_some v1 v2 : Val.inject j v1 v2 -> 
+                                opt_val_inject j (Some v1) (Some v2).
+
+Lemma intoffloat_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.intoffloat v1) (Val.intoffloat v2).
+Proof.
+  intros. unfold Val.intoffloat. destruct v1; try constructor.
+  inv H. destruct (Floats.Float.to_int f); simpl. 
+  - constructor. auto.
+  - constructor.
+Qed.
+
+Lemma floatofint_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.floatofint v1) (Val.floatofint v2).
+Proof.
+  intros. unfold Val.floatofint. destruct v1; try constructor.
+  inv H. constructor; auto.
+Qed.
+
+Lemma intofsingle_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.intofsingle v1) (Val.intofsingle v2).
+Proof.
+  intros. unfold Val.intofsingle. destruct v1; try constructor.
+  inv H. destruct (Floats.Float32.to_int f); simpl; constructor; auto.
+Qed.
+
+Lemma longoffloat_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.longoffloat v1) (Val.longoffloat v2).
+Proof.
+  intros. unfold Val.longoffloat. destruct v1; try constructor.
+  inv H. destruct (Floats.Float.to_long f) eqn:EQ; simpl; constructor; auto.
+Qed.
+
+Lemma floatoflong_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.floatoflong v1) (Val.floatoflong v2).
+Proof.
+  intros. unfold Val.floatoflong. destruct v1; try constructor.
+  inv H. constructor; auto. 
+Qed.
+
+Lemma longofsingle_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.longofsingle v1) (Val.longofsingle v2).
+Proof.
+  intros. unfold Val.longofsingle. destruct v1; try constructor.
+  inv H. destruct (Floats.Float32.to_long f) eqn:EQ; simpl; constructor; auto.
+Qed.
+
+Lemma singleoflong_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.singleoflong v1) (Val.singleoflong v2).
+Proof.
+  intros. unfold Val.singleoflong. destruct v1; try constructor.
+  inv H. constructor; auto.
+Qed.
+
+Lemma singleofint_inject : forall j v1 v2,
+  Val.inject j v1 v2 -> opt_val_inject j (Val.singleofint v1) (Val.singleofint v2).
+Proof.
+  intros. unfold Val.singleofint. destruct v1; try constructor.
+  inv H. constructor; auto.
+Qed.
+  
+Lemma maketotal_inject : forall v1 v2 j,
+    opt_val_inject j v1 v2 -> Val.inject j (Val.maketotal v1) (Val.maketotal v2).
+Proof.
+  intros. inversion H; simpl; subst; auto.
+Qed.
+
+Ltac solve_store_load :=
+  match goal with
+  | [ H : Asm.exec_instr _ _ _ _ _ = Next _ _ |- _ ] =>
+    unfold Asm.exec_instr in H; simpl in H; solve_store_load
+  | [ H : Asm.exec_store _ _ _ _ _ _ _ _ = Next _ _ |- _ ] =>
+    exploit exec_store_step; eauto
+  | [ H : Asm.exec_load _ _ _ _ _ _ _ = Next _ _ |- _ ] =>
+    exploit exec_load_step; eauto
+  end.
+
+Hint Resolve nextinstr_nf_pres_inject nextinstr_pres_inject regset_inject_expand undef_regs_pres_inject 
+  zero_ext_inject sign_ext_inject longofintu_inject longofint_inject
+  singleoffloat_inject loword_inject floatofsingle_inject intoffloat_inject maketotal_inject
+  intoffloat_inject floatofint_inject intofsingle_inject singleofint_inject
+  longoffloat_inject floatoflong_inject longofsingle_inject singleoflong_inject
+  eval_addrmode32_inject eval_addrmode64_inject eval_addrmode_inject
+  neg_inject negl_inject Val.add_inject Val.addl_inject
+  Val.sub_inject Val.subl_inject mul_inject mull_inject mulhs_inject mulhu_inject
+  mullhs_inject mullhu_inject shr_inject shrl_inject or_inject orl_inject
+  xor_inject xorl_inject and_inject andl_inject notl_inject
+  shl_inject shll_inject vzero_inject notint_inject
+  shru_inject shrlu_inject ror_inject rorl_inject: inject_db.
+
+
+Ltac solve_match_states :=
+  match goal with
+  | [ |- exists _, _ ] => eexists; solve_match_states
+  | [ |- (FlatAsm.exec_instr _ _ _ _ = Next _ _) /\ match_states _ _ ] =>
+    split; [reflexivity | econstructor; eauto; solve_match_states]
+  | [ |- regset_inject _ _ _ ] =>
+    eauto 10 with inject_db
+  end.
+
 
 (** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
@@ -952,41 +1272,15 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs f
       FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
       match_states (State rs1' m1') (State rs2' m2').
 Proof.
-  intros. destruct i. destruct i; inv H; simpl in *; monadInvX H0.
-
-  - (* Pmov_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply regset_inject_expand; auto.
-
-  - (* Pmovl_ri *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply undef_regs_pres_inject.
-    apply regset_inject_expand; auto.
-
-  - (* Pmovq_ri *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply undef_regs_pres_inject.
-    apply regset_inject_expand; auto.
+  intros. destruct i. destruct i; inv H; simpl in *; monadInvX H0;
+                        try first [solve_store_load |
+                                   solve_match_states].
 
   - (* Pmov_rs *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply undef_regs_pres_inject.
+    apply nextinstr_nf_pres_inject.
     apply regset_inject_expand; auto.
     inv MATCHSMINJ.
     unfold Genv.symbol_address. unfold Genv.get_label_addr0.
-    unfold Genv.get_label_addr. 
     destruct (Genv.find_symbol ge id0) eqn:FINDSYM; auto.
     exploit agree_sminj_glob0; eauto.
     intros (ofs' & GLBL & JB).
@@ -995,243 +1289,20 @@ Proof.
     eapply Val.inject_ptr; eauto.
     rewrite Ptrofs.repr_unsigned. auto.
 
-  - (* Pmovl_rm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Pmovq_rm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Asm.Pmovl_mr *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pmovq_mr *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Movsd_ff *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply regset_inject_expand; auto.
-
-  - (* Asm.Pmovsd_fi  *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply regset_inject_expand; auto.
-    
-  - (* Asm.Pmovsd_fm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Asm.Pmovsd_mf *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pmovss_fi *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    apply regset_inject_expand; auto.
-
-  - (* Asm.Pmovss_fm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Asm.Pmovss_mf *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pfldl_m *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.
-    exploit exec_load_step; eauto.
-
-  - (* Asm.Pfstlp_m *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pflds_m *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.
-    exploit exec_load_step; eauto.
-    
-  - (* Asm.Pfstps_m *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pxchg_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    
-  - (* Asm.Pmovb_mr *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pmovw_mr *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_store_step; eauto.
-
-  - (* Asm.Pmovzb_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    apply zero_ext_inject; auto.
-
-  - (* Asm.Pmovzb_rm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Pmovsb_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    apply sign_ext_inject; auto.
-
-  - (* Asm.Pmovsb_rm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Asm.Pmovzw_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    apply zero_ext_inject; auto.
-
-  - (* Asm.Pmovzw_rm *)
-    unfold Asm.exec_instr in H2; simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-
-  - (* Asm.Pmovsw_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    apply sign_ext_inject; auto.
-
-  - (* Asm.Pmovsw_rm *)
-    unfold Asm.exec_instr in H2. simpl in H2.
-    unfold instr_size in H2; simpl in H2.    
-    exploit exec_load_step; eauto.
-    
-  - (* Pmovzl_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    apply longofintu_inject; auto.
-
-  - (* Pmovsl_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    apply longofint_inject; auto.
-
-  - (* Pmovls_rr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-
-Lemma loword_inject : forall v1 v2 j,
-    Val.inject j v1 v2 -> Val.inject j (Val.loword v1) (Val.loword v2).
-Proof.
-  intros. unfold Val.loword. 
-  destruct v1; auto. inv H. auto.
-Qed.
-
-    apply loword_inject; auto.
-
-  - (* Pcvtsd2ss_ff *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-
-Lemma singleoffloat_inject : forall v1 v2 j,
-    Val.inject j v1 v2 -> Val.inject j (Val.singleoffloat v1) (Val.singleoffloat v2).
-Proof.
-  intros. unfold Val.singleoffloat. 
-  destruct v1; auto. inv H. auto.
-Qed.
-    
-   apply singleoffloat_inject; auto.
-
-  - (* Pcvtss2sd_ff *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-
-Lemma floatofsingle_inject : forall v1 v2 j,
-    Val.inject j v1 v2 -> Val.inject j (Val.floatofsingle v1) (Val.floatofsingle v2).
-Proof.
-  intros. unfold Val.floatofsingle. 
-  destruct v1; auto. inv H. auto.
-Qed.
-
-   apply floatofsingle_inject; auto.
-
-  - (* Pcvttsd2si_rf *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    admit.
-
-  - (* Pcvtsi2sd_fr *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    admit.
-
-  - (* Pcvttss2si_rf *)
-    eexists; eexists; split. constructor.
-    unfold instr_size; simpl.
-    apply match_states_intro with (j:=j) (gm:=gm) (lm:=lm); auto.
-    apply nextinstr_pres_inject.
-    repeat apply regset_inject_expand; auto.
-    admit.
+  (* Divisions *)
+  - admit.
+  - admit.
+  - admit.
+  - admit.
+     
+  - admit.
+  - admit.
+  - admit.
+  - admit.
+  - admit.
+  - admit.
+  - admit.
+  - admit.
 
 Admitted.
 
