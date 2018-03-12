@@ -7610,6 +7610,32 @@ Proof.
   eapply mem_inj_push_new_stage; eauto.
 Qed.
 
+Lemma extends_push_new_stage:
+  forall m1 m2,
+    extends m1 m2 ->
+    extends (push_new_stage m1) (push_new_stage m2).
+Proof.
+  intros m1 m2 MI; inv MI; constructor; eauto.
+  eapply mem_inj_push_new_stage in mext_inj0; eauto.
+  eapply mem_inj_frame_inj_ext. eauto.
+  replace (stack_adt (push_new_stage m1)) with (nil :: stack_adt m1).
+  intros; simpl; rewrite up_flatinj. auto. reflexivity.
+  simpl. omega.
+Qed.
+
+Lemma push_new_stage_mem_unchanged:
+  mem_unchanged (fun m1 m2 => push_new_stage m1 = m2).
+Proof.
+  red; intros. unfold push_new_stage in H. subst. simpl.
+  repeat split; simpl; auto. xomega.
+  unfold load. intros.
+  simpl.
+  repeat match goal with
+           |- context [match ?a with _ => _ end] => destruct a eqn:?; simpl; intros; try intuition congruence
+         end; exfalso; apply n;
+    destruct v as (v1 & v2 & v3) ; simpl in *; repeat split; eauto; inversion 1.
+Qed.
+
 Lemma inject_push_new_stage_left:
   forall j g m1 m2,
     inject j g m1 m2 ->
@@ -8948,6 +8974,14 @@ Proof.
     rewrite EQ1, EQ2. simpl. reflexivity.
 Qed.
 
+Lemma unrecord_push:
+  forall m, unrecord_stack_block (push_new_stage m) = Some m.
+Proof.
+  unfold unrecord_stack_block, push_new_stage. simpl. intros.
+  f_equal. destruct m. simpl. apply mkmem_ext; auto.
+Qed.
+
+
 End WITHINJPERM.
 
 Local Instance memory_model_prf:
@@ -9262,6 +9296,11 @@ Proof.
   apply wf_stack_mem.
   apply stack_perm.
   apply record_stack_blocks_top_noperm.
+
+  
+  apply extends_push_new_stage.
+  apply push_new_stage_mem_unchanged.
+  apply unrecord_push.
 
 Qed.
 

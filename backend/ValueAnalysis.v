@@ -1148,14 +1148,14 @@ Inductive sound_state_base: state -> Prop :=
         (SP: bc sp = BCstack),
       sound_state_base (State s f (Vptr sp Ptrofs.zero) pc e m)
   | sound_call_state:
-      forall s fd args m bc sz tc
+      forall s fd args m bc sz
         (STK: sound_stack bc s m (Mem.nextblock m))
         (ARGS: forall v, In v args -> vmatch bc v Vtop)
         (RO: romatch bc m rm)
         (MM: mmatch bc m mtop)
         (GE: genv_match bc ge)
         (NOSTK: bc_nostack bc),
-      sound_state_base (Callstate s fd args m sz tc)
+      sound_state_base (Callstate s fd args m sz)
   | sound_return_state:
       forall s v m bc
         (STK: sound_stack bc s m (Mem.nextblock m))
@@ -1336,6 +1336,17 @@ Proof.
   econstructor; eauto.
 Qed.
 
+Lemma sound_state_base_push:
+  forall s fd args m sz,
+    sound_state_base (Callstate s fd args m sz) ->
+    sound_state_base (Callstate s fd args (Mem.push_new_stage m) sz).
+Proof.
+  inversion 1; econstructor; eauto.
+  rewrite Mem.push_new_stage_nextblock; apply sound_stack_push; auto.
+  apply romatch_push; auto.
+  apply mmatch_push; auto.
+Qed.
+
 Variable fn_stack_requirements: ident -> Z.
 Theorem sound_step_base:
   forall st t st', RTL.step fn_stack_requirements ge st t st' -> sound_state_base st -> sound_state_base st'.
@@ -1377,6 +1388,7 @@ Proof.
   exploit analyze_successor; eauto. simpl; eauto. rewrite TR. intros SUCC.
   exploit hide_stack; eauto. apply pincl_ge; auto.
   intros (bc' & A & B & C & D & E & F & G).
+  apply sound_state_base_push.
   apply sound_call_state with bc'; auto.
   * eapply sound_stack_private_call with (bound' := Mem.nextblock m) (bc' := bc); eauto.
     apply Ple_refl.
@@ -1390,6 +1402,7 @@ Proof.
 + (* public call *)
   exploit analyze_successor; eauto. simpl; eauto. rewrite TR. intros SUCC.
   exploit anonymize_stack; eauto. intros (bc' & A & B & C & D & E & F & G).
+  apply sound_state_base_push.
   apply sound_call_state with bc'; auto.
   * eapply sound_stack_public_call with (bound' := Mem.nextblock m) (bc' := bc); eauto.
     apply Ple_refl.
@@ -1554,23 +1567,25 @@ Proof.
   econstructor; eauto.
   erewrite Mem.alloc_result by eauto.
   eapply sound_stack_record; eauto.
-  cut (sound_stack bc' s m' (Mem.nextblock m)). intro SS.
-  destruct tc; auto. eapply sound_stack_push; eauto.
   apply sound_stack_exten with bc; auto.
   apply sound_stack_inv with m; auto.
   intros. eapply Mem.loadbytes_alloc_unchanged; eauto.
   intros. apply F. erewrite Mem.alloc_result by eauto. auto.
-  eapply romatch_record; eauto. destruct tc; auto. apply romatch_push; auto.
-  eapply mmatch_record; eauto. destruct tc; auto. apply mmatch_push; auto.
+  eapply romatch_record; eauto.
+  eapply mmatch_record; eauto.
 
 - (* external function *)
   exploit external_call_match; eauto with va.
   intros (bc' & A & B & C & D & E & F & G & K).
   econstructor; eauto.
+  eapply sound_stack_unrecord. eauto.
+  erewrite Mem.unrecord_stack_block_nextblock by eauto.
   apply sound_stack_new_bound with (Mem.nextblock m).
   apply sound_stack_exten with bc; auto.
   apply sound_stack_inv with m; auto.
   eapply external_call_nextblock; eauto.
+  eapply romatch_unrecord; eauto.
+  eapply mmatch_unrecord; eauto.
 
 - (* return *)
   destruct external_calls_prf.
@@ -2069,10 +2084,12 @@ Proof.
   constructor; intros. apply sound_call_state with bc.
 - constructor.
 - simpl; tauto.
-- eapply romatch_record; eauto.
-  apply romatch_push.
+- eapply romatch_push.
+  eapply romatch_record; eauto.
+  eapply romatch_push.
   eapply romatch_alloc; eauto.
-- eapply mmatch_record; eauto.
+- eapply mmatch_push.
+  eapply mmatch_record; eauto.
   eapply mmatch_push.
   eapply mmatch_alloc; eauto.
   eapply mmatch_inj_top with (m:=m0).

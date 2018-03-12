@@ -336,21 +336,13 @@ to specify the shape of the stack injection function [g]. *)
 Inductive match_stackframes: meminj -> list stackframe -> list stackframe -> Prop :=
   | match_stackframes_nil j:
       match_stackframes j nil nil
-  | match_stackframes_normal: forall j stk stk' res sp sp' pc rs rs' f tc,
+  | match_stackframes_normal: forall j stk stk' res sp sp' pc rs rs' f,
       match_stackframes j stk stk' ->
       regs_inject j rs rs' ->
       j sp = Some (sp',0) ->
       match_stackframes j 
-        (Stackframe res f false (Vptr sp Ptrofs.zero) pc rs :: stk)
-        (Stackframe res (transf_function f) tc (Vptr sp' Ptrofs.zero) pc rs' :: stk')
-  | match_stackframes_tail: forall j stk stk' res sp pc rs f tc,
-      match_stackframes j stk stk' ->
-      is_return_spec f pc res ->
-      f.(fn_stacksize) = 0 ->
-      match_stackframes j
-        (Stackframe res f false (Vptr sp Ptrofs.zero) pc rs :: stk)
-        (StackframeTailcalled tc :: stk')
-.
+        (Stackframe res f (Vptr sp Ptrofs.zero) pc rs :: stk)
+        (Stackframe res (transf_function f) (Vptr sp' Ptrofs.zero) pc rs' :: stk').
 
 (* Specifying the shape of stack injection functions *)
 
@@ -361,9 +353,6 @@ Inductive match_stackframes: meminj -> list stackframe -> list stackframe -> Pro
    Tailcalled stack frames are injected into the current target stage and we do
    not increment the target stage.
  *)
-
-Definition tc_of_stackframe sf :=
-  match sf with | Stackframe _ _ tc _ _ _ => tc | StackframeTailcalled tc => tc end.
 
 Fixpoint compat_frameinj_rec (l: list bool) (g: frameinj) (ns nt: nat) :=
   match l with

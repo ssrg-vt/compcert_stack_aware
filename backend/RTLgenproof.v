@@ -742,13 +742,17 @@ Lemma transl_expr_Eexternal_correct:
   ef_sig ef = sg ->
   eval_exprlist ge sp e m le al vl ->
   transl_exprlist_prop le al vl ->
-  external_call ef ge vl m E0 v m ->
+  external_call ef ge vl (Mem.push_new_stage m) E0 v (Mem.push_new_stage m) ->
   transl_expr_prop le (Eexternal id sg al) v.
 Proof.
   intros; red; intros. inv TE.
   exploit H3; eauto. intros [rs1 [tm1 [EX1 [ME1 [RR1 [RO1 [EXT1 STK1]]]]]]].
   exploit external_call_mem_extends; eauto.
+  apply Mem.extends_push; eauto.
   intros [v' [tm2 [A [B [C DE]]]]].
+  exploit Mem.unrecord_stack_block_extends; eauto.
+    apply stack_equiv_tail, stack_equiv_fsize in SE; auto.
+    repeat rewrite_stack_blocks; eauto. omega.
   exploit function_ptr_translated; eauto. simpl. intros [tf [P Q]]. inv Q.
   exists (rs1#rd <- v'); exists tm2.
 (* Exec *)
@@ -757,6 +761,7 @@ Proof.
   simpl. reflexivity. simpl. rewrite symbols_preserved. rewrite H. eauto. auto.
   eapply star_left. eapply exec_function_external.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
+
   apply star_one. apply exec_return.
   reflexivity. reflexivity. reflexivity.
 (* Match-env *)

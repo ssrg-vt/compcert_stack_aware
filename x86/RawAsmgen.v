@@ -92,7 +92,7 @@ Section WITHMEMORYMODEL.
           Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp)) m3
         end
       (* end *)
-    | Pfreeframe sz ofs_ra =>
+    | Pfreeframe sz ofs_ra unrecord =>
       match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
       | None => Stuck
       | Some ra =>

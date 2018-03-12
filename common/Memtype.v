@@ -2051,6 +2051,9 @@ wf_stack_mem:
      Mem.strong_unchanged_on P m (Mem.push_new_stage m);
 
 
+ unrecord_push:
+   forall m, Mem.unrecord_stack_block (Mem.push_new_stage m) = Some m;
+
 }.
 
 Section WITHMEMORYMODEL.
