@@ -5,6 +5,7 @@ Require Import StackADT.
 Require Import Integers AST.
 
 Import ListNotations.
+Open Scope Z_scope.
 
 Definition sp_adjustment_32 sz := 
   let sz' := (align sz 16) in
@@ -22,7 +23,7 @@ Definition expand_instr (i: instruction) : list instruction :=
     [Psubl_ri RSP (Int.repr sz)(* ; *)
      (* Pleal RAX addr1; *)
      (* Pmovl_mr addr2 RAX *)]
-  | Pfreeframe sz ofs_ra (* ofs_link *) => 
+  | Pfreeframe sz ofs_ra (* ofs_link *) unrecord => 
     let sz := (sp_adjustment_32 sz) in
     [Paddl_ri RSP (Int.repr sz)]
   | _ => [i]

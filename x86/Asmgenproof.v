@@ -17,6 +17,7 @@ Require Import Integers Floats AST Linking.
 Require Import Values Memory Events Globalenvs Smallstep.
 Require Import Op Locations Mach Conventions Asm.
 Require Import Asmgen Asmgenproof0 Asmgenproof1.
+Require AsmFacts.
 
 Definition match_prog (p: Mach.program) (tp: Asm.program) :=
   match_program (fun _ f tf => transf_fundef f = OK tf) eq p tp.
@@ -389,18 +390,21 @@ Qed.
   Definition ms_nil :=
     forall b o, init_sp = Vptr b o -> False.
 
-  Inductive list_prefix {A B} (P: A -> B -> Prop) (Pinit : B -> Prop) (Pnil: Prop): list A -> list B -> Prop :=
+  Inductive list_prefix {A} (P: A -> frame_adt -> Prop) (Pinit : frame_adt -> Prop) (Pnil: Prop): list A -> stack_adt -> Prop :=
   | lp_intro (PNIL: Pnil):
       list_prefix P Pinit Pnil nil nil
-  | lp_intro_init_sp a r (PINIT: Pinit a):
-      list_prefix P Pinit Pnil nil (a::r)
+  | lp_intro_init_sp a r (PINIT: Pinit a) f:
+      list_prefix P Pinit Pnil nil ((a::f)::r)
   | lp_cons a b l1 l2
             (LPrec: list_prefix P Pinit Pnil l1 l2)
-            (PAB: P a b):
-      list_prefix P Pinit Pnil (a::l1) (b::l2).
+            (PAB: P a b) f:
+      list_prefix P Pinit Pnil (a::l1) ((b::f)::l2).
 
   Hypothesis init_sp_not_ptr_null:
     ~ (exists (b : block) (o : ptrofs), init_sp = Vptr b o) -> init_sp = Vnullptr.
+
+  Definition init_sp_in_stack m : Prop :=
+    forall b o, init_sp = Vptr b o -> exists fi, in_stack' (Mem.stack_adt m) (b,fi).
 
  Inductive match_states: Mach.state -> Asm.state -> Prop :=
   | match_states_intro:
@@ -412,16 +416,12 @@ Qed.
         (AG: agree ms (Vptr sp Ptrofs.zero) rs)
         (AXP: ep = true -> rs#RAX = parent_sp init_sp s)
         (MATCHFRAMES: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m))
-        (ISP_INFO: forall (b : block) (o : ptrofs),
-            init_sp = Vptr b o ->
-            exists fr fi,
-              frame_adt_blocks fr = (b,fi)::nil
-              /\ In fr (Mem.stack_adt m'))
+        (ISP_INFO: init_sp_in_stack m')
         (SAMEADT: (Mem.stack_adt m) = (Mem.stack_adt m')),
       match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m)
                    (Asm.State rs m')
   | match_states_call:
-      forall s fb ms m m' rs
+      forall s fb ms m m' rs tc
         (STACKS: match_stack ge s)
         (MEXT: Mem.extends m m')
         (AG: agree ms (parent_sp init_sp s) rs)
@@ -429,12 +429,8 @@ Qed.
         (ATLR: rs RA = parent_ra init_ra s)
         (MATCHFRAMES: list_prefix match_stackframe_frame_adt ms_init ms_nil s (Mem.stack_adt m))
         (SAMEADT: (Mem.stack_adt m) = (Mem.stack_adt m'))
-        (ISP_INFO: forall (b : block) (o : ptrofs),
-            init_sp = Vptr b o ->
-            exists fr fi,
-              frame_adt_blocks fr = (b,fi)::nil
-              /\ In fr (Mem.stack_adt m')),
-      match_states (Mach.Callstate s fb ms m)
+        (ISP_INFO: init_sp_in_stack m'),
+      match_states (Mach.Callstate s fb ms m tc)
                    (Asm.State rs m')
   | match_states_return:
       forall s ms m m' rs
@@ -444,14 +440,11 @@ Qed.
         (RA_VUNDEF: rs RA = Vundef)
         (ATPC: rs PC = parent_ra init_ra s)
         (MATCHFRAMES: list_prefix match_stackframe_frame_adt ms_init ms_nil s (Mem.stack_adt m))
-        (SAMEADT: (Mem.stack_adt m) = (Mem.stack_adt m'))
-        (ISP_INFO: forall (b : block) (o : ptrofs),
-            init_sp = Vptr b o ->
-            exists fr fi,
-              frame_adt_blocks fr = (b,fi)::nil
-              /\ In fr (Mem.stack_adt m')),
+        (SAMEADT: Mem.stack_adt m = Mem.stack_adt m')
+        (ISP_INFO: init_sp_in_stack m'),
       match_states (Mach.Returnstate s ms m)
                    (Asm.State rs m').
+
 
 Lemma exec_straight_steps:
   forall s fb f rs1 i c ep tf tc m1' m2 m2' sp ms2,
@@ -466,11 +459,7 @@ Lemma exec_straight_steps:
     /\ (it1_is_parent ep i = true -> rs2#RAX = parent_sp init_sp s)) ->
   forall (LF2: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m2))
     (SAMEADT: (Mem.stack_adt m2) = (Mem.stack_adt m2'))
-    (ISP_INFO: forall (b : block) (o : ptrofs),
-        init_sp = Vptr b o ->
-            exists fr fi,
-              frame_adt_blocks fr = (b,fi)::nil
-              /\ In fr (Mem.stack_adt m2')),
+    (ISP_INFO: init_sp_in_stack m2'),
   exists st',
   plus (step init_sp) tge (State rs1 m1') E0 st' /\
   match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c ms2 m2) st'.
@@ -497,11 +486,7 @@ Lemma exec_straight_steps_goto:
               /\ exec_instr init_sp tge tf jmp rs2 m2' = goto_label tge tf lbl rs2 m2') ->
     forall (LF2:   list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c' :: s) (Mem.stack_adt m2))
       (SAMEADT: (Mem.stack_adt m2) = (Mem.stack_adt m2'))
-      (ISP_INFO: forall (b : block) (o : ptrofs),
-          init_sp = Vptr b o ->
-            exists fr fi,
-              frame_adt_blocks fr = (b,fi)::nil
-              /\ In fr (Mem.stack_adt m2')),
+      (ISP_INFO: init_sp_in_stack m2'),
   exists st',
   plus (step init_sp) tge (State rs1 m1') E0 st' /\
   match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c' ms2 m2) st'.
@@ -538,7 +523,7 @@ Qed.
 Definition measure (s: Mach.state) : nat :=
   match s with
   | Mach.State _ _ _ _ _ _ => 0%nat
-  | Mach.Callstate _ _ _ _ => 0%nat
+  | Mach.Callstate _ _ _ _ _ => 0%nat
   | Mach.Returnstate _ _ _ => 1%nat
   end.
 
@@ -832,55 +817,68 @@ Qed.
     destruct zle; auto. eauto. omega.
   Qed.
 
-
-  Lemma unrecord_init_sp_in_stack:
-    forall fb stk sp c s m'0 b lo hi m2_ m2'
-      (MATCHFRAMES: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb stk sp c :: s) (Mem.stack_adt m'0))
-      (ISP_INFO: forall (b : block) (o : ptrofs),
-          init_sp = Vptr b o ->
-          exists fr fi, frame_adt_blocks fr = (b,fi)::nil /\ In fr (Mem.stack_adt m'0))
-      (FREE: Mem.free m'0 b lo hi = Some m2_)
-      (UNRECORD : Mem.unrecord_stack_block m2_ = Some m2')
-      b o
-      (ISPEQ: init_sp = Vptr b o),
-    exists fr fi, frame_adt_blocks fr = (b,fi)::nil /\ In fr (Mem.stack_adt m2').
+  Lemma init_sp_in_stack':
+    forall bb o,
+      init_sp = Vptr bb o ->
+      forall s1 s2,
+        list_prefix match_stackframe_frame_adt ms_init ms_nil s1 s2 ->
+        in_stack s2 bb.
   Proof.
-    clear - memory_model_prf. intros.
-    edestruct ISP_INFO as (fr & fi & blocks & IN). eauto.
-    exists fr, fi; rewrite blocks; split; auto.
-    edestruct Mem.unrecord_stack_adt as (fr' & STK). eauto.
-    erewrite Mem.free_stack_blocks in STK. 2: eauto.
-    rewrite STK in IN. destruct IN as [IN|IN]; auto.
-    subst.
-    rewrite STK in MATCHFRAMES. revert ISPEQ. inv MATCHFRAMES.
-    intro ISPEQ.
-    red in PAB.
-    generalize (Mem.stack_norepet m'0); rewrite STK. intro ND. inversion ND. subst f l.
-    unfold in_frame in H2. rewrite blocks in PAB.
-    destruct PAB as (fi0 & EQ & SIZE & FIND); inversion EQ; subst b0 fi.
-    rewrite blocks in *.
-    specialize (H2 _ (or_introl eq_refl)).
-    simpl in H2. exfalso; apply H2.
-    revert ISPEQ LPrec. clear.
-    generalize (Mem.stack_adt m2').
-    induction 2; simpl; intros; eauto.
-    red in PINIT.
-    rewrite ISPEQ in PINIT.
-    destruct PINIT as (b & fi & EQ & blocks). inv EQ.
-    unfold in_frame; rewrite blocks. left; left; auto.
+    intros bb o ISPEQ.
+    induction 1; simpl; intros; eauto.
+    - red in PNIL. exfalso; eauto.
+    - red in PINIT.
+      rewrite ISPEQ in PINIT.
+      destruct PINIT as (b & fi & EQ & blocks). inv EQ.
+      rewrite in_stack_cons. left.
+      rewrite in_frames_cons. left.
+      unfold in_frame, get_frame_blocks; rewrite blocks.
+      change (b) with (fst (b,fi)); apply in_map. left; auto.
+    - rewrite in_stack_cons; right. auto.
   Qed.
 
+  Lemma unrecord_init_sp_in_stack:
+    forall fb stk sp c s m1 m2
+      (MATCHFRAMES: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb stk sp c :: s) (Mem.stack_adt m1))
+      (ISP_INFO: init_sp_in_stack m1)
+      (UNRECORD : Mem.unrecord_stack_block m1 = Some m2),
+      init_sp_in_stack m2.
+  Proof.
+    intros.
+    inv MATCHFRAMES.
+    destruct PAB as (fi0 & blocks' & size & inv).
+    intros bb o EQ.
+    edestruct ISP_INFO as (fi & IN). eauto.
+    exists fi.
+    repeat rewrite_stack_blocks. rewrite <- H in EQ0. revert EQ. inv EQ0.
+    rewrite <- H in *. simpl.
+    assert (in_stack' (Mem.stack_adt m2) (bb, fi) \/
+            exists fr, In (bb,fi) (frame_adt_blocks fr) /\ In fr (b::f)
+           ).
+    {
+      destruct IN as (fr & tfr & Inblocks & INtfr & INstack).
+      destruct INstack; eauto.
+      - subst. right; eauto.
+      - left; eexists; eauto.
+    }
+    destruct H0 as [INSTK|INHD]. auto.
+    generalize (Mem.stack_norepet m1); rewrite <- H. intro ND.
+    inv ND.
+    intro ISPEQ.
+    edestruct (H3 bb).
+    - destruct INHD as (fr & blocks & INHD).
+      eapply in_frame_in_frames.
+      2: apply INHD. red. change (bb) with (fst (bb,fi)).
+      unfold get_frame_blocks. apply in_map. auto.
+    - eapply init_sp_in_stack'; eauto.
+  Qed.
 
   Lemma load_parent_pointer_correct:
     forall (tge: genv) fn (rd: ireg) x m1 (rs1: regset) s fb sp c f
       (PISP_DEF: exists bisp, parent_sp init_sp s = Vptr bisp Ptrofs.zero)
       (FFP: Genv.find_funct_ptr ge fb = Some (Internal f))
-      (ISP_INFO: forall (b : block) (o : ptrofs),
-          init_sp = Vptr b o ->
-          exists fr fi, frame_adt_blocks fr = (b,fi)::nil /\
-                        In fr (Mem.stack_adt m1))
+      (ISP_INFO: init_sp_in_stack m1)
       (RD: rd <> RSP)
-      (* (INITSP_NONONE: forall b o oo n, In (b::nil, oo, n) (Mem.stack_adt m1) -> init_sp = Vptr b o -> oo <> None) *)
       (LP: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m1)),
       exists rs2,
       exec_straight init_sp tge fn (Pload_parent_pointer rd (frame_size (Mach.fn_frame f)) :: x) rs1 m1 x rs2 m1 /\
@@ -897,15 +895,6 @@ Qed.
         * red in PINIT.
           destruct PINIT as (bb & fi & ISP & FB).
           rewrite FB. destruct a; simpl in *; subst.
-          (* destruct b, p, o0; try easy. *)
-          (* destruct PAB as (Leq & Zeq & Ffp); subst. *)
-          (* rewrite <- H in ISP_INFO. *)
-          (* specialize (ISP_INFO _ _ eq_refl). destruct ISP_INFO as (oo & n & IN & NONONE). *)
-          (* generalize (Mem.stack_norepet m1); rewrite <- H. intro ND. inv ND. *)
-          (* simpl in IN. destruct IN. inv H0. *)
-          (* specialize (H3 _ (or_introl eq_refl)). exfalso; apply H3. left. left. auto. *)
-          (* inv H2. specialize (H6 _ (or_introl eq_refl)). destruct H0. inv H0. *)
-          (* destruct oo; try easy. *)
           destr.
           destr. 
           exfalso.
@@ -1003,7 +992,7 @@ Local Transparent destroyed_by_setstack.
   apply Mem.store_no_abstract in H; eauto.
   apply Mem.store_no_abstract in A; eauto.
   congruence.
-  unfold Mem.storev in A; destr_in A.
+  red; intros. unfold Mem.storev in A; destr_in A.
   erewrite Mem.store_no_abstract; simpl in *; eauto.
 - (* Mgetparam *)
   assert (f0 = f) by congruence; subst f0.
@@ -1097,6 +1086,7 @@ Opaque loadind.
   apply Mem.store_no_abstract in H0; eauto.
   apply Mem.store_no_abstract in C; eauto.
   congruence.
+  red; intros.
   unfold Mem.storev in C; destr_in C.
   erewrite Mem.store_no_abstract; simpl in *; eauto.
 

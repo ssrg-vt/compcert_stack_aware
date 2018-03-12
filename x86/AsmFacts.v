@@ -26,21 +26,21 @@ Section WITHMEMORYMODEL.
   Context `{external_calls_ops: !ExternalCallsOps mem}
           `{enable_builtins_instance: EnableBuiltins (memory_model_ops:=memory_model_ops) mem}.
 
-  Definition is_unchanged (i: instruction) :=
+  Definition stack_invar (i: instruction) :=
     match i with
       Pallocframe _ _  
-    | Pfreeframe _ _
-    | Pload_parent_pointer _ _ => false
+    | Pfreeframe _ _ _
+    | Pcall_s _ _
+    | Pcall_r _ _ => false
     | _ => true
     end.
-
 
   (** Instructions other than [Pallocframe] and [Pfreeframe] do not modify the
       content of the RSP register. We prove that Asm programs resulting from the
       Stacking pass satisfy this requirement. *)
 
   Definition asm_instr_no_rsp (i : Asm.instruction) : Prop :=
-    is_unchanged i = true ->
+    stack_invar i = true ->
     forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f isp,
       Asm.exec_instr isp ge f i rs1 m1 = Next rs2 m2 ->
       rs2 # RSP = rs1 # RSP.
@@ -592,7 +592,7 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Definition asm_instr_no_stack (i : Asm.instruction) : Prop :=
-    is_unchanged i = true ->
+    stack_invar i = true ->
     forall F V (ge: _ F V) rs1 m1 rs2 m2 f isp,
       Asm.exec_instr isp ge f i rs1 m1 = Next rs2 m2 ->
       Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
@@ -695,26 +695,20 @@ Section WITHMEMORYMODEL.
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
+    - rewrite Mem.push_new_stage_nextblock; xomega.
+    - rewrite Mem.push_new_stage_nextblock; xomega.
     - repeat destr_in H1.
-      edestruct (Mem.push_frame_alloc_record) as (m3 & ALLOC & m4 & STORES & RSB). eauto.
-      instantiate (1 :=
-                     {| frame_adt_blocks := (b,frame)::nil;
-                        frame_adt_size := frame_size frame;
-                        frame_adt_blocks_norepet := norepet_1 _;
-                     |}).
-      reflexivity. reflexivity.
-      edestruct Mem.record_stack_blocks_mem_unchanged; eauto. simpl. eauto.
-      rewrite H0.
-      apply Mem.do_stores_nextblock in STORES. rewrite STORES.
-      rewrite (Mem.nextblock_alloc _ _ _ _ _ ALLOC).
-      xomega.
+      apply Mem.record_stack_block_nextblock in Heqo0.
+      apply Mem.nextblock_store in Heqo.
+      apply Mem.nextblock_alloc in Heqp. 
+      rewrite Heqo0, Heqo, Heqp. xomega.
     - repeat (destr_in H1; [idtac]). inv H1.
+      rewrite <- (Mem.nextblock_free _ _ _ _ _ Heqo0).
+      destr_in Heqo1.
       edestruct Mem.unrecord_stack_block_mem_unchanged. simpl; eauto.
-      rewrite H0.
-      rewrite (Mem.nextblock_free _ _ _ _ _ Heqo0). apply Ple_refl.
+      rewrite H0. xomega. inv Heqo1. xomega.
     - repeat destr_in H1. apply Ple_refl.
   Qed.
-
 
   Lemma val_inject_set:
     forall j rs1 rs2
