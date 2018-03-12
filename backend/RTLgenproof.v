@@ -751,18 +751,20 @@ Proof.
   apply Mem.extends_push; eauto.
   intros [v' [tm2 [A [B [C DE]]]]].
   exploit Mem.unrecord_stack_block_extends; eauto.
-    apply stack_equiv_tail, stack_equiv_fsize in SE; auto.
-    repeat rewrite_stack_blocks; eauto. omega.
+  apply Mem.unrecord_push.
+  repeat rewrite_stack_blocks. simpl.
+  rewrite STK1.
+  eapply stack_inject_sizes. eapply Mem.extends_stack_adt. eauto.
+  intros (tm2' & USB & EXT').
   exploit function_ptr_translated; eauto. simpl. intros [tf [P Q]]. inv Q.
-  exists (rs1#rd <- v'); exists tm2.
+  exists (rs1#rd <- v'); exists tm2'.
 (* Exec *)
   split. eapply star_trans. eexact EX1.
   eapply star_left. eapply exec_Icall; eauto.
   simpl. reflexivity. simpl. rewrite symbols_preserved. rewrite H. eauto. auto.
   eapply star_left. eapply exec_function_external.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
-
-  apply star_one. apply exec_return.
+  apply star_one. apply exec_return. auto.
   reflexivity. reflexivity. reflexivity.
 (* Match-env *)
   split. eauto with rtlg.
@@ -771,7 +773,7 @@ Proof.
 (* Other regs *)
   split. intros. rewrite Regmap.gso. auto. intuition congruence.
 (* Mem *)
-  split; auto. rewrite_stack_blocks. auto.
+  split; auto. repeat rewrite_stack_blocks. simpl. auto.
 Qed.
 
 Lemma transl_exprlist_Enil_correct:
@@ -1230,15 +1232,15 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
       match_states (CminorSel.State f s k sp e m)
                    (RTL.State cs tf sp ns rs tm)
   | match_callstate:
-      forall f args targs k m tm cs tf sz tc
+      forall f args targs k m tm cs tf sz
         (TF: transl_fundef f = OK tf)
         (MS: match_stacks k cs)
         (LD: Val.lessdef_list args targs)
         (MEXT: Mem.extends m tm)
         (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
-        (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)),
-      match_states (CminorSel.Callstate f args k m sz tc)
-                   (RTL.Callstate cs tf targs tm sz tc)
+        (* (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)) *),
+      match_states (CminorSel.Callstate f args k m sz)
+                   (RTL.Callstate cs tf targs tm sz)
   | match_returnstate:
       forall v tv k m tm cs
         (MS: match_stacks k cs)
@@ -1330,10 +1332,6 @@ Proof.
     inv TF. auto.
     edestruct Mem.free_parallel_extends as [tm' []]; eauto.
     constructor.
-    exploit Mem.unrecord_stack_block_extends; eauto.
-    apply stack_equiv_tail, stack_equiv_fsize in SE; auto.
-    repeat rewrite_stack_blocks; eauto. omega.
-    intros (m2' & USB & EXT).
     econstructor; split.
     left; apply plus_one. eapply exec_Ireturn. eauto.
     rewrite SZEQ. eauto. eauto.
@@ -1389,7 +1387,9 @@ Proof.
       simpl. rewrite J. destruct C. eauto. discriminate P. simpl; auto.
       apply sig_transl_function; auto.
       traceEq.
-      constructor; auto. econstructor; eauto. congruence. congruence.
+      constructor; auto. econstructor; eauto.
+      apply Mem.extends_push. auto.
+      repeat rewrite_stack_blocks. repeat constructor. congruence.
     + (* direct *)
       exploit transl_exprlist_correct; eauto.
       intros [rs'' [tm'' [E [F [G [J [Y STK1]]]]]]].
@@ -1408,8 +1408,10 @@ Proof.
       apply Genv.find_invert_symbol in H4.
       destruct IFI as (bb & oo & EQ3 & EQ2). inv EQ3.
       apply Genv.find_invert_symbol in EQ2. congruence.  subst.
-      constructor; auto. econstructor; eauto. congruence. congruence.
-
+      constructor; auto. econstructor; eauto.
+      apply Mem.extends_push; auto.
+      repeat rewrite_stack_blocks. repeat constructor. congruence.
+      
   - (* tailcall *)
     inv TS; inv H.
     + (* indirect *)
@@ -1433,18 +1435,6 @@ Proof.
       traceEq.
       constructor; auto.
       repeat rewrite_stack_blocks. congruence.
-      
-      intros; eapply Mem.noperm_top.
-      repeat rewrite_stack_blocks. rewrite STK2, STK1.
-      inv MSA1.
-      unfold in_frame, get_frame_blocks. rewrite BLOCKS. intros ? [EQ|[]]; subst.
-      simpl; intros; intro PP. eapply Mem.perm_free_2; eauto.
-      
-      exploit Mem.agree_perms_mem.
-      rewrite <- STK1, <- STK2 in H12.
-      rewrite <- H12. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-      eapply Mem.perm_free_3 in PP; eauto.
-      rewrite SIZE, H; auto.
 
     + (* direct *)
       exploit transl_exprlist_correct; eauto.
@@ -1469,18 +1459,6 @@ Proof.
       apply Genv.find_invert_symbol in EQ2. congruence.  subst.
       constructor; auto.
       repeat rewrite_stack_blocks. congruence.
-      
-      intros; eapply Mem.noperm_top.
-      repeat rewrite_stack_blocks. rewrite STK1.
-      inv MSA1.
-      unfold in_frame, get_frame_blocks. rewrite BLOCKS. intros ? [EQ|[]]; subst.
-      simpl; intros; intro PP. eapply Mem.perm_free_2; eauto.
-      
-      exploit Mem.agree_perms_mem.
-      rewrite <- STK1 in H11.
-      rewrite <- H11. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-      eapply Mem.perm_free_3 in PP; eauto.
-      rewrite SIZE, H; auto.
 
   - (* builtin *)
     inv TS.
@@ -1563,12 +1541,9 @@ Proof.
     inversion TF.
     edestruct Mem.free_parallel_extends as [tm' []]; eauto.
     constructor.
-    exploit Mem.unrecord_stack_block_extends; eauto.
-    apply stack_equiv_tail, stack_equiv_fsize in SE. repeat rewrite_stack_blocks. omega.
-    intros (m2' & USB & EXT).
     econstructor; split.
     left; apply plus_one. eapply exec_Ireturn; eauto.
-    rewrite H3; eauto.
+    rewrite H2; eauto.
     constructor; auto.
     repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
 
@@ -1580,12 +1555,9 @@ Proof.
     inversion TF.
     edestruct Mem.free_parallel_extends as [tm'' []]; eauto.
     constructor.
-    exploit Mem.unrecord_stack_block_extends; eauto.
-    apply stack_equiv_tail, stack_equiv_fsize in SE. repeat rewrite_stack_blocks. rewrite STK. omega.
-    intros (m2' & USB & EXT).
     econstructor; split.
     left; eapply plus_right. eexact A. eapply exec_Ireturn; eauto.
-    rewrite H5; eauto. traceEq.
+    rewrite H4; eauto. traceEq.
     simpl. constructor; auto.
     repeat rewrite_stack_blocks; rewrite STK; eauto using stack_equiv_tail.
 
@@ -1615,43 +1587,32 @@ Proof.
     exploit (add_vars_valid (CminorSel.fn_params f)); eauto. intros [A B].
     eapply add_vars_wf; eauto. eapply add_vars_wf; eauto. apply init_mapping_wf.
     edestruct Mem.alloc_extends as [tm' []]; eauto; try apply Zle_refl.
-    exploit Mem.record_stack_blocks_extends. 2: eauto.
-    apply Mem.extends_maybe_push. eauto.
+    exploit Mem.record_stack_blocks_extends. 2: eauto. eauto.
     + unfold in_frame. simpl. intros ? [?|[]]; subst.
       intro IFF.
-      assert (in_stack (Mem.stack_adt tm') b).
-      {
-        destruct tc; auto.
-        rewrite Mem.push_new_stage_stack in IFF.
-        rewrite in_stack_cons in IFF. destruct IFF. easy. auto.
-      } clear IFF; rename H3 into IFF.
       erewrite Mem.alloc_stack_blocks in IFF; eauto.
       eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in H6. congruence.
     + intros b fi o k0 p [A|[]] P; inv A.
       eapply Mem.perm_alloc_3 with (k1:= k0) (p0 := p); eauto.
-      destruct tc; eauto. rewrite Mem.push_new_stage_perm in P.  auto.
-    + destruct tc.
-      * specialize (TAILNOPERM eq_refl). inv TAILNOPERM.
-        rewrite_stack_blocks. rewrite <- H9. constructor.
-        red in H10. red.
-        intros. intro P.
-        eapply Mem.perm_alloc_inv in P; eauto.
-        destr_in P. subst.
-        exploit Mem.in_frames_valid. rewrite <- H9. rewrite in_stack_cons. left. eauto.
-        eapply Mem.fresh_block_alloc; eauto.
-        eapply H10 in P; eauto.
-      * rewrite_stack_blocks. constructor. easy.
+    + rewrite_stack_blocks.
+      inv TOPNOPERM. constructor.
+      red in H10. red.
+      intros. intro P.
+      eapply Mem.perm_alloc_inv in P; eauto.
+      destr_in P. subst.
+      exploit Mem.in_frames_valid. rewrite <- H9. rewrite in_stack_cons. left. eauto.
+      eapply Mem.fresh_block_alloc; eauto.
+      eapply H10 in P; eauto.
     + intros (m2' & USB & EXT).
       econstructor; split.
       left; apply plus_one. eapply exec_function_internal; simpl; eauto.
       simpl. econstructor; eauto.
       econstructor; eauto.
       inversion MS; subst; econstructor; eauto.
-      destruct tc; repeat rewrite_stack_blocks.
+      repeat rewrite_stack_blocks.
       revert EQ1 EQ0; repeat rewrite_stack_blocks.
       intros EQ1 EQ0; rewrite EQ1, EQ0 in SE.
       inv SE; constructor; eauto. repeat constructor; auto.
-      repeat constructor; auto.
 
   - (* external call *)
     monadInv TF.
@@ -1664,10 +1625,14 @@ Proof.
 
   - (* return *)
     inv MS.
+    exploit Mem.unrecord_stack_block_extends; eauto.
+    apply stack_equiv_tail, stack_equiv_fsize in SE; auto. omega.
+    intros (m2' & USB & EXT).
     econstructor; split.
-    left; apply plus_one; constructor.
+    left; apply plus_one; constructor. eauto.
     econstructor; eauto. constructor.
     eapply match_env_update_dest; eauto.
+    repeat rewrite_stack_blocks. eauto using stack_equiv_tail.
 Qed.
 
 Lemma transl_initial_states:
@@ -1686,7 +1651,7 @@ Proof.
   destruct TRANSL as (_ & MAIN & _).
   setoid_rewrite MAIN. constructor. auto. constructor.
   constructor. apply Mem.extends_refl.
-  apply stack_equiv_refl; auto. congruence.
+  apply stack_equiv_refl; auto.
 Qed.
 
 Lemma transl_final_states:

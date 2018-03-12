@@ -1549,15 +1549,15 @@ Proof.
 - (* return *)
   exploit anonymize_stack; eauto. intros (bc' & A & B & C & D & E & F & G).
   apply sound_return_state with bc'; auto.
-  erewrite Mem.unrecord_stack_block_nextblock, Mem.nextblock_free by eauto.
+  erewrite Mem.nextblock_free by eauto.
   apply sound_stack_new_bound with stk.
   apply sound_stack_exten with bc.
-  eapply sound_stack_unrecord; eauto. eapply sound_stack_free; eauto.
+  eapply sound_stack_free; eauto.
   intros. apply C. apply Plt_ne; auto.
   apply Plt_Ple. eapply mmatch_below; eauto with va.
   destruct or; simpl. eapply D; eauto. constructor.
-  eapply romatch_unrecord; eauto. eapply romatch_free; eauto.
-  eapply mmatch_unrecord; eauto. eapply mmatch_free; eauto.
+  eapply romatch_free; eauto.
+  eapply mmatch_free; eauto.
 
 - (* internal function *)
   exploit allocate_stack; eauto.
@@ -1578,15 +1578,11 @@ Proof.
   exploit external_call_match; eauto with va.
   intros (bc' & A & B & C & D & E & F & G & K).
   econstructor; eauto.
-  eapply sound_stack_unrecord. eauto.
-  erewrite Mem.unrecord_stack_block_nextblock by eauto.
   apply sound_stack_new_bound with (Mem.nextblock m).
   apply sound_stack_exten with bc; auto.
   apply sound_stack_inv with m; auto.
   eapply external_call_nextblock; eauto.
-  eapply romatch_unrecord; eauto.
-  eapply mmatch_unrecord; eauto.
-
+  
 - (* return *)
   destruct external_calls_prf.
   inv STK.
@@ -1596,16 +1592,18 @@ Proof.
     intros (bc1 & A & B & C & D & E & F & G).
     destruct (analyze rm f)#pc as [ |ae' am'] eqn:EQ; simpl in AN; try contradiction. destruct AN as [A1 A2].
     eapply sound_regular_state with (bc := bc1); eauto.
-    apply sound_stack_exten with bc'; auto.
+    eapply sound_stack_unrecord. eauto. apply sound_stack_exten with bc'; auto.
     eapply ematch_ge; eauto. apply ematch_update. auto. auto.
+    eapply romatch_unrecord; eauto. eapply mmatch_unrecord; eauto.
   + (* from private call *)
     exploit return_from_private_call; eauto.
     intros; rewrite SAME; auto.
     intros (bc1 & A & B & C & D & E & F & G).
     destruct (analyze rm f)#pc as [ |ae' am'] eqn:EQ; simpl in AN; try contradiction. destruct AN as [A1 A2].
     eapply sound_regular_state with (bc := bc1); eauto.
-    apply sound_stack_exten with bc'; auto.
+    eapply sound_stack_unrecord. eauto. apply sound_stack_exten with bc'; auto.
     eapply ematch_ge; eauto. apply ematch_update. auto. auto.
+    eapply romatch_unrecord; eauto. eapply mmatch_unrecord; eauto.
 Qed.
 
 End SOUNDNESS.

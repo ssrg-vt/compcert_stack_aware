@@ -245,7 +245,7 @@ Proof.
     eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   constructor; auto.
 (* return *)
-  inv STACKS. inv H1.
+  inv STACKS. inv H2.
   econstructor; split.
   eapply exec_return; eauto.
   constructor; auto.

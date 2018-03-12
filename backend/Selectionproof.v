@@ -784,17 +784,16 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
       match_states
         (Cminor.State f s k sp e m)
         (State f' s' k' sp e' m')
-  | match_callstate: forall cunit f f' args args' k k' m m' sz tc
+  | match_callstate: forall cunit f f' args args' k k' m m' sz
         (LINK: linkorder cunit prog)
         (TF: match_fundef cunit f f')
         (MC: match_call_cont k k')
         (LD: Val.lessdef_list args args')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
-        (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m')),
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states
-        (Cminor.Callstate f args k m sz tc)
-        (Callstate f' args' k' m' sz tc)
+        (Cminor.Callstate f args k m sz)
+        (Callstate f' args' k' m' sz)
   | match_returnstate: forall v v' k k' m m'
         (MC: match_call_cont k k')
         (LD: Val.lessdef v v')
@@ -815,7 +814,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (EA: list_forall2 (CminorSel.eval_builtin_arg tge sp e' m') al args'),
       forall BUILTIN_ENABLED : builtin_enabled ef,
         match_states
-          (Cminor.Callstate (External ef) args (Cminor.Kcall optid f sp e k) m sz false)
+          (Cminor.Callstate (External ef) args (Cminor.Kcall optid f sp e k) m sz)
           (State f' (Sbuiltin (sel_builtin_res optid) ef al) k' sp e' m')
   | match_builtin_2: forall cunit hf v v' optid f sp e k m f' e' m' k'
         (LINK: linkorder cunit prog)
@@ -989,7 +988,7 @@ Qed.
 
 Definition measure (s: Cminor.state) : nat :=
   match s with
-  | Cminor.Callstate _ _ _ _ _ _ => 0%nat
+  | Cminor.Callstate _ _ _ _ _ => 0%nat
   | Cminor.State _ _ _ _ _ _ => 1%nat
   | Cminor.Returnstate _ _ _ => 2%nat
   end.
@@ -1007,10 +1006,7 @@ Proof.
   inv MC. left; econstructor; split. econstructor. econstructor; eauto.
 - (* skip call *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [A B]].
-  exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in STRUCT; auto.
-  repeat rewrite_stack_blocks; eauto. omega.
-  intros (m2'' & C & D).
+
   left; econstructor; split.
   econstructor. inv MC; simpl in H; simpl; auto.
   erewrite stackspace_function_translated; eauto.
@@ -1045,7 +1041,8 @@ Proof.
   eapply sig_function_translated; eauto.
   eapply match_callstate with (cunit := cunit'); eauto.
   red; intros. eapply match_cont_call with (cunit := cunit) (hf := hf); eauto.
-  congruence.
+  apply Mem.extends_push; auto.
+  repeat rewrite_stack_blocks; repeat constructor; auto.
 + (* direct *)
   intros [b [U V]].
   exploit sel_exprlist_correct; eauto. intros [vargs' [C D]].
@@ -1059,7 +1056,8 @@ Proof.
   replace id0 with id.
   eapply match_callstate with (cunit := cunit'); eauto.
   red; intros; eapply match_cont_call with (cunit := cunit) (hf := hf); eauto.
-  congruence.
+  apply Mem.extends_push; auto.
+  repeat rewrite_stack_blocks; repeat constructor; auto.
   apply Genv.find_invert_symbol in U.
   apply Genv.find_invert_symbol in EQ'.
   congruence.
@@ -1069,6 +1067,7 @@ Proof.
   exploit sel_builtin_args_correct; eauto. intros [vargs' [C D]].
   right; split. simpl. omega. split. auto.
   econstructor; eauto.
+
 - (* Stailcall *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [P Q]].
   erewrite <- stackspace_function_translated in P by eauto.
@@ -1254,6 +1253,10 @@ Proof.
 - (* return *)
   apply match_call_cont_cont in MC. destruct MC as (cunit0 & hf0 & MC). 
   inv MC.
+    exploit Mem.unrecord_stack_block_extends; eauto.
+  apply stack_equiv_tail, stack_equiv_fsize in STRUCT; auto.
+  repeat rewrite_stack_blocks; eauto. omega.
+  intros (m2'' & C & D).
   left; econstructor; split.
   econstructor.
   econstructor; eauto. destruct optid; simpl; auto. apply set_var_lessdef; auto.

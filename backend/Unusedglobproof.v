@@ -1144,25 +1144,17 @@ Proof.
 
 - (* return *)
   exploit Mem.free_parallel_inject; eauto. constructor. rewrite ! Zplus_0_r. intros (tm' & C & D).
-  exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto.
-  rewrite_stack_blocks. eauto.
-  repeat rewrite_stack_blocks.
-  apply Z.eq_le_incl.
-  apply stack_equiv_fsize.
-  inv STRUCT; simpl; auto. constructor.
-  intros (m2' & USB & INJ & T).
   econstructor; split.
   eapply exec_Ireturn; eauto.
   econstructor; eauto.
-  apply match_stacks_bound with stk tsp; auto.
+  apply match_stacks_bound with stk tsp; eauto.
   apply Plt_Ple.
-  erewrite Mem.unrecord_stack_block_nextblock; eauto.
   change (Mem.valid_block m' stk). eapply Mem.valid_block_inject_1; eauto.
   apply Plt_Ple.
-  erewrite Mem.unrecord_stack_block_nextblock; eauto.
   change (Mem.valid_block tm' tsp). eapply Mem.valid_block_inject_2; eauto.
   destruct or; simpl; auto.
-    
+  rewrite_stack_blocks; auto.
+
 - (* internal function *)
   exploit Mem.alloc_parallel_inject. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros (j' & tm' & tstk & C & D & E & F & G).
@@ -1225,12 +1217,6 @@ Proof.
   exploit external_call_inject; eauto.
   eapply match_stacks_preserves_globals; eauto.
   intros (j' & tres & tm' & A & B & C & D & E & F & G).
-  exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto.
-  rewrite_stack_blocks. eauto.
-  repeat rewrite_stack_blocks.
-  apply Z.eq_le_incl.
-  apply stack_equiv_fsize. apply stack_equiv_tail; auto.
-  intros (m2' & USB & INJ & T).
   econstructor; split.
   eapply exec_function_external; eauto.
   eapply match_states_return with (j := j'); eauto.
@@ -1238,12 +1224,18 @@ Proof.
   apply match_stacks_incr with j; auto.
   intros. exploit G; eauto. intros [P Q].
   unfold Mem.valid_block in *; xomega.
-  eapply Ple_trans. eapply external_call_nextblock; eauto. erewrite Mem.unrecord_stack_block_nextblock with (m'0 := m''); eauto. xomega.
-  eapply Ple_trans. eapply external_call_nextblock; eauto. erewrite Mem.unrecord_stack_block_nextblock with (m'0 := m2'); eauto. xomega.
-    
+  eapply Ple_trans. eapply external_call_nextblock; eauto. xomega.
+  eapply Ple_trans. eapply external_call_nextblock; eauto. xomega.
+  rewrite_stack_blocks; auto.
+
 - (* return *)
-  inv STACKS. econstructor; split.
-  eapply exec_return.
+  inv STACKS.
+  exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto. eauto.
+  apply Z.eq_le_incl.
+  apply stack_equiv_fsize, stack_equiv_tail. auto.
+  intros (m2' & USB & INJ & T).
+  econstructor; split.
+  eapply exec_return. eauto.
   econstructor; eauto. apply set_reg_inject; auto.
 Qed.
 

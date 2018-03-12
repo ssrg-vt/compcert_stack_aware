@@ -2022,7 +2022,11 @@ push_new_stage_nextblock: forall m, nextblock (push_new_stage m) = nextblock m;
         inject j g m1 m2 ->
         size_stack (stack_adt m2) <= size_stack (stack_adt m1);
 
-    
+
+ extends_stack_size {injperm: InjectPerm}:
+      forall m1 m2,
+        extends m1 m2 ->
+        size_stack (stack_adt m2) <= size_stack (stack_adt m1);
 
  push_new_stage_perm:
       forall m b o k p,

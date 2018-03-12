@@ -974,7 +974,7 @@ Proof.
   econstructor; eauto.
   (* Ireturn *)
   econstructor; eauto.
-  inv WTI; simpl. auto. unfold proj_sig_res; rewrite H3. auto.
+  inv WTI; simpl. auto. unfold proj_sig_res; rewrite H2. auto.
   (* internal function *)
   simpl in *. inv H7.
   econstructor; eauto.
@@ -983,8 +983,8 @@ Proof.
   econstructor; eauto. simpl.
   eapply external_call_well_typed; eauto.
   (* return *)
-  inv H1. econstructor; eauto.
-  apply wt_regset_assign; auto. rewrite H10; auto.
+  inv H2. econstructor; eauto.
+  apply wt_regset_assign; auto. rewrite H11; auto.
 Qed.
 
 Lemma wt_initial_state:
