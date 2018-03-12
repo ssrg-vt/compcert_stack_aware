@@ -240,11 +240,10 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State s f sp (Ljumptable arg tbl :: b) rs m)
         E0 (State s f sp b' rs' m)
   | exec_Lreturn:
-      forall s f stk b rs m m' m'',
+      forall s f stk b rs m m',
         Mem.free m stk 0 f.(fn_stacksize) = Some m' ->
-        Mem.unrecord_stack_block m' = Some m'' ->
       step (State s f (Vptr stk Ptrofs.zero) (Lreturn :: b) rs m)
-        E0 (Returnstate s (return_regs (parent_locset s) rs) m'')
+        E0 (Returnstate s (return_regs (parent_locset s) rs) m')
   | exec_function_internal:
       forall s f rs m rs' m' stk m'' sz,
         Mem.alloc m 0 f.(fn_stacksize) = (m', stk) ->
@@ -253,17 +252,17 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Callstate s (Internal f) rs m sz)
         E0 (State s f (Vptr stk Ptrofs.zero) f.(fn_code) rs' m'')
   | exec_function_external:
-      forall s ef args res rs1 rs2 m t m' sz m'',
+      forall s ef args res rs1 rs2 m t m' sz,
       args = map (fun p => Locmap.getpair p rs1) (loc_arguments (ef_sig ef)) ->
       external_call ef ge args m t res m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       rs2 = Locmap.setpair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs1) ->
       step (Callstate s (External ef) rs1 m sz)
-         t (Returnstate s rs2 m'')
+         t (Returnstate s rs2 m')
   | exec_return:
-      forall s f sp rs0 c rs m,
+      forall s f sp rs0 c rs m m',
+        Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate (Stackframe f sp rs0 c :: s) rs m)
-        E0 (State s f sp c rs m).
+        E0 (State s f sp c rs m').
 
 End RELSEM.
 

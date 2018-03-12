@@ -341,12 +341,11 @@ Inductive step: state -> trace -> state -> Prop :=
   | step_skip_block: forall f k sp e m,
       step (State f Sskip (Kblock k) sp e m)
         E0 (State f Sskip k sp e m)
-  | step_skip_call: forall f k sp e m m' m'',
+  | step_skip_call: forall f k sp e m m',
       is_call_cont k ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f Sskip k (Vptr sp Ptrofs.zero) e m)
-        E0 (Returnstate Vundef k m'')
+        E0 (Returnstate Vundef k m')
 
   | step_assign: forall f id a k sp e m v,
       eval_expr sp e m nil a v ->
@@ -417,17 +416,15 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Sswitch a) k sp e m)
         E0 (State f (Sexit n) k sp e m)
 
-  | step_return_0: forall f k sp e m m'  m'',
+  | step_return_0: forall f k sp e m m',
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn None) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Returnstate Vundef (call_cont k) m'')
-  | step_return_1: forall f a k sp e m v m' m'',
+        E0 (Returnstate Vundef (call_cont k) m')
+  | step_return_1: forall f a k sp e m v m',
       eval_expr (Vptr sp Ptrofs.zero) e m nil a v ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn (Some a)) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Returnstate v (call_cont k) m'')
+        E0 (Returnstate v (call_cont k) m')
 
   | step_label: forall f lbl s k sp e m,
       step (State f (Slabel lbl s) k sp e m)
@@ -444,15 +441,15 @@ Inductive step: state -> trace -> state -> Prop :=
       set_locals f.(fn_vars) (set_params vargs f.(fn_params)) = e ->
       step (Callstate (Internal f) vargs k m sz)
         E0 (State f f.(fn_body) k (Vptr sp Ptrofs.zero) e m'')
-  | step_external_function: forall ef vargs k m t vres m' m'' sz,
+  | step_external_function: forall ef vargs k m t vres m' sz,
       external_call ef ge vargs m t vres m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (Callstate (External ef) vargs k m sz)
-         t (Returnstate vres k m'')
+         t (Returnstate vres k m')
 
-  | step_return: forall v optid f sp e k m,
+  | step_return: forall v optid f sp e k m m',
+      Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate v (Kcall optid f sp e k) m)
-        E0 (State f Sskip k sp (set_optvar optid v e) m).
+        E0 (State f Sskip k sp (set_optvar optid v e) m').
 
 End RELSEM.
 
@@ -610,7 +607,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
                       (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
       stack_inv (Callstate fd args k m sz)
   | stack_inv_return: forall k res m 
-                        (MSA1: match_stack_adt (funs_of_cont k) (Mem.stack_adt m)),
+                        (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
       stack_inv (Returnstate res k m).
 
   Lemma funs_of_call_cont:
@@ -646,7 +643,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
     - apply Mem.alloc_stack_blocks in H. clear H0.
       rewrite <- H, EQ1 in *. simpl in *.
       econstructor; eauto; reflexivity.
-    - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite <- H. econstructor; eauto.
+    - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite_stack_blocks. rewrite <- H4. econstructor; eauto.
   Qed.
 
   Lemma stack_inv_initial:

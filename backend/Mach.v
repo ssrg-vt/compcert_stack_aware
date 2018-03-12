@@ -404,12 +404,10 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State s fb sp (Mjumptable arg tbl :: c) rs m)
         E0 (State s fb sp c' rs' m)
   | exec_Mreturn:
-      forall s fb stk soff c rs m f m_ m',
+      forall s fb stk soff c rs m f m',
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
-      (* load_stack m (Vptr stk soff) Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra s) ->
-      Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m_ ->
-      Mem.unrecord_stack_block m_ = Some m' ->
+      Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
       step (State s fb (Vptr stk soff) (Mreturn :: c) rs m)
         E0 (Returnstate s rs m')
   | exec_function_internal:
@@ -429,14 +427,14 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct_ptr ge fb = Some (External ef) ->
       extcall_arguments rs m (parent_sp s) (ef_sig ef) args ->
       external_call ef ge args m t res m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       rs' = set_pair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
       step (Callstate s fb rs m)
          t (Returnstate s rs' m'')
   | exec_return:
-      forall s f sp ra c rs m,
+      forall s f sp ra c rs m m',
+        Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate (Stackframe f sp ra c :: s) rs m)
-        E0 (State s f (Vptr sp Ptrofs.zero) c rs m).
+        E0 (State s f (Vptr sp Ptrofs.zero) c rs m').
 
 End RELSEM.
 

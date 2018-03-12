@@ -279,12 +279,11 @@ Inductive step : state -> trace -> state -> Prop :=
       step (State s f sp pc rs m)
         E0 (State s f sp pc' rs m)
   | exec_Ireturn:
-      forall s f stk pc rs m or m' m'',
+      forall s f stk pc rs m or m',
       (fn_code f)!pc = Some(Ireturn or) ->
       Mem.free m stk 0 f.(fn_stacksize) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State s f (Vptr stk Ptrofs.zero) pc rs m)
-        E0 (Returnstate s (regmap_optget or Vundef rs) m'')
+        E0 (Returnstate s (regmap_optget or Vundef rs) m')
   | exec_function_internal:
       forall s f args m m' stk m'' sz,
         Mem.alloc m 0 f.(fn_stacksize) = (m', stk) ->
@@ -297,15 +296,15 @@ Inductive step : state -> trace -> state -> Prop :=
                   (init_regs args f.(fn_params))
                   m'')
   | exec_function_external:
-      forall s ef args res t m m' m'' sz,
+      forall s ef args res t m m' sz,
         external_call ef ge args m t res m' ->
-        Mem.unrecord_stack_block m' = Some m'' ->
       step (Callstate s (External ef) args m sz)
-         t (Returnstate s res m'')
+         t (Returnstate s res m')
   | exec_return:
-      forall res f sp pc rs s vres m,
+      forall res f sp pc rs s vres m m',
+        Mem.unrecord_stack_block m = Some m' ->
         step (Returnstate (Stackframe res f sp pc rs :: s) vres m)
-             E0 (State s f sp pc (rs#res <- vres) m).
+             E0 (State s f sp pc (rs#res <- vres) m').
 
 Lemma exec_Iop':
   forall s f sp pc rs m op args res pc' rs' v,
@@ -374,11 +373,7 @@ Proof.
     + exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
       exists (State s0 f sp pc' (regmap_setres res vres2 rs) m2). eapply exec_Ibuiltin; eauto.
     + exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
-      destruct (Mem.unrecord_stack_adt _ _ H3) as (b & EQ).
-      revert EQ; rewrite_stack_blocks. intro EQ.
-      erewrite external_call_stack_blocks in EQ. 2: apply EC2.
-      destruct (Mem.unrecord_stack_block_succeeds _ _ _ EQ) as (m2' & USB & EQSTK).    
-      exists (Returnstate s0 vres2 m2'). econstructor; eauto.
+      exists (Returnstate s0 vres2 m2). econstructor; eauto.
   - (* trace length *)
     red; intros; inv H; simpl; try omega.
     eapply external_call_trace_length; eauto.
@@ -637,7 +632,7 @@ Section STACKINV.
                                              (tl (Mem.stack_adt m))),
       stack_inv (Callstate s fd args m sz)
   | stack_inv_return: forall s res m 
-                        (MSA1: match_stack_adt (map block_of_stackframe s) (Mem.stack_adt m)),
+                        (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
       stack_inv (Returnstate s res m).
 
   Variable fn_stack_requirements: ident -> Z.
@@ -665,7 +660,8 @@ Section STACKINV.
       rewrite SIZE; auto.
     - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
-    - inv MSA1. repeat destr_in H0. econstructor. rewrite <- H. econstructor; eauto.
+    - inv MSA1. repeat destr_in H1. econstructor.
+      rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
   Qed.
 
   Lemma stack_inv_initial:

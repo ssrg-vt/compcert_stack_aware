@@ -445,12 +445,11 @@ Inductive step: state -> trace -> state -> Prop :=
   | step_skip_block: forall f k sp e m,
       step (State f Sskip (Kblock k) sp e m)
         E0 (State f Sskip k sp e m)
-  | step_skip_call: forall f k sp e m m' m'',
+  | step_skip_call: forall f k sp e m m',
       is_call_cont k ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f Sskip k (Vptr sp Ptrofs.zero) e m)
-        E0 (Returnstate Vundef k m'')
+        E0 (Returnstate Vundef k m')
 
   | step_assign: forall f id a k sp e m v,
       eval_expr sp e m a v ->
@@ -522,17 +521,15 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Sswitch islong a cases default) k sp e m)
         E0 (State f (Sexit (switch_target n default cases)) k sp e m)
 
-  | step_return_0: forall f k sp e m m' m'',
+  | step_return_0: forall f k sp e m m',
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn None) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Returnstate Vundef (call_cont k) m'')
-  | step_return_1: forall f a k sp e m v m' m'',
+        E0 (Returnstate Vundef (call_cont k) m')
+  | step_return_1: forall f a k sp e m v m',
       eval_expr (Vptr sp Ptrofs.zero) e m a v ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn (Some a)) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Returnstate v (call_cont k) m'')
+        E0 (Returnstate v (call_cont k) m')
 
   | step_label: forall f lbl s k sp e m,
       step (State f (Slabel lbl s) k sp e m)
@@ -549,15 +546,15 @@ Inductive step: state -> trace -> state -> Prop :=
       set_locals f.(fn_vars) (set_params vargs f.(fn_params)) = e ->
       step (Callstate (Internal f) vargs k m sz)
         E0 (State f f.(fn_body) k (Vptr sp Ptrofs.zero) e m'')
-  | step_external_function: forall ef vargs k m t vres m' m'' sz,
+  | step_external_function: forall ef vargs k m t vres m' sz,
       external_call ef ge vargs m t vres m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (Callstate (External ef) vargs k m sz)
-         t (Returnstate vres k m'')
+         t (Returnstate vres k m')
 
-  | step_return: forall v optid f sp e k m,
+  | step_return: forall v optid f sp e k m m',
+      Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate v (Kcall optid f sp e k) m)
-        E0 (State f Sskip k sp (set_optvar optid v e) m).
+        E0 (State f Sskip k sp (set_optvar optid v e) m').
 
 End RELSEM.
 
@@ -601,15 +598,11 @@ Proof.
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
   exists (State f Sskip k sp (set_optvar optid vres2 e) m2). econstructor; eauto.
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
-  destruct (Mem.unrecord_stack_adt _ _ H3) as (b & EQ).
-  revert EQ; rewrite_stack_blocks. intro EQ.
-  erewrite external_call_stack_blocks in EQ. 2: apply EC2.
-  destruct (Mem.unrecord_stack_block_succeeds _ _ _ EQ) as (m2' & USB & EQSTK).    
-  exists (Returnstate vres2 k m2'). econstructor; eauto.
+  exists (Returnstate vres2 k m2). econstructor; eauto.
 (* trace length *)
   red; intros; inv H; simpl; try omega; eapply external_call_trace_length; eauto.
 Qed.
-
+(*
 (** * Alternate operational semantics (big-step) *)
 
 (** We now define another semantics for Cminor without [goto] that follows
@@ -645,8 +638,7 @@ Definition outcome_free_mem
     (out: outcome) (m: mem) (sp: block) (sz: Z) (m': mem) :=
   match out with
   | Out_tailcall_return _ => m' = m
-  | _ => exists m'', Mem.free m sp 0 sz = Some m''
-               /\ Mem.unrecord_stack_block m'' = Some m'
+  | _ => Mem.free m sp 0 sz = Some m'
   end.
 
 Section NATURALSEM.
@@ -672,10 +664,9 @@ Inductive eval_funcall:
         outcome_free_mem out m2 sp f.(fn_stackspace) m3 ->
         eval_funcall m (Internal f) vargs t m3 vres sz
   | eval_funcall_external:
-      forall ef m args t res m' m'',
+      forall ef m args t res m',
         external_call ef ge args m t res m' ->
-        Mem.unrecord_stack_block m' = Some m'' ->
-        eval_funcall m (External ef) args t m'' res 0
+        eval_funcall m (External ef) args t m' res 0
 
 (** Execution of a statement: [exec_stmt ge f sp e m s t e' m' out]
   means that statement [s] executes with outcome [out].
@@ -954,14 +945,11 @@ Proof.
     eapply star_trans. eexact A.
     inversion B; clear B; subst out; simpl in *; simpl; try contradiction.
     + (* Out normal *)
-      destruct H5 as [m'' [ FREE UNRECORD]].
       subst vres. apply star_one. eapply step_skip_call; eauto.
     + (* Out_return None *)
-      destruct H5 as [m'' [ FREE UNRECORD]].
       subst vres. replace k with (call_cont k') by congruence.
       apply star_one. eapply step_return_0; eauto.
     + (* Out_return Some *)
-      destruct H5 as [m'' [ FREE UNRECORD]].
       destruct H4. subst vres.
       replace k with (call_cont k') by congruence.
       apply star_one. eapply step_return_1; eauto.
@@ -991,8 +979,9 @@ Proof.
   - (* call *)
     econstructor; split.
     eapply star_left. econstructor; eauto.
+    apply H4. red; auto. traceEq.
     eapply star_right. apply H4. red; auto.
-    constructor. reflexivity. traceEq.
+    constructor. eauto. reflexivity. traceEq.
     subst e'. constructor.
 
   - (* builtin *)
@@ -1199,5 +1188,5 @@ Proof.
 Qed.
 
 End BIGSTEP_TO_TRANSITION.
-
+*)
 End WITHEXTCALLS.

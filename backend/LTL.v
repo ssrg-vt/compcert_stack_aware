@@ -261,27 +261,26 @@ Inductive step: state -> trace -> state -> Prop :=
       rs' = undef_regs (destroyed_by_jumptable) rs ->
       step (Block s f sp (Ljumptable arg tbl :: bb) rs m)
         E0 (State s f sp pc rs' m)
-  | exec_Lreturn: forall s f sp bb rs m m' m'',
+  | exec_Lreturn: forall s f sp bb rs m m',
       Mem.free m sp 0 f.(fn_stacksize) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Lreturn :: bb) rs m)
-        E0 (Returnstate s (return_regs (parent_locset s) rs) m'')
+        E0 (Returnstate s (return_regs (parent_locset s) rs) m')
   | exec_function_internal: forall s f rs m m' m'' sp rs' sz,
       Mem.alloc m 0 f.(fn_stacksize) = (m', sp) ->
       Mem.record_stack_blocks m' (make_singleton_frame_adt sp (fn_stacksize f) sz) = Some m'' ->
       rs' = undef_regs destroyed_at_function_entry (call_regs rs) ->
       step (Callstate s (Internal f) rs m sz)
         E0 (State s f (Vptr sp Ptrofs.zero) f.(fn_entrypoint) rs' m'')
-  | exec_function_external: forall s ef t args res rs m rs' m' m'' sz,
+  | exec_function_external: forall s ef t args res rs m rs' m' sz,
       args = map (fun p => Locmap.getpair p rs) (loc_arguments (ef_sig ef)) ->
       external_call ef ge args m t res m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       rs' = Locmap.setpair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
       step (Callstate s (External ef) rs m sz)
-         t (Returnstate s rs' m'')
-  | exec_return: forall f sp rs1 bb s rs m,
+         t (Returnstate s rs' m')
+  | exec_return: forall f sp rs1 bb s rs m m',
+      Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate (Stackframe f sp rs1 bb :: s) rs m)
-        E0 (Block s f sp bb rs m).
+        E0 (Block s f sp bb rs m').
 
 End RELSEM.
 
@@ -349,7 +348,7 @@ Section STACKINV.
                       (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
       stack_inv (Callstate s fd args m sz)
   | stack_inv_return: forall s res m 
-                        (MSA1: match_stack_adt (map block_of_stackframe s) (Mem.stack_adt m)),
+                        (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
       stack_inv (Returnstate s res m).
 
   Variable fn_stack_requirements: ident -> Z.
@@ -367,7 +366,7 @@ Section STACKINV.
         try solve [inv MSA1; eauto].
     - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
-    - inv MSA1. repeat destr_in H0. econstructor. rewrite <- H. econstructor; eauto.
+    - inv MSA1. repeat destr_in H1. econstructor. rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
   Qed.
 
   Lemma stack_inv_initial:
