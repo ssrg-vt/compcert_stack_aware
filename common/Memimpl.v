@@ -1397,127 +1397,6 @@ Next Obligation.
   - simpl. change (size_frames nil) with 0. omega.
   - constructor;auto. intros b NONE. simpl; easy.
 Qed.
-  
-(* Program Definition record_stack_blocks_none (m: mem) bl sz *)
-(*         (RNG: Forall (fun b => forall o k p, Mem.perm m (fst b) o k p -> *)
-(*                                      0 <= o < frame_size (snd b))%Z bl) *)
-(*   : option mem := *)
-(*   if (Forall_dec _ (fun b => valid_block_dec m (fst b)) bl) *)
-(*   then if (Forall_dec _ (fun x => sumbool_not (in_stack_dec (stack_adt m) (fst x))) bl) *)
-(*        then if (zlt (size_stack (stack_adt m) + align (Z.max 0 sz) 8) stack_limit) *)
-(*             then if (list_norepet_dec peq (map fst bl)) *)
-(*                  then *)
-(*                    let f := {| frame_adt_blocks := bl; *)
-(*                               frame_adt_size := Z.max 0 sz; *)
-(*                               frame_adt_size_pos := Z.le_max_l _ _ |} in *)
-(*                    let m := push_new_stage m in *)
-(*                    match prepend_to_current_stage f (stack_adt m) with *)
-(*                      Some s => *)
-(*                            Some *)
-(*                              (mkmem (mem_contents m) *)
-(*                                     (mem_access m) *)
-(*                                     (nextblock m) *)
-(*                                     (access_max m) *)
-(*                                     (nextblock_noaccess m) *)
-(*                                     (contents_default m) *)
-(*                                     s *)
-(*                                     (mem_stack_inv_plus f m s  _ _ _ _ _ _) *)
-(*                                     (mem_bounds m) *)
-(*                                     (mem_bounds_perm m)) *)
-(*                    | None => None *)
-(*                    end *)
-(*                  else None *)
-(*             else None *)
-(*        else None *)
-(*   else None. *)
-(* Next Obligation. *)
-(*   unfold valid_frame,in_frame, get_frame_blocks. simpl. *)
-(*   rewrite Forall_forall in H. intros b; rewrite in_map_iff. intros ((bb & fi) & EQ & IN). subst. *)
-(*   simpl in *. apply H in IN. simpl in IN; auto. *)
-(* Qed. *)
-(* Next Obligation. *)
-(*   rewrite Forall_forall in H0. *)
-(*   unfold in_frame, get_frame_blocks in H3. simpl in H3. *)
-(*   rewrite in_map_iff in H3. *)
-(*   destruct H3 as ((bb,fi) & EQ & IN). *)
-(*   apply H0 in IN. subst; simpl in *; auto. *)
-(* Qed. *)
-(* Next Obligation. *)
-(*   red. simpl. intros b fi o k p IN PERM. *)
-(*   rewrite Forall_forall in RNG. eapply RNG in IN; eauto.  *)
-(* Qed. *)
-(* Next Obligation. *)
-(*   change (size_frames nil) with 0; omega. *)
-(* Qed. *)
-(* Next Obligation. *)
-(*   constructor. red; simpl. easy. *)
-(* Qed. *)
-
-(* Lemma mem_stack_inv_plus_tailcall m f1 s1 f: *)
-(*   stack_adt m = f1 :: s1 -> *)
-(*   (valid_frame f m) -> *)
-(*   (forall b, in_frame f b -> ~ in_stack (stack_adt m) b) -> *)
-(*   frame_agree_perms (perm m) f -> *)
-(*   size_stack (acons f f1 :: s1) < stack_limit -> *)
-(*   (forall b o k p, in_frames f1 b -> ~ perm m b o k p) -> *)
-(*   stack_inv ((acons f f1)::s1) (nextblock m) (perm m). *)
-(* Proof. *)
-(*   intros STK VALID DIFF FAP SZ NOPERM. *)
-(*   destruct (mem_stack_inv m). *)
-(*   rewrite STK in *. *)
-(*   constructor; eauto. *)
-(*   - intro b. *)
-(*     specialize (stack_inv_valid0 b). *)
-(*     rewrite in_stack_cons in *. *)
-(*     intros [IFR|IS]; eauto. *)
-(*     unfold in_frames, get_frames_blocks in IFR. simpl in IFR. *)
-(*     rewrite in_app in IFR. *)
-(*     destruct IFR; eauto. *)
-(*     eapply VALID in H. eauto. *)
-(*   - constructor. inv stack_inv_norepet0; auto. *)
-(*     inv stack_inv_norepet0; auto. *)
-(*     unfold in_frames, get_frames_blocks. simpl. *)
-(*     intro b. rewrite in_app. *)
-(*     intros [A|A]. eapply DIFF in A. intro IS; apply A; rewrite in_stack_cons; auto. *)
-(*     eauto. *)
-(*   - constructor. *)
-(*     + inv stack_inv_norepet'0; auto. *)
-(*       constructor. auto. intros b IFR IFRS. *)
-(*       eapply DIFF; eauto. rewrite in_stack_cons; auto. *)
-(*     + inv stack_inv_norepet'0; auto. *)
-(*   - red. intros tf [A|A] f0 AIN. *)
-(*     + subst. red in AIN. simpl in AIN. *)
-(*       destruct AIN; subst; auto. *)
-(*       eapply stack_inv_perms0. left; auto. red. intuition. *)
-(*     + eapply stack_inv_perms0. right; eauto. auto. *)
-(*   - inv stack_inv_wf0; constructor; auto. *)
-(*     unfold acons. *)
-(*     intros b _ IFRS NIFR o k p PP. *)
-(*     eapply NOPERM in PP; eauto. *)
-(*     unfold in_frames, get_frames_blocks in IFRS; simpl in *. *)
-(*     rewrite in_app in IFRS; destruct IFRS; eauto. *)
-(*     apply NIFR in H. easy. *)
-(* Qed. *)
-
-(* Inductive record_stack_blocks_tailcall (m: mem) (f: frame_adt) : mem -> Prop := *)
-(* | rsbt_intro: *)
-(*     forall f1 s1 *)
-(*       (VF:valid_frame f m) *)
-(*       (NOTIN: forall b, in_frame f b -> ~ in_stack (stack_adt m) b) *)
-(*       (FAP: frame_agree_perms (perm m) f) *)
-(*       (SZ: size_stack (acons f f1 :: s1) < stack_limit) *)
-(*       (NOPERM: forall b o k p, in_frames f1 b -> ~ perm m b o k p) *)
-(*       (STK: stack_adt m = f1::s1), *)
-(*       record_stack_blocks_tailcall m f (mkmem (mem_contents m) *)
-(*                          (mem_access m) *)
-(*                          (nextblock m) *)
-(*                          (access_max m) *)
-(*                          (nextblock_noaccess m) *)
-(*                          (contents_default m) *)
-(*                          ((acons f f1) :: s1) *)
-(*                          (mem_stack_inv_plus_tailcall _ _ _ _ STK VF NOTIN FAP SZ NOPERM) *)
-(*                          (mem_bounds m) *)
-(*                          (mem_bounds_perm m)). *)
 
 Lemma destr_dep_let:
   forall {A1 A2 B: Type} (a: A1*A2) (bres: B) (T: forall m b (p: (m,b) = a), option B),
@@ -2621,6 +2500,18 @@ Proof.
   - f_equal. apply mkmem_ext; auto.
   - destruct v0. destruct a. elim n.
     rewrite encode_val_length. rewrite <- size_chunk_conv. apply s. constructor.
+Qed.
+
+Lemma push_storebytes_unrecord:
+  forall m b o bytes m1 m2,
+    storebytes m b o bytes = Some m1 ->
+    storebytes (push_new_stage m) b o bytes = Some m2 ->
+    unrecord_stack_block m2 = Some m1.
+Proof.
+  unfold storebytes, unrecord_stack_block. simpl; intros.
+  repeat destr_in H0. simpl in *.
+  repeat destr_in H. f_equal.
+  apply mkmem_ext; auto.
 Qed.
 
 Section STOREBYTES.
@@ -9300,9 +9191,11 @@ Proof.
 
   
   simpl; intros; eapply extends_push_new_stage; eauto.
-  apply push_new_stage_mem_unchanged.
+  simpl; intros; eapply push_new_stage_mem_unchanged; eauto.
   apply unrecord_push.
 
+  intros; eapply push_storebytes_unrecord; eauto.
+  
 Qed.
 
 End Mem.

@@ -451,7 +451,8 @@ Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop 
 | list_prefix_nil s: list_prefix nil s
 | list_prefix_cons lsp s f r sp bi
                        (REC: list_prefix lsp s)
-                       (BLOCKS: frame_adt_blocks f = (sp,bi)::nil):
+                       (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
+                       (NOINIT: forall b o, init_sp = Vptr b o -> ~ in_frames (f::r) b):
     list_prefix (Some (sp,bi) :: lsp) ( (f :: r) :: s).
 
 
@@ -474,12 +475,14 @@ Inductive call_stack_consistency: state -> Prop :=
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
 | call_stack_consistency_call:
-    forall cs' fb rs m' 
+    forall cs' fb rs m'
+      (NOINITHD: forall b o, init_sp = Vptr b o -> ~ in_frames (hd nil (Mem.stack_adt m')) b)
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:
-    forall cs' rs m' 
+    forall cs' rs m'
+      (NOINITHD: forall b o, init_sp = Vptr b o -> ~ in_frames (hd nil (Mem.stack_adt m')) b)
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Returnstate cs' rs m').
@@ -505,24 +508,250 @@ Proof.
   destruct 1; simpl; intros SIZECORRECT CSC; inv CSC; try now (econstructor; eauto).
   - econstructor; eauto. erewrite store_stack_no_abstract; eauto.
   - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
-  - econstructor. simpl in *. 
+  - econstructor. rewrite_stack_blocks. simpl. easy. simpl in *. 
     rewrite FIND. repeat rewrite_stack_blocks. simpl. auto.
     econstructor; eauto.
-  - econstructor. repeat rewrite_stack_blocks. auto.
+  - econstructor; repeat rewrite_stack_blocks. auto.
+    inv CallStackConsistency; simpl; auto.
     inv CallStackConsistency; simpl; auto. auto.
   - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
-  - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
-    inv CallStackConsistency. eauto.
+  - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+    inv CallStackConsistency. eauto.    inv CallStackConsistency. eauto.
   - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
     rewrite store_stack_no_abstract in EQ1 by eauto.
     revert EQ1; rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
-    constructor; auto.
+    constructor; auto. rewrite EQ1 in NOINITHD. simpl in NOINITHD.
+    intros. rewrite in_frames_cons. intros [A|A].
+    destruct A as [A|[]]. simpl in A; subst.
+    
+    intros.
   - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
   - inv CFD. econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
     rewrite EQ in *; simpl in *.
     rewrite FINDF in CallStackConsistency.
     inv CallStackConsistency. constructor; auto.
 Qed.
+
+
+Inductive callstack_not_init : list stackframe -> Prop :=
+| cni_empty:
+    callstack_not_init nil
+| cni_cons:
+    forall fb sp' ra c' cs' 
+      (NI: forall b o, init_sp = Vptr b o -> b <> sp')
+      (CNI: callstack_not_init cs'),
+      callstack_not_init (Stackframe fb sp' ra c' :: cs').
+
+Definition block_prop P v :=
+  match v with
+    Vptr b o => P b
+  | _ => True
+  end.
+
+Require Import Stacklayout.
+
+
+Variable init_m: mem.
+Variable init_sg: signature.
+
+Definition init_sp_has_stackinfo (m: mem) : Prop :=
+  match init_sp with
+    Vptr b i1 =>
+    exists fi,
+    in_stack' (Mem.stack_adt m) (b,fi)
+          /\ (forall o,
+                Ptrofs.unsigned i1 + fe_ofs_arg <= o < Ptrofs.unsigned i1 + 4 * size_arguments init_sg ->
+                frame_private fi o
+            )
+          /\ (forall o, fe_ofs_arg <= o < 4 * size_arguments init_sg ->
+                  Ptrofs.unsigned (Ptrofs.add i1 (Ptrofs.repr (fe_ofs_arg + o))) =
+                  Ptrofs.unsigned i1 + (fe_ofs_arg + o))
+  | _ => True
+  end.
+
+
+Inductive nextblock_properties_mach : state -> Prop :=
+| nextblock_properties_mach_intro:
+    forall c cs' fb sp' rs m' 
+      (ISP'VALID: block_prop (Mem.valid_block m') init_sp)
+      (ISP'NST: block_prop (fun b => ~ is_stack_top (Mem.stack_adt m') b) init_sp)
+      (MSISHS: init_sp_has_stackinfo m')
+      (INIT_VB': Ple (Mem.nextblock init_m) (Mem.nextblock m'))
+      (SP_NOT_INIT: forall b o, init_sp = Vptr b o -> b <> sp')
+      (NI: callstack_not_init cs'),
+      nextblock_properties_mach (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
+| nextblock_properties_mach_call:
+      forall  cs' fb rs m' 
+         (INIT_VB': Ple (Mem.nextblock init_m) (Mem.nextblock m'))
+         (ISP'VALID: block_prop (Mem.valid_block m') init_sp)
+         (MSISHS: init_sp_has_stackinfo m')
+         (NI: callstack_not_init cs'),
+        nextblock_properties_mach (Callstate cs' fb rs m')
+  | nextblock_properties_mach_return:
+      forall cs' rs m' 
+        (INIT_VB': Ple (Mem.nextblock init_m) (Mem.nextblock m'))
+        (ISP'VALID: block_prop (Mem.valid_block m') init_sp)
+        (MSISHS: init_sp_has_stackinfo m')
+        (NI: callstack_not_init cs'),
+        nextblock_properties_mach (Returnstate cs' rs m').
+
+Lemma store_stack_nextblock:
+  forall m v ty p v1 m',
+    store_stack m v ty p v1 = Some m' ->
+    Mem.nextblock m' = Mem.nextblock m.
+Proof.
+  unfold store_stack; intros.
+  destruct (Val.offset_ptr v p); simpl in *; inv H;  eauto with mem.
+Qed.
+
+Ltac rewnb :=
+  repeat
+    match goal with
+    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
+    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
+    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_free _ _ _ _ _ H)
+    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
+    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
+    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
+    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
+      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
+      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    end.
+
+Theorem np_step:
+  forall s1 t s2,
+    step s1 t s2 ->
+    call_stack_consistency s1 ->
+    nextblock_properties_mach s1 ->
+    nextblock_properties_mach s2.
+Proof.
+  destruct 1; simpl; intros CSC NPM; inv NPM;
+    constructor;
+    unfold block_prop, store_stack, init_sp_has_stackinfo, Mem.valid_block in *; simpl in *;
+      try (destr;[idtac]); repeat rewrite_stack_blocks;
+        rewnb; eauto;
+          try assumption.
+
+  destruct MSISHS as (fi & INS & O).
+  exists fi; split; eauto. destruct INS as (ff & fr & A & B & C).
+  exists ff, fr; repeat split; eauto. right; auto.
+  constructor; auto.
+  xomega.
+  revert EQ1; repeat rewrite_stack_blocks. intro.
+  unfold is_stack_top. simpl. intros [A|A].
+  subst b.
+  eapply Mem.fresh_block_alloc in ISP'VALID; eauto.
+  
+  exploit Mem.in_frames_valid. rewrite EQ1. rewrite in_stack_cons; left. unfold in_frames. unfold get_frames_blocks. apply A.
+  eapply Mem.fresh_block_alloc; eauto.
+
+  
+  rewrite_stack_blocks. assumption.
+  
+  Ltac rewtac :=
+     repeat match goal with
+             | H: Mem.nextblock ?m = _ |- Mem.valid_block ?m ?b => red; rewrite H; eauto
+             | H: Ple (Mem.nextblock ?m) (Mem.nextblock ?m'),
+                  H': Mem.valid_block ?m ?b |- Mem.valid_block ?m' ?b => unfold Mem.valid_block in *; xomega
+             | H: Mem.nextblock ?m = _ |- context [Mem.nextblock ?m] => rewrite H; eauto
+             (* | H: Mem.stack_adt ?m = _ |- ~ is_stack_top (Mem.stack_adt ?m) ?b => *)
+             (*   rewrite H; eauto *)
+             | H: Mem.stack_adt ?m = _ |- context [ (Mem.stack_adt ?m) ] =>
+               rewrite H; eauto
+             (* | H: Mem.stack_adt ?m = _ |- context [get_frame_info (Mem.stack_adt ?m) ?b] => *)
+             (*   rewrite H; eauto *)
+             | |- match init_sp with _ => _ end => (destruct init_sp eqn:?; auto); [idtac]
+             | |- init_sp_has_stackinfo ?m => unfold init_sp_has_stackinfo in *; destruct init_sp; auto 
+             end.
+  destruct 1; simpl; intros CSC NPM; inv NPM; constructor; intros; eauto;
+    repeat match goal with
+           | H: store_stack _ _ _ _ _ = Some _ |- _ =>
+             generalize (store_stack_no_abstract _ _ _ _ _ _ H);
+               generalize (store_stack_nextblock _ _ _ _ _ _ H);
+               revert H
+           | H: Mem.storev _ _ ?a _ = Some _ |- _ =>
+             destruct a; simpl in H; try discriminate;
+               generalize (Mem.store_no_abstract _ _ _ _ _ _ H);
+               generalize (Mem.nextblock_store _ _ _ _ _ _ H);
+               revert H
+           | H: Mem.free _ _ _ _ = Some _ |- _ =>
+             generalize (Mem.nextblock_free _ _ _ _ _ H);
+               generalize (Mem.free_no_abstract _ _ _ _ _ H);
+               revert H
+           | H: Mem.alloc _ _ _ = _ |- _ =>
+             generalize (Mem.nextblock_alloc _ _ _ _ _ H);
+               generalize (Mem.alloc_no_abstract _ _ _ _ _ H);
+               revert H
+           | H: Mem.unrecord_stack_block _ = Some _ |- _ =>
+             generalize (Mem.unrecord_stack_block_mem_unchanged _ _ H);
+               let A := fresh in
+               intro A; decompose [and] A; clear A;
+                 generalize (fun b => Mem.unrecord_stack_block_get_frame_info _ _ b H);
+                 revert H
+           | H: Mem.record_stack_blocks _ _ = Some _ |- _ =>
+             generalize (Mem.record_stack_blocks_mem_unchanged _ _ _ H);
+               let A := fresh in
+               intro A; decompose [and] A; clear A;
+               generalize (Mem.record_stack_blocks_stack_adt _ _ _ H);
+               revert H
+           | |- context [ Mem.nextblock (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_nextblock
+           | |- Mem.valid_block (Mem.push_new_stage _) _ => red; rewrite Mem.push_new_stage_nextblock
+           | H: external_call _ _ _ _ _ _ _ |- _ =>
+             generalize (external_call_nextblock _ _ _ _ _ _ _ H);
+               generalize (eq_sym (external_call_stack_blocks _ _ _ _ _ _ _ H));
+               revert H
+           end. ; intros;
+      eauto;
+        unfold block_prop in *;
+     rewtac.
+  - constructor; auto.
+  - edestruct Mem.unrecord_stack_adt; eauto. rewrite <- H9, H11 in MSISHS.
+    destruct MSISHS as (fr & fi & INFR & INS & RNGpriv & ARGS).
+    exists fr, fi; split; eauto.
+    split; eauto.
+    simpl in INS. destruct INS; auto.
+    rewrite <- H9, H11 in ISP'NST. subst. exfalso; apply ISP'NST.
+    red; simpl.
+    eapply in_frame_blocks_in_frame in INFR. red in INFR. auto.
+  - xomega.
+  - edestruct Mem.unrecord_stack_adt; eauto. rewrite <- H8, H10 in *.
+    destruct MSISHS as (fr & fi & INFR & INS & RNGpriv & ARGS).
+    exists fr, fi; split; eauto.
+    split; eauto.
+    simpl in INS. destruct INS; auto.
+    subst. exfalso; apply ISP'NST.
+    red; simpl. eapply in_frame_blocks_in_frame; eauto.
+  - red in ISP'VALID. xomega.
+  - unfold is_stack_top.
+    simpl. intuition. subst b.
+    eapply Mem.fresh_block_alloc; eauto.
+  - edestruct Mem.record_stack_blocks_stack_adt; eauto. 
+    destruct MSISHS as (fr & fi & INFR & INS & RNGpriv & ARGS).
+    exists fr, fi; split; eauto.
+    split; eauto. simpl; auto.
+  - xomega.
+  - intros. intro. subst.
+    eapply Mem.fresh_block_alloc; eauto.
+  - xomega.
+  - clearbody step. revert Heqv; inv CSC; inv NI.
+    destruct CallStackConsistency as (l1 & l2 & A & B). inv B.
+    unfold is_stack_top, get_stack_top_blocks.
+    inv CFD. rewrite FINDF in H1. destruct b1. simpl in *. subst.
+    destruct (Mem.stack_adt m) eqn:S. simpl; easy. 
+    inv A. simpl. intuition.
+    subst. edestruct NI0; eauto. 
+  - inv NI. auto.
+  - inv NI. auto.
+Qed.
+
 
 End RELSEM.
 

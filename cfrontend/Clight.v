@@ -709,7 +709,7 @@ Inductive function_entry1 (ge: genv) (f: function) (vargs: list val) (m: mem) (e
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
       frame_adt_blocks fa = blocks_with_info ge e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some m1' ->
+      Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m' ->
       le = create_undef_temps f.(fn_temps) ->
       function_entry1 ge f vargs m e le m' sz.
@@ -726,7 +726,7 @@ Inductive function_entry2 (ge: genv)  (f: function) (vargs: list val) (m: mem) (
       alloc_variables ge empty_env m f.(fn_vars) e m' ->
       frame_adt_blocks fa = blocks_with_info ge e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks (Mem.push_new_stage m') fa = Some m1' ->
+      Mem.record_stack_blocks m' fa = Some m1' ->
       bind_parameter_temps f.(fn_params) vargs (create_undef_temps f.(fn_temps)) = Some le ->
       function_entry2 ge f vargs m e le m1' sz.
 

@@ -2058,6 +2058,30 @@ wf_stack_mem:
  unrecord_push:
    forall m, Mem.unrecord_stack_block (Mem.push_new_stage m) = Some m;
 
+ push_storebytes_unrecord:
+   forall m b o bytes m1 m2,
+     storebytes m b o bytes = Some m1 ->
+     storebytes (push_new_stage m) b o bytes = Some m2 ->
+     unrecord_stack_block m2 = Some m1;
+
+ magree_push {injperm:InjectPerm}:
+      forall P m1 m2,
+        magree m1 m2 P ->
+        magree (Mem.push_new_stage m1) (Mem.push_new_stage m2) P;
+ magree_unrecord {injperm:InjectPerm}:
+    forall m1 m2 P,
+      magree m1 m2 P ->
+      forall m1',
+        Mem.unrecord_stack_block m1 = Some m1' ->
+        size_stack (tl (Mem.stack_adt m2)) <= size_stack (tl (Mem.stack_adt m1)) ->
+        exists m2',
+          Mem.unrecord_stack_block m2 = Some m2' /\ magree m1' m2' P;
+ magree_stack_size {injperm:InjectPerm}:
+    forall m1 m2 P,
+      magree m1 m2 P ->
+      size_stack (Mem.stack_adt m2) <= size_stack (Mem.stack_adt m1);
+
+ 
 }.
 
 Section WITHMEMORYMODEL.
@@ -2735,6 +2759,23 @@ Proof.
   intros; destruct v; simpl; auto. apply Mem.push_new_stage_load.
 Qed.
     
+Lemma storebytes_push:
+  forall m b o bytes m'
+    (SB: Mem.storebytes (Mem.push_new_stage m) b o bytes = Some m'),
+  exists m2,
+    Mem.storebytes m b o bytes = Some m2.
+Proof.
+  intros.
+  eapply Mem.range_perm_storebytes'.
+  eapply Mem.storebytes_range_perm in SB.
+  red; intros; rewrite <- Mem.push_new_stage_perm; eapply SB; eauto.
+  eapply Mem.storebytes_stack_access in SB.
+  red in SB |- *.
+  destruct SB as [IST|PSA]. revert IST; rewrite_stack_blocks. unfold is_stack_top. simpl. easy.
+  right; red in PSA |- *.
+  revert PSA. rewrite_stack_blocks. simpl; auto.
+Qed.
+
 End WITHMEMORYMODEL.
 
 End Mem.
