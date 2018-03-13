@@ -96,21 +96,23 @@ Inductive exec_stmt: env -> temp_env -> mem -> statement -> trace -> temp_env ->
       eval_expr ge e le m a v ->
       exec_stmt e le m (Sset id a)
                E0 (PTree.set id v le) m Out_normal
-  | exec_Scall:   forall e le m optid a al tyargs tyres cconv vf vargs f t m' vres id (IFI: is_function_ident ge vf id),
+  | exec_Scall:   forall e le m optid a al tyargs tyres cconv vf vargs f t m' m'' vres id (IFI: is_function_ident ge vf id),
       classify_fun (typeof a) = fun_case_f tyargs tyres cconv ->
       eval_expr ge e le m a vf ->
       eval_exprlist ge e le m al tyargs vargs ->
       Genv.find_funct ge vf = Some f ->
       type_of_fundef f = Tfunction tyargs tyres cconv ->
-      eval_funcall m f vargs t m' vres (fn_stack_requirements id) ->
+      eval_funcall (Mem.push_new_stage m) f vargs t m' vres (fn_stack_requirements id) ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       exec_stmt e le m (Scall optid a al)
-                t (set_opttemp optid vres le) m' Out_normal
-  | exec_Sbuiltin:   forall e le m optid ef al tyargs vargs t m' vres,
+                t (set_opttemp optid vres le) m'' Out_normal
+  | exec_Sbuiltin:   forall e le m optid ef al tyargs vargs t m' vres m'',
       eval_exprlist ge e le m al tyargs vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
       exec_stmt e le m (Sbuiltin optid ef tyargs al)
-                t (set_opttemp optid vres le) m' Out_normal
+                t (set_opttemp optid vres le) m'' Out_normal
   | exec_Sseq_1:   forall e le m s1 s2 t1 le1 m1 t2 le2 m2 out,
       exec_stmt e le m s1 t1 le1 m1 Out_normal ->
       exec_stmt e le1 m1 s2 t2 le2 m2 out ->
@@ -171,13 +173,12 @@ Inductive exec_stmt: env -> temp_env -> mem -> statement -> trace -> temp_env ->
   by the call.  *)
 
 with eval_funcall: mem -> fundef -> list val -> trace -> mem -> val -> Z -> Prop :=
-  | eval_funcall_internal: forall le m f vargs t e le' m2 m3 out vres m4 m5 sz,
+  | eval_funcall_internal: forall le m f vargs t e le' m2 m3 out vres m4 sz,
       function_entry ge f vargs m e le m2 sz ->
       exec_stmt e le m2 f.(fn_body) t le' m3 out ->
       outcome_result_value out f.(fn_return) vres m3 ->
       Mem.free_list m3 (blocks_of_env ge e) = Some m4 ->
-      Mem.unrecord_stack_block m4 = Some m5 ->
-      eval_funcall m (Internal f) vargs t m5 vres sz
+      eval_funcall m (Internal f) vargs t m4 vres sz
   | eval_funcall_external: forall m ef targs tres cconv vargs t vres m',
       external_call ef ge vargs m t vres m' ->
       eval_funcall m (External ef targs tres cconv) vargs t m' vres 0.
@@ -200,7 +201,7 @@ CoInductive execinf_stmt: env -> temp_env -> mem -> statement -> traceinf -> Pro
       eval_exprlist ge e le m al tyargs vargs ->
       Genv.find_funct ge vf = Some f ->
       type_of_fundef f = Tfunction tyargs tyres cconv ->
-      evalinf_funcall m f vargs t (fn_stack_requirements id) ->
+      evalinf_funcall (Mem.push_new_stage m) f vargs t (fn_stack_requirements id) ->
       execinf_stmt e le m (Scall optid a al) t
   | execinf_Sseq_1:   forall e le m s1 s2 t,
       execinf_stmt e le m s1 t ->
@@ -260,7 +261,7 @@ Inductive bigstep_program_terminates (p: program): trace -> int -> Prop :=
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m01,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m01) (make_singleton_frame_adt b1 0 0) = Some m02 ->
-      eval_funcall ge function_entry m02 f nil t m1 (Vint r) (fn_stack_requirements (prog_main p))->
+      eval_funcall ge function_entry (Mem.push_new_stage m02) f nil t m1 (Vint r) (fn_stack_requirements (prog_main p))->
       bigstep_program_terminates p t r.
 
 Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
@@ -272,7 +273,7 @@ Inductive bigstep_program_diverges (p: program): traceinf -> Prop :=
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
       Mem.alloc m0 0 0 = (m01,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m01) (make_singleton_frame_adt b1 0 0) = Some m02 ->
-      evalinf_funcall ge function_entry m02 f nil t (fn_stack_requirements (prog_main p)) ->
+      evalinf_funcall ge function_entry (Mem.push_new_stage m02) f nil t (fn_stack_requirements (prog_main p)) ->
       bigstep_program_diverges p t.
 
 Definition bigstep_semantics (p: program) :=
@@ -342,7 +343,7 @@ Proof.
 (* call *)
   econstructor; split.
   eapply star_left. econstructor; eauto.
-  eapply star_right. apply H5. simpl; auto. econstructor. reflexivity. traceEq.
+  eapply star_right. apply H5. constructor. constructor. eauto. reflexivity. traceEq.
   constructor.
 
 (* builtin *)
@@ -472,7 +473,7 @@ Proof.
   destruct (H1 f k) as [S1 [A1 B1]].
   eapply star_left. eapply step_internal_function; eauto.
   eapply star_right. eexact A1.
-   inv B1; simpl in H4; try contradiction.
+  inv B1; simpl in H4; try contradiction.
   (* Out_normal *)
   assert (fn_return f = Tvoid /\ vres = Vundef) as EQ.
     destruct (fn_return f); auto || contradiction.
@@ -481,14 +482,15 @@ Proof.
   assert (fn_return f = Tvoid /\ vres = Vundef) as EQ.
     destruct (fn_return f); auto || contradiction.
   destruct EQ. subst vres.
-  rewrite <- (is_call_cont_call_cont k H5). rewrite <- H6.
+  rewrite <- (is_call_cont_call_cont k H4). rewrite <- H5.
   eapply step_return_0; eauto.
   (* Out_return Some *)
   destruct H2.
-  rewrite <- (is_call_cont_call_cont k H5). rewrite <- H6.
+  rewrite <- (is_call_cont_call_cont k H4). rewrite <- H5.
   eapply step_return_1; eauto.
   reflexivity. traceEq.
-
+  eauto.
+  
 (* call external *)
   apply star_one. apply step_external_function; auto.
 Qed.

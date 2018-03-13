@@ -557,6 +557,77 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Returnstate v (Kcall optid f sp e k) m)
         E0 (State f Sskip k sp (set_optvar optid v e) m').
 
+
+
+
+Fixpoint funs_of_cont k : list (option (block * Z)) :=
+  match k with
+  | Kstop => nil
+  | Kseq s k => funs_of_cont k
+  | Kblock k => funs_of_cont k
+  | Kcall oi f (Vptr sp _) e k => Some (sp, fn_stackspace f):: funs_of_cont k
+  | Kcall oi f _ e k => None :: funs_of_cont k
+  end.
+
+  Inductive stack_inv : state -> Prop :=
+  | stack_inv_regular: forall k f s sp m o e
+                         (MSA1: match_stack_adt (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack_adt m)),
+      stack_inv (State f s k (Vptr sp o) e m)
+  | stack_inv_call: forall k fd args m sz
+                      (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
+                      (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
+      stack_inv (Callstate fd args k m sz)
+  | stack_inv_return: forall k res m 
+                        (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
+      stack_inv (Returnstate res k m).
+
+  Lemma funs_of_call_cont:
+    forall k,
+      funs_of_cont (call_cont k) = funs_of_cont k.
+  Proof.
+    induction k; simpl; intros; eauto.
+  Qed.
+
+  Lemma find_label_funs_of_cont:
+    forall lbl s k s' k',
+      find_label lbl s k = Some (s', k') ->
+      funs_of_cont k' = funs_of_cont k.
+  Proof.
+    induction s; simpl; intros; try congruence.
+    - destr_in H; eauto. inv H. apply IHs1 in Heqo. simpl in Heqo. auto.
+    - destr_in H; inv H; eauto.
+    - apply IHs in H. simpl in H; auto.
+    - apply IHs in H. simpl in H; auto.
+    - destr_in H; eauto.
+  Qed.
+  
+  Lemma stack_inv_inv:
+    forall S1 t S2,
+      step S1 t S2 ->
+      stack_inv S1 -> stack_inv S2.
+  Proof.
+    destruct 1; simpl; intros SI;
+      inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
+        try solve [inv MSA1; simpl; rewrite ?funs_of_call_cont; eauto].
+    - constructor; red; easy.
+    - erewrite <- Mem.free_stack_blocks by eauto.
+      eapply Mem.noperm_top.
+      rewrite_stack_blocks. inv MSA1.
+      intros b IFR o k0 p0 P.
+      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+      eapply Mem.perm_free_2 in P; eauto.
+      exploit Mem.agree_perms_mem.
+      rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+      eapply Mem.perm_free_3 in P; eauto.
+      rewrite SIZE; auto.
+    - erewrite find_label_funs_of_cont by eauto.
+      rewrite funs_of_call_cont.  auto.
+    - apply Mem.alloc_stack_blocks in H. clear H0.
+      rewrite <- H, EQ1 in *. simpl in *.
+      econstructor; eauto; reflexivity.
+    - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite_stack_blocks. rewrite <- H4. econstructor; eauto.
+  Qed.
+  
 End RELSEM.
 
 (** Execution of whole programs are described as sequences of transitions
@@ -574,6 +645,17 @@ Inductive initial_state (p: program): state -> Prop :=
       Mem.alloc m0 0 0 = (m1,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
       initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
+
+
+Lemma stack_inv_initial:
+  forall p S
+    (INIT: initial_state p S),
+    stack_inv S.
+Proof.
+  intros; inv INIT; econstructor.
+  rewrite_stack_blocks; constructor. red; easy.
+  constructor.
+Qed.
 
 (** A final state is a [Returnstate] with an empty continuation. *)
 

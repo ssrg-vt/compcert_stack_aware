@@ -1149,6 +1149,50 @@ Proof.
   simpl. eauto.
 Qed.
 
+Lemma push_rule:
+  forall j g m1 m2 P,
+    m2 |= minjection j g m1 ** P ->
+    m_invar_stack P = false ->
+    Mem.push_new_stage m2 |= minjection j (up g) (Mem.push_new_stage m1) ** P.
+Proof.
+  intros j g m1 m2 P (INJ & RP & DISJ).
+  split;[|split].
+  eapply Mem.mem_inject_ext. apply Mem.push_new_stage_inject.
+  apply INJ.
+  unfold up. auto. 
+  eapply m_invar. eauto.
+  generalize (Mem.push_new_stage_unchanged_on (m_footprint P) m2).
+  destruct (m_invar_weak P); eauto using Mem.strong_unchanged_on_weak.
+  congruence.
+  red; simpl; intros.
+  destruct H0 as (b0 & delta & JB & PERM).
+  rewrite Mem.push_new_stage_perm in PERM.
+  eapply DISJ; eauto.
+  exists b0, delta; split; eauto.
+Qed.
+
+
+Lemma push_rule_2:
+  forall j g m1 m2 P Q,
+    m2 |= mconj (minjection j g m1) Q ** P ->
+    m_invar_stack P = false ->
+    m_invar_stack Q = false ->
+    Mem.push_new_stage m2 |= mconj (minjection j (up g) (Mem.push_new_stage m1)) Q ** P.
+Proof.
+  intros j g m1 m2 P Q SEP FALSE1 FALSE2.
+  eapply frame_mconj. apply SEP.
+  apply mconj_proj1 in SEP.
+  apply push_rule in SEP.
+  eapply sep_imp. apply SEP.
+  red; split; auto. split; auto. auto.
+  eapply m_invar. apply mconj_proj2 in SEP. apply SEP.
+  destr.
+  eapply Mem.push_new_stage_unchanged_on.
+  eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on.
+  simpl. congruence.
+Qed.
+
+
 Lemma unrecord_stack_block_parallel_rule:
   forall m1 m1' m2 j g P,
     m_invar_stack P = false ->

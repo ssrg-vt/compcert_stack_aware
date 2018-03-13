@@ -2771,9 +2771,10 @@ Proof.
   red; intros; rewrite <- Mem.push_new_stage_perm; eapply SB; eauto.
   eapply Mem.storebytes_stack_access in SB.
   red in SB |- *.
-  destruct SB as [IST|PSA]. revert IST; rewrite_stack_blocks. unfold is_stack_top. simpl. easy.
+  destruct SB as [IST|PSA].
+  revert IST; rewrite push_new_stage_stack. unfold is_stack_top. simpl. easy.
   right; red in PSA |- *.
-  revert PSA. rewrite_stack_blocks. simpl; auto.
+  revert PSA. rewrite push_new_stage_stack. simpl; auto.
 Qed.
 
 End WITHMEMORYMODEL.

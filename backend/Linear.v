@@ -265,6 +265,178 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Returnstate (Stackframe f sp rs0 c :: s) rs m)
         E0 (State s f sp c rs m').
 
+Variable init_m: mem.
+
+Inductive bounds_stack (m: mem) : list stackframe -> Prop :=
+| bs_nil: bounds_stack m nil
+| bs_cons f sp ls c cs
+    (VB: Mem.valid_block m sp)
+    (PERM: forall ofs p,
+        Mem.perm m sp ofs Max p ->
+        0 <= ofs < fn_stacksize f)
+    (BS: bounds_stack m cs):
+    bounds_stack m (Stackframe f (Vptr sp Ptrofs.zero) ls c :: cs).
+
+Inductive nextblock_properties_linear: state -> Prop :=
+| nextblock_properties_linear_intro:
+    forall cs f sp c ls m 
+      (INIT_VB: Ple (Mem.nextblock init_m) (Mem.nextblock m))
+      (PERM_stack: forall (ofs : Z) (p : permission), Mem.perm m sp ofs Max p -> 0 <= ofs < fn_stacksize f)
+      (BS: bounds_stack m cs)
+      (VB: Mem.valid_block m sp),
+      nextblock_properties_linear (State cs f (Vptr sp Ptrofs.zero) c ls m)
+| nextblock_properties_linear_call:
+    forall  cs f ls m sz
+       (INIT_VB: Ple (Mem.nextblock init_m) (Mem.nextblock m))
+       (BS: bounds_stack m cs),
+      nextblock_properties_linear (Callstate cs f ls m sz)
+| nextblock_properties_linear_return:
+    forall cs ls m 
+      (INIT_VB: Ple (Mem.nextblock init_m) (Mem.nextblock m))
+      (BS: bounds_stack m cs),
+      nextblock_properties_linear (Returnstate cs ls m).
+
+
+Ltac rewnb :=
+  repeat
+    match goal with
+    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
+    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
+    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_free _ _ _ _ _ H)
+    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
+    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
+    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
+    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
+      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
+      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    end.
+
+Lemma bounds_stack_perm:
+  forall s m (BS: bounds_stack m s)
+    m' (PERM: forall b ofs p, Mem.valid_block m b -> Mem.perm m' b ofs Max p -> Mem.perm m b ofs Max p)
+    (PLE: Ple (Mem.nextblock m) (Mem.nextblock m')),
+    bounds_stack m' s.
+Proof.
+  induction s; simpl; intros; eauto.
+  constructor.
+  inv BS. constructor; eauto.
+  unfold Mem.valid_block in *; xomega.
+Qed.
+
+Lemma bounds_stack_store:
+  forall s m (BS: bounds_stack m s)
+    chunk b o v m'
+    (STORE: Mem.store chunk m b o v = Some m'),
+    bounds_stack m' s.
+Proof.
+  intros; eapply bounds_stack_perm; eauto.
+  intros. eapply Mem.perm_store_2; eauto.
+  erewrite <- Mem.nextblock_store; eauto. xomega.
+Qed.
+
+Lemma bounds_stack_free:
+  forall s m (BS: bounds_stack m s)
+    b lo hi m'
+    (FREE: Mem.free m b lo hi = Some m'),
+    bounds_stack m' s.
+Proof.
+  intros.
+  eapply bounds_stack_perm; eauto.
+  intros; eapply Mem.perm_free_3; eauto.
+  intros; erewrite <- Mem.nextblock_free; eauto. xomega.
+Qed.
+
+
+Lemma bounds_stack_unrecord_stack_block:
+  forall s m (BS: bounds_stack m s)
+    m'
+    (FREE: Mem.unrecord_stack_block m = Some m'),
+    bounds_stack m' s.
+Proof.
+  intros.
+  generalize (Mem.unrecord_stack_block_mem_unchanged _ _ FREE);
+    let A := fresh in
+    intro A; decompose [and] A; clear A;
+      generalize (fun b => Mem.unrecord_stack_block_get_frame_info _ _ b FREE).
+  intros; eapply bounds_stack_perm; eauto.
+  intros. eapply H2; eauto.
+  rewrite H0; xomega.
+Qed.
+
+Lemma bounds_stack_record_stack_block:
+  forall s m (BS: bounds_stack m s)
+    m' b
+    (FREE: Mem.record_stack_blocks m b = Some m'),
+    bounds_stack m' s.
+Proof.
+  intros.
+  generalize (Mem.record_stack_blocks_mem_unchanged _ _ _ FREE);
+    let A := fresh in
+    intro A; decompose [and] A; clear A.
+  intros; eapply bounds_stack_perm; eauto.
+  intros. eapply H2; eauto.
+  rewrite H0; xomega.
+Qed.
+
+
+Lemma bounds_stack_push:
+  forall s m (BS: bounds_stack m s),
+    bounds_stack (Mem.push_new_stage m) s.
+Proof.
+  intros.
+  eapply bounds_stack_perm; eauto.
+  intros. rewrite Mem.push_new_stage_perm in H0. auto.
+  rewnb. xomega.
+Qed.
+
+Theorem np_linear_step:
+  forall s1 t s2,
+    step s1 t s2 ->
+    nextblock_properties_linear s1 ->
+    nextblock_properties_linear s2.
+Proof.
+  destruct 1; simpl; intros NPL; inv NPL; try econstructor; unfold Mem.valid_block; rewnb; eauto.
+  intros ofs p P. eapply PERM_stack. eapply Mem.storev_perm_inv; eauto.
+  destruct a; simpl in *; try discriminate.
+  eapply bounds_stack_store; eauto.
+  apply bounds_stack_push.
+  constructor; auto.
+  eapply bounds_stack_free; eauto.
+  intros; eapply PERM_stack. eapply Mem.unrecord_stack_block_perm in H2. 2: eauto.
+  eapply external_call_max_perm in H2. 2: eauto.
+  rewrite Mem.push_new_stage_perm in H2. eauto.
+  red; rewnb; auto.
+  eapply bounds_stack_unrecord_stack_block. 2: eauto.
+  eapply bounds_stack_perm. apply bounds_stack_push. eauto.
+  intros. eapply external_call_max_perm; eauto.
+  rewnb; xomega.
+  eapply bounds_stack_free; eauto.
+  xomega.
+  intros.
+  eapply Mem.record_stack_block_perm in H1. 2: eauto.
+  eapply Mem.perm_alloc_3; eauto.
+  eapply bounds_stack_record_stack_block. 2: eauto.
+  eapply bounds_stack_perm; eauto.
+  intros. eapply Mem.perm_alloc_inv in H2. 2: eauto.
+  destruct eq_block; auto. subst. eapply Mem.fresh_block_alloc in H1; eauto. easy.
+  rewnb; xomega.
+  exploit Mem.alloc_result; eauto. intro; subst. xomega.
+  eapply bounds_stack_perm; eauto.
+  intros; eapply external_call_max_perm; eauto.
+  rewnb. xomega.
+  inv BS. constructor; unfold Mem.valid_block; rewnb; eauto; try xomega.
+  intros; eapply PERM. eapply Mem.unrecord_stack_block_perm in H0; eauto.
+  eapply bounds_stack_unrecord_stack_block; eauto.
+Qed.
+
 End RELSEM.
 
 Inductive initial_state (p: program): state -> Prop :=
