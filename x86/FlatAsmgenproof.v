@@ -139,17 +139,24 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :
           Genv.find_symbol ge id = Some b /\
           transl_instr gm lm ofs1 id i = OK i';
 
-      agree_sminj_glob : forall id b gloc,
-        Genv.find_symbol ge id = Some b ->
+      agree_sminj_glob : forall id gloc,
         gm id = Some gloc ->
-        exists ofs', get_sect_label_offset0 (Genv.genv_smap tge) gloc = Some ofs' /\
-                mj b = Some (mem_block, Ptrofs.unsigned ofs');
+        exists ofs' b, 
+          Genv.find_symbol ge id = Some b /\
+          get_sect_label_offset0 (Genv.genv_smap tge) gloc = Some ofs' /\
+          mj b = Some (mem_block, Ptrofs.unsigned ofs');
+
+    agree_sminj_lbl : forall id b f l z z',
+        Genv.find_symbol ge id = Some b ->
+        Genv.find_funct_ptr ge b = Some (Internal f) ->
+        label_pos l 0 (Asm.fn_code f) = Some z ->
+        lm id l = Some z' ->
+        Val.inject mj (Vptr b (Ptrofs.repr z)) (get_sect_label_addr0 (Genv.genv_smap tge) (code_label z'));
       
     }.
 
 Definition gid_map_for_undef_syms (gm: GID_MAP_TYPE) :=
   forall id, Genv.find_symbol ge id = None -> gm id = None.
-
 
 Definition globs_inj_into_flatmem (mj:meminj) := 
   forall b g b' ofs',
@@ -262,8 +269,8 @@ Proof.
   - monadInvX H4. unfold Senv.symbol_address in H10.
     destruct (Senv.find_symbol ge id) eqn:FINDSYM.
     + inv H. exploit agree_sminj_glob0; eauto. 
-      unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM. apply FINDSYM.
-      intros (ofs' & GLOFS & JB).
+      intros (ofs' & b0 & FSYM & GLOFS & JB).
+      unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM. rewrite FSYM in FINDSYM; inv FINDSYM.
       exploit Mem.loadv_inject; eauto.
       intros (varg' & LOADV & VARGINJ).
       exists varg'. split; auto.
@@ -274,8 +281,8 @@ Proof.
   - monadInvX H4. unfold Senv.symbol_address.
     destruct (Senv.find_symbol ge id) eqn:FINDSYM.
     + inv H. exploit agree_sminj_glob0; eauto. 
-      unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM. apply FINDSYM.
-      intros (ofs' & GLOFS & JB).
+      intros (ofs' & b0 & FSYM & GLOFS & JB).
+      unfold Senv.find_symbol in FINDSYM. simpl in FINDSYM. rewrite FSYM in FINDSYM; inv FINDSYM.
       exists (flatptr (Ptrofs.add ofs ofs')). split; auto.
       apply FlatAsmBuiltin.eval_BA_addrglobal.
       * exploit get_sect_label_offset0_offset; eauto.
@@ -538,8 +545,10 @@ Proof.
     eapply inject_decr; eauto.
   - 
     exploit agree_sminj_glob0; eauto. 
-    intros (ofs' & GLBL & JB).
+    intros (ofs' & b0 & FSYM & GLBL & JB).
     eexists; eauto.
+  - 
+    exploit agree_sminj_lbl0; eauto.
 Qed.
 
 Lemma inject_pres_globs_inj_into_flatmem : forall j j' m1 m2,
@@ -629,7 +638,8 @@ Proof.
   unfold get_sect_label_addr. intros.
   destruct (Genv.find_symbol ge id) eqn:FINDSYM; auto.
   inv H. exploit agree_sminj_glob0; eauto.
-  intros (ofs' & SBOFS & JB).
+  intros (ofs' & b0 & FSYM & SBOFS & JB).
+  rewrite FSYM in FINDSYM; inv FINDSYM.
   unfold get_sect_label_addr0. rewrite SBOFS.
   unfold flatptr; simpl. 
   eapply Val.inject_ptr. eauto.
@@ -658,6 +668,10 @@ Ltac simpl_goal :=
            rewrite Ptrofs.add_zero
          | [ |- context [Ptrofs.add _ (Ptrofs.of_int64 Int64.zero)] ] =>
            rewrite Ptrofs.add_zero
+         | [ |- context [Ptrofs.add Ptrofs.zero _] ] =>
+           rewrite Ptrofs.add_zero_l
+         | [ |- context [Ptrofs.repr (Ptrofs.unsigned _)] ] =>
+           rewrite Ptrofs.repr_unsigned
          end.
 
 Ltac solve_symb_inj :=
@@ -1654,7 +1668,8 @@ Proof.
     unfold Genv.symbol_address. unfold Genv.get_label_addr0.
     destruct (Genv.find_symbol ge id0) eqn:FINDSYM; auto.
     exploit agree_sminj_glob0; eauto.
-    intros (ofs1 & GLBL & JB).
+    intros (ofs1 & b1 & FSYM & GLBL & JB).
+    rewrite FSYM in FINDSYM; inv FINDSYM. 
     unfold get_sect_label_addr0. rewrite GLBL.
     rewrite <- (Ptrofs.add_zero_l ofs1).
     eapply Val.inject_ptr; eauto.
@@ -1699,11 +1714,18 @@ Proof.
     unfold goto_label. eauto.
     eapply match_states_intro; eauto.
     apply regset_inject_expand; auto. 
-    unfold PC in *. rewrite H in *. inv PC1.
-    admit.
+    unfold PC in *. rewrite H in *. inv PC1.    
+    eapply agree_sminj_lbl; eauto.
 
   - (* Pjmp_s *)
-    admit.
+    apply regset_inject_expand; auto.
+    inversion MATCHSMINJ. 
+    exploit (agree_sminj_glob0 symb s0); eauto.
+    intros (ofs1 & b1 & FSYM & LBLOFS & JB). 
+    unfold Genv.symbol_address. rewrite FSYM. 
+    unfold Genv.get_label_addr0. unfold get_sect_label_addr0. rewrite LBLOFS.
+    unfold flatptr. econstructor; eauto.
+    simpl_goal. auto.
 
   - (* Pjcc *)
     admit.
