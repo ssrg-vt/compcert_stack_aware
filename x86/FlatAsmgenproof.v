@@ -426,7 +426,7 @@ Proof.
   unfold regset_inject. intros. apply val_inject_undef_regs.
   auto.
 Qed.    
-
+  
 Lemma Pregmap_gsspec_alt : forall (A : Type) (i j : Pregmap.elt) (x : A) (m : Pregmap.t A),
     (m # j <- x) i  = (if Pregmap.elt_eq i j then x else m i).
 Proof.
@@ -667,17 +667,6 @@ Ltac destr_pair_if :=
          | [ |- context [if ?h then _ else _] ] =>
            destruct h eqn:?
          end.
-
-(* Ltac solve_absurd_inj := *)
-(*   match goal with *)
-(*   | [ H : Val.inject _ (Vint _) (Vlong _) |- _] => inversion H *)
-(*   | [ H : Val.inject _ (Vint _) (Vfloat _) |- _] => inversion H *)
-(*   | [ H : Val.inject _ (Vint _) (Vsingle _) |- _] => inversion H *)
-(*   | [ H : Val.inject _ (Vint _) (Vptr _ _) |- _] => inversion H *)
-(*   | [ H : Val.inject _ (Vptr _ _) (Vlong _) |- _] => inversion H *)
-(*   | [ H : Val.inject _ (Vptr _ _) (Vfloat _) |- _] => inversion H *)
-(*   | [ H : Val.inject _ (Vptr _ _) (Vsingle _) |- _] => inversion H *)
-(*   end. *)
 
 Ltac inject_match :=
   match goal with
@@ -1322,6 +1311,17 @@ Proof.
   simpl. inv H. destruct b; constructor.
 Qed.
 
+Lemma cmpu_inject : forall j v1 v2 v1' v2' m m' c,
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    Mem.inject j (def_frame_inj m) m m' ->
+    Val.inject j (Val.cmpu (Mem.valid_pointer m) c v1 v2)
+               (Val.cmpu (Mem.valid_pointer m') c v1' v2').
+Proof.
+  intros. unfold Val.cmpu.
+  exploit (cmpu_bool_lessdef j v1 v2); eauto. intros. 
+  exploit val_of_optbool_lessdef; eauto.
+Qed.
+
 Lemma val_negative_inject: forall j v1 v2,
   Val.inject j v1 v2 -> Val.inject j (Val.negative v1) (Val.negative v2).
 Proof.
@@ -1362,14 +1362,22 @@ Lemma compare_ints_inject: forall j v1 v2 v1' v2' rs rs' m m',
 Proof.
   intros. unfold compare_ints, Asm.compare_ints.
   repeat apply regset_inject_expand; auto.
-  - unfold Val.cmpu.
-    exploit (cmpu_bool_lessdef j v1 v2); eauto. intros. 
-    exploit val_of_optbool_lessdef; eauto.
-  - unfold Val.cmpu.
-    exploit (cmpu_bool_lessdef j v1 v2); eauto. intros. 
-    exploit val_of_optbool_lessdef; eauto.
+  - apply cmpu_inject; auto.
+  - apply cmpu_inject; auto.
   - apply val_negative_inject. apply Val.sub_inject; auto.
   - apply sub_overflow_inject; auto.
+Qed.
+
+Lemma cmplu_lessdef : forall j v1 v2 v1' v2' m m' c,
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    Mem.inject j (def_frame_inj m) m m' ->
+    opt_val_inject j (Val.cmplu (Mem.valid_pointer m) c v1 v2)
+                     (Val.cmplu (Mem.valid_pointer m') c v1' v2').
+Proof.
+  intros. unfold Val.cmplu.
+  exploit (cmplu_bool_lessdef j v1 v2 v1' v2' m m' c); eauto. intros.
+  inversion H2; subst; simpl; constructor.
+  apply vofbool_inject.
 Qed.
 
 Lemma compare_longs_inject: forall j v1 v2 v1' v2' rs rs' m m',
@@ -1394,19 +1402,62 @@ Proof.
   - apply subl_overflow_inject; auto.
 Qed.
 
+Ltac solve_val_inject :=
+  match goal with
+  (* | [ H : Val.inject _ (Vint _) (Vlong _) |- _] => inversion H *)
+  (* | [ H : Val.inject _ (Vint _) (Vfloat _) |- _] => inversion H *)
+  (* | [ H : Val.inject _ (Vint _) (Vsingle _) |- _] => inversion H *)
+  (* | [ H : Val.inject _ (Vint _) (Vptr _ _) |- _] => inversion H *)
+  (* | [ H : Val.inject _ (Vptr _ _) (Vlong _) |- _] => inversion H *)
+  (* | [ H : Val.inject _ (Vptr _ _) (Vfloat _) |- _] => inversion H *)
+  (* | [ H : Val.inject _ (Vptr _ _) (Vsingle _) |- _] => inversion H *)
+  | [ H : Val.inject _ (Vfloat _) Vundef |- _] => inversion H
+  | [ H : Val.inject _ (Vfloat _) (Vint _) |- _] => inversion H
+  | [ H : Val.inject _ (Vfloat _) (Vlong _) |- _] => inversion H
+  | [ H : Val.inject _ (Vfloat _) (Vsingle _) |- _] => inversion H
+  | [ H : Val.inject _ (Vfloat _) (Vptr _ _) |- _] => inversion H
+  | [ H : Val.inject _ (Vfloat _) (Vfloat _) |- _] => inv H; solve_val_inject
+  | [ H : Val.inject _ (Vsingle _) Vundef |- _] => inversion H
+  | [ H : Val.inject _ (Vsingle _) (Vint _) |- _] => inversion H
+  | [ H : Val.inject _ (Vsingle _) (Vlong _) |- _] => inversion H
+  | [ H : Val.inject _ (Vsingle _) (Vsingle _) |- _] => inv H; solve_val_inject
+  | [ H : Val.inject _ (Vsingle _) (Vptr _ _) |- _] => inversion H
+  | [ H : Val.inject _ (Vsingle _) (Vfloat _) |- _] => inversion H
+  | [ |- Val.inject _ (Val.of_bool ?v) (Val.of_bool ?v) ] => apply vofbool_inject
+  | [ |- Val.inject _ Vundef _ ] => auto
+  end.
+
+Ltac solve_regset_inject :=
+  match goal with
+  | [ H: regset_inject ?j ?rs1 ?rs2 |- regset_inject ?j (Asm.undef_regs ?uregs ?rs1) (Asm.undef_regs ?uregs ?rs2)] =>
+    apply undef_regs_pres_inject; auto
+  | [ |- regset_inject _ (Asm.undef_regs _ _) _ ] =>
+    unfold Asm.undef_regs; solve_regset_inject
+  | [ |- regset_inject _ _ (Asm.undef_regs _ _) ] =>
+    unfold Asm.undef_regs; simpl; solve_regset_inject
+  | [ |- regset_inject _ (?rs1 # ?r <- ?v1) (?rs2 # ?r <- ?v2) ] =>
+    apply regset_inject_expand; [solve_regset_inject | solve_val_inject]
+  | [ H: regset_inject ?j ?rs1 ?rs2 |- regset_inject ?j ?rs1 ?rs2 ] =>
+    auto
+  end.
+
 Lemma compare_floats_inject: forall j v1 v2 v1' v2' rs rs',
     Val.inject j v1 v1' -> Val.inject j v2 v2' ->
     regset_inject j rs rs' -> 
     regset_inject j (compare_floats v1 v2 rs) (compare_floats v1' v2' rs').
 Proof.
-Admitted.
+  intros. unfold compare_floats, Asm.compare_floats.
+  destruct v1, v2, v1', v2'; try solve_regset_inject. 
+Qed.
 
 Lemma compare_floats32_inject: forall j v1 v2 v1' v2' rs rs',
     Val.inject j v1 v1' -> Val.inject j v2 v2' ->
     regset_inject j rs rs' -> 
     regset_inject j (compare_floats32 v1 v2 rs) (compare_floats32 v1' v2' rs').
 Proof.
-Admitted.
+  intros. unfold compare_floats32, Asm.compare_floats32.
+  destruct v1, v2, v1', v2'; try solve_regset_inject. 
+Qed.
 
 Lemma zero_ext_inject : forall v1 v2 n j,
     Val.inject j v1 v2 -> Val.inject j (Val.zero_ext n v1) (Val.zero_ext n v2).
@@ -1537,7 +1588,7 @@ Hint Resolve nextinstr_nf_pres_inject nextinstr_pres_inject regset_inject_expand
   xor_inject xorl_inject and_inject andl_inject notl_inject
   shl_inject shll_inject vzero_inject notint_inject
   shru_inject shrlu_inject ror_inject rorl_inject
-  compare_ints_inject compare_longs_inject compare_floats_inject compare_floats32_inject
+  compare_ints_inject compare_longs_inject (* compare_floats_inject compare_floats32_inject *)
   addf_inject subf_inject mulf_inject divf_inject negf_inject absf_inject
   addfs_inject subfs_inject mulfs_inject divfs_inject negfs_inject absfs_inject: inject_db.
 
@@ -1597,6 +1648,8 @@ Proof.
 
   - (* Psetcc *)
     admit.
+
+  (* compare_floats *)
 
   - (* Pjmp_l *)
     admit.
