@@ -1051,9 +1051,9 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | _ => Stuck
       end
   | Pcall_s id sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m)
+      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
   | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) (Mem.push_new_stage m)
+      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) m
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
@@ -1225,18 +1225,19 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
       exec_instr ge f i rs m = Next rs' m' ->
       step ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
-    forall b ofs f ef args res rs m vargs t vres rs' m',
+    forall b ofs f ef args res rs m vargs t vres rs' m' m'',
       rs PC = Vptr b ofs ->
       Genv.find_funct_ptr ge b = Some (Internal f) ->
       find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res) ->
       eval_builtin_args ge rs (rs RSP) m args vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         no_rsp_builtin_preg res ->
         rs' = nextinstr_nf
                 (set_res res vres
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) ->
-        step ge (State rs m) t (State rs' m')
+        step ge (State rs m) t (State rs' m'')
 | exec_step_external:
     forall b ef args res rs m t rs' m',
       rs PC = Vptr b Ptrofs.zero ->
@@ -1326,8 +1327,8 @@ Ltac Equalities :=
 + discriminate.
 + discriminate.
 + assert (vargs0 = vargs) by (eapply eval_builtin_args_determ; eauto). subst vargs0.
-  exploit external_call_determ. eexact H5. eexact H12. intros [A B].
-  split. auto. intros. destruct B; auto. subst. auto.
+  exploit external_call_determ. eexact H5. eexact H13. intros [A B].
+  split. auto. intros. destruct B; auto. subst. auto. congruence.
 + assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
   exploit external_call_determ. eexact H4. eexact H10. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
