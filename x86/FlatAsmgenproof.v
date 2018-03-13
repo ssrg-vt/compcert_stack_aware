@@ -925,10 +925,45 @@ Proof.
     eapply storev_pres_glob_block_valid; eauto.
 Qed.
 
+Inductive opt_val_inject (j:meminj) : option val -> option val -> Prop :=
+| opt_val_inject_none v : opt_val_inject j None v
+| opt_val_inject_some v1 v2 : Val.inject j v1 v2 -> 
+                                opt_val_inject j (Some v1) (Some v2).
+
+Lemma maketotal_inject : forall v1 v2 j,
+    opt_val_inject j v1 v2 -> Val.inject j (Val.maketotal v1) (Val.maketotal v2).
+Proof.
+  intros. inversion H; simpl; subst; auto.
+Qed.
+
+Inductive opt_lessdef {A:Type} : option A -> option A -> Prop :=
+| opt_lessdef_none v : opt_lessdef None v
+| opt_lessdef_some v : opt_lessdef (Some v) (Some v). 
+
 Lemma vzero_inject : forall j,
   Val.inject j Vzero Vzero.
 Proof.
   intros. unfold Vzero. auto.
+Qed.
+
+Lemma vtrue_inject : forall j,
+  Val.inject j Vtrue Vtrue.
+Proof.
+  intros. unfold Vtrue. auto.
+Qed.
+
+Lemma vfalse_inject : forall j,
+  Val.inject j Vfalse Vfalse.
+Proof.
+  intros. unfold Vfalse. auto.
+Qed.
+
+Lemma vofbool_inject : forall j v,
+  Val.inject j (Val.of_bool v) (Val.of_bool v).
+Proof.
+  destruct v; simpl.
+  - apply vtrue_inject.
+  - apply vfalse_inject.
 Qed.
   
 Lemma neg_inject : forall v1 v2 j,
@@ -1103,6 +1138,323 @@ Proof.
   destruct (Int.ltu i0 Int64.iwordsize'); auto.
 Qed.
 
+Lemma addf_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.addf v1 v1') (Val.addf v2 v2').
+Proof.
+  intros. unfold Val.addf. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma subf_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.subf v1 v1') (Val.subf v2 v2').
+Proof.
+  intros. unfold Val.subf. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma mulf_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.mulf v1 v1') (Val.mulf v2 v2').
+Proof.
+  intros. unfold Val.mulf. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma divf_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.divf v1 v1') (Val.divf v2 v2').
+Proof.
+  intros. unfold Val.divf. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma negf_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.negf v1) (Val.negf v2).
+Proof.
+  intros. unfold Val.negf. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma absf_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.absf v1) (Val.absf v2).
+Proof.
+  intros. unfold Val.absf. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma addfs_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.addfs v1 v1') (Val.addfs v2 v2').
+Proof.
+  intros. unfold Val.addfs. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma subfs_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.subfs v1 v1') (Val.subfs v2 v2').
+Proof.
+  intros. unfold Val.subfs. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma mulfs_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.mulfs v1 v1') (Val.mulfs v2 v2').
+Proof.
+  intros. unfold Val.mulfs. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma divfs_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> Val.inject j (Val.divfs v1 v1') (Val.divfs v2 v2').
+Proof.
+  intros. unfold Val.divfs. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma negfs_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.negfs v1) (Val.negfs v2).
+Proof.
+  intros. unfold Val.negfs. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma absfs_inject : forall v1 v2 j,
+    Val.inject j v1 v2 -> Val.inject j (Val.absfs v1) (Val.absfs v2).
+Proof.
+  intros. unfold Val.absfs. 
+  destruct v1; auto. inv H. auto.
+Qed.
+
+Lemma cmpu_bool_lessdef : forall j v1 v2 v1' v2' vp vp' c,
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    opt_lessdef (Val.cmpu_bool vp c v1 v2)
+                (Val.cmpu_bool vp' c v1' v2').
+Proof.
+  intros. unfold Val.cmpu_bool. destruct v1; destruct v2; try constructor.
+  destruct v1'; try inv H.
+  destruct v2'; try inv H0.
+  constructor.
+Qed.
+
+Lemma valid_pointer_add_conv : forall m m' b b' i j delta, 
+    Mem.valid_pointer m b (Ptrofs.unsigned i) = true ->
+    Mem.inject j (def_frame_inj m) m m' ->
+    j b = Some (b', delta) ->
+    Mem.valid_pointer m' b' (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr delta))) = true.
+Proof.
+  intros. exploit Mem.valid_pointer_inject; eauto. intros.
+  rewrite Mem.valid_pointer_nonempty_perm in H.
+  exploit Mem.address_inject; eauto. intros.
+  rewrite H3. auto.
+Qed.
+
+Lemma valid_pointer_add_minus1_conv : forall m m' b b' i j delta, 
+    Mem.valid_pointer m b (Ptrofs.unsigned i - 1) = true ->
+    Mem.inject j (def_frame_inj m) m m' ->
+    j b = Some (b', delta) ->
+    Mem.valid_pointer m' b' (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr delta)) - 1) = true.
+Admitted.
+(* Proof. *)
+(*   intros. exploit Mem.valid_pointer_inject; eauto. intros. *)
+(*   rewrite Mem.valid_pointer_nonempty_perm in H. *)
+(*   exploit Mem.address_inject; eauto. intros. *)
+(*   rewrite H3. auto. *)
+(* Qed. *)
+
+
+
+Lemma cmplu_bool_lessdef : forall j v1 v2 v1' v2' m m' c,
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    Mem.inject j (def_frame_inj m) m m' ->
+    opt_lessdef (Val.cmplu_bool (Mem.valid_pointer m) c v1 v2)
+                (Val.cmplu_bool (Mem.valid_pointer m') c v1' v2').
+Proof.
+  intros. unfold Val.cmplu_bool. destruct v1; destruct v2; try constructor.
+  - destruct v1'; try inv H.
+    destruct v2'; try inv H0. constructor.
+  - destruct (negb Archi.ptr64); try constructor.
+    destruct (Int64.eq i Int64.zero && 
+              (Mem.valid_pointer m b (Ptrofs.unsigned i0) || 
+               Mem.valid_pointer m b (Ptrofs.unsigned i0 - 1))) eqn:EQ.
+    destruct c; simpl; try constructor.
+    + destruct v1'; try inv H.
+      destruct v2'; try inv H0.
+      rewrite andb_true_iff in EQ. 
+      rewrite orb_true_iff in EQ.
+      destruct EQ. destruct H0.
+      * rewrite H. 
+        exploit valid_pointer_add_conv; eauto. intros.
+        rewrite H2. simpl. constructor.
+      * rewrite H.
+        exploit valid_pointer_add_minus1_conv; eauto. intros.
+        rewrite H2. rewrite orb_comm. simpl. constructor.
+    + destruct v1'; try inv H.
+      destruct v2'; try inv H0.
+      rewrite andb_true_iff in EQ. 
+      rewrite orb_true_iff in EQ.
+      destruct EQ. destruct H0.
+      * rewrite H. 
+        exploit valid_pointer_add_conv; eauto. intros.
+        rewrite H2. simpl. constructor.
+      * rewrite H.
+        exploit valid_pointer_add_minus1_conv; eauto. intros.
+        rewrite H2. rewrite orb_comm. simpl. constructor.
+    + constructor.
+  - destruct (negb Archi.ptr64); try constructor.
+    destruct (Int64.eq i0 Int64.zero && 
+              (Mem.valid_pointer m b (Ptrofs.unsigned i) || 
+               Mem.valid_pointer m b (Ptrofs.unsigned i - 1))) eqn:EQ.
+    destruct c; simpl; try constructor.
+    + destruct v1'; try inv H.
+      destruct v2'; try inv H0.
+      rewrite andb_true_iff in EQ. 
+      rewrite orb_true_iff in EQ.
+      destruct EQ. destruct H0.
+      * rewrite H. 
+        exploit valid_pointer_add_conv; eauto. intros.
+        rewrite H2. simpl. constructor.
+      * rewrite H.
+        exploit valid_pointer_add_minus1_conv; eauto. intros.
+        rewrite H2. rewrite orb_comm. simpl. constructor.
+    + destruct v1'; try inv H.
+      destruct v2'; try inv H0.
+      rewrite andb_true_iff in EQ. 
+      rewrite orb_true_iff in EQ.
+      destruct EQ. destruct H0.
+      * rewrite H. 
+        exploit valid_pointer_add_conv; eauto. intros.
+        rewrite H2. simpl. constructor.
+      * rewrite H.
+        exploit valid_pointer_add_minus1_conv; eauto. intros.
+        rewrite H2. rewrite orb_comm. simpl. constructor.
+    + constructor.
+  (* - destruct (negb Archi.ptr64); try constructor. *)
+  (*   destruct (eq_block b b0); subst. *)
+  (*   destruct ((Mem.valid_pointer m b0 (Ptrofs.unsigned i) || Mem.valid_pointer m b0 (Ptrofs.unsigned i - 1)) && *)
+  (*             (Mem.valid_pointer m b0 (Ptrofs.unsigned i0) || Mem.valid_pointer m b0 (Ptrofs.unsigned i0 - 1))) eqn:EQ. *)
+  (*   destruct c; simpl; try constructor. *)
+  (*   + destruct v1'; try inv H. *)
+  (*     destruct v2'; try inv H0. *)
+  (*     rewrite andb_true_iff in EQ.  *)
+  (*     rewrite orb_true_iff in EQ. *)
+  (*     destruct EQ. destruct H0. *)
+  (*     * rewrite H.  *)
+  (*       exploit valid_pointer_add_conv; eauto. intros. *)
+  (*       rewrite H2. simpl. constructor. *)
+  (*     * rewrite H. *)
+  (*       exploit valid_pointer_add_minus1_conv; eauto. intros. *)
+  (*       rewrite H2. rewrite orb_comm. simpl. constructor. *)
+  (*   + destruct v1'; try inv H. *)
+  (*     destruct v2'; try inv H0. *)
+  (*     rewrite andb_true_iff in EQ.  *)
+  (*     rewrite orb_true_iff in EQ. *)
+  (*     destruct EQ. destruct H0. *)
+  (*     * rewrite H.  *)
+  (*       exploit valid_pointer_add_conv; eauto. intros. *)
+  (*       rewrite H2. simpl. constructor. *)
+  (*     * rewrite H. *)
+  (*       exploit valid_pointer_add_minus1_conv; eauto. intros. *)
+  (*       rewrite H2. rewrite orb_comm. simpl. constructor. *)
+  (*   + constructor. *)
+Admitted.
+
+Lemma val_of_optbool_lessdef : forall j v1 v2,
+    opt_lessdef v1 v2 -> Val.inject j (Val.of_optbool v1) (Val.of_optbool v2).
+Proof.
+  intros. destruct v1; auto.
+  simpl. inv H. destruct b; constructor.
+Qed.
+
+Lemma val_negative_inject: forall j v1 v2,
+  Val.inject j v1 v2 -> Val.inject j (Val.negative v1) (Val.negative v2).
+Proof.
+  intros. unfold Val.negative. destruct v1; auto.
+  inv H. auto.
+Qed.
+
+Lemma val_negativel_inject: forall j v1 v2,
+  Val.inject j v1 v2 -> Val.inject j (Val.negativel v1) (Val.negativel v2).
+Proof.
+  intros. unfold Val.negativel. destruct v1; auto.
+  inv H. auto.
+Qed.
+
+Lemma sub_overflow_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> 
+    Val.inject j (Val.sub_overflow v1 v1') (Val.sub_overflow v2 v2').
+Proof.
+  intros. unfold Val.sub_overflow. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma subl_overflow_inject : forall v1 v2 v1' v2' j,
+    Val.inject j v1 v2 -> Val.inject j v1' v2' -> 
+    Val.inject j (Val.subl_overflow v1 v1') (Val.subl_overflow v2 v2').
+Proof.
+  intros. unfold Val.subl_overflow. 
+  destruct v1; auto. inv H. 
+  destruct v1'; auto. inv H0. auto.
+Qed.
+
+Lemma compare_ints_inject: forall j v1 v2 v1' v2' rs rs' m m',
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    regset_inject j rs rs' -> 
+    regset_inject j (compare_ints v1 v2 rs m) (compare_ints v1' v2' rs' m').
+Proof.
+  intros. unfold compare_ints, Asm.compare_ints.
+  repeat apply regset_inject_expand; auto.
+  - unfold Val.cmpu.
+    exploit (cmpu_bool_lessdef j v1 v2); eauto. intros. 
+    exploit val_of_optbool_lessdef; eauto.
+  - unfold Val.cmpu.
+    exploit (cmpu_bool_lessdef j v1 v2); eauto. intros. 
+    exploit val_of_optbool_lessdef; eauto.
+  - apply val_negative_inject. apply Val.sub_inject; auto.
+  - apply sub_overflow_inject; auto.
+Qed.
+
+Lemma compare_longs_inject: forall j v1 v2 v1' v2' rs rs' m m',
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    Mem.inject j (def_frame_inj m) m m' ->
+    regset_inject j rs rs' -> 
+    regset_inject j (compare_longs v1 v2 rs m) (compare_longs v1' v2' rs' m').
+Proof.
+  intros. unfold compare_longs, Asm.compare_longs.
+  repeat apply regset_inject_expand; auto.
+  - unfold Val.cmplu.
+    exploit (cmplu_bool_lessdef j v1 v2 v1' v2' m m' Ceq); eauto. intros.
+    inversion H3; subst.
+    + simpl. auto. 
+    + simpl. apply vofbool_inject.
+  - unfold Val.cmplu.
+    exploit (cmplu_bool_lessdef j v1 v2 v1' v2' m m' Clt); eauto. intros.
+    inversion H3; subst.
+    + simpl. auto. 
+    + simpl. apply vofbool_inject.
+  - apply val_negativel_inject. apply Val.subl_inject; auto.
+  - apply subl_overflow_inject; auto.
+Qed.
+
+Lemma compare_floats_inject: forall j v1 v2 v1' v2' rs rs',
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    regset_inject j rs rs' -> 
+    regset_inject j (compare_floats v1 v2 rs) (compare_floats v1' v2' rs').
+Proof.
+Admitted.
+
+Lemma compare_floats32_inject: forall j v1 v2 v1' v2' rs rs',
+    Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    regset_inject j rs rs' -> 
+    regset_inject j (compare_floats32 v1 v2 rs) (compare_floats32 v1' v2' rs').
+Proof.
+Admitted.
+
 Lemma zero_ext_inject : forall v1 v2 n j,
     Val.inject j v1 v2 -> Val.inject j (Val.zero_ext n v1) (Val.zero_ext n v2).
 Proof.
@@ -1151,11 +1503,6 @@ Proof.
   intros. unfold Val.floatofsingle. 
   destruct v1; auto. inv H. auto.
 Qed.
-
-Inductive opt_val_inject (j:meminj) : option val -> option val -> Prop :=
-| opt_val_inject_none v : opt_val_inject j None v
-| opt_val_inject_some v1 v2 : Val.inject j v1 v2 -> 
-                                opt_val_inject j (Some v1) (Some v2).
 
 Lemma intoffloat_inject : forall j v1 v2,
   Val.inject j v1 v2 -> opt_val_inject j (Val.intoffloat v1) (Val.intoffloat v2).
@@ -1215,12 +1562,6 @@ Proof.
   inv H. constructor; auto.
 Qed.
   
-Lemma maketotal_inject : forall v1 v2 j,
-    opt_val_inject j v1 v2 -> Val.inject j (Val.maketotal v1) (Val.maketotal v2).
-Proof.
-  intros. inversion H; simpl; subst; auto.
-Qed.
-
 Ltac solve_store_load :=
   match goal with
   | [ H : Asm.exec_instr _ _ _ _ _ = Next _ _ |- _ ] =>
@@ -1242,7 +1583,10 @@ Hint Resolve nextinstr_nf_pres_inject nextinstr_pres_inject regset_inject_expand
   mullhs_inject mullhu_inject shr_inject shrl_inject or_inject orl_inject
   xor_inject xorl_inject and_inject andl_inject notl_inject
   shl_inject shll_inject vzero_inject notint_inject
-  shru_inject shrlu_inject ror_inject rorl_inject: inject_db.
+  shru_inject shrlu_inject ror_inject rorl_inject
+  compare_ints_inject compare_longs_inject compare_floats_inject compare_floats32_inject
+  addf_inject subf_inject mulf_inject divf_inject negf_inject absf_inject
+  addfs_inject subfs_inject mulfs_inject divfs_inject negfs_inject absfs_inject: inject_db.
 
 
 Ltac solve_match_states :=
@@ -1295,14 +1639,38 @@ Proof.
   - admit.
   - admit.
      
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
-  - admit.
+  - (* Pcmov *)
+    admit.
+
+  - (* Psetcc *)
+    admit.
+
+  - (* Pjmp_l *)
+    admit.
+    
+  - (* Pjmp_s *)
+    admit.
+
+  - (* Pjcc *)
+    admit.
+
+  - (* Pjcc2 *)
+    admit.
+
+  - (* Pjmptbl *)
+    admit.
+
+  - (* Pcall_s *)
+    admit.
+
+  - (* Pcall_r *)
+    admit.
+
+  - (* Pallocframe *)
+    admit.
+
+  - (* Pfreeframe *)
+    admit.
 
 Admitted.
 
