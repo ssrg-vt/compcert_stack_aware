@@ -5294,6 +5294,30 @@ Proof.
   intros. eapply valid_access_inj; eauto. apply mi_inj; eauto.
 Qed.
 
+Theorem weak_valid_pointer_nonempty_perm:
+  forall m b ofs,
+  weak_valid_pointer m b ofs = true <-> 
+  (perm m b ofs Cur Nonempty) \/ (perm m b (ofs-1) Cur Nonempty).
+Proof.
+  intros. unfold weak_valid_pointer. unfold valid_pointer.
+  destruct (perm_dec m b ofs Cur Nonempty); destruct (perm_dec m b (ofs-1) Cur Nonempty); simpl;
+  intuition congruence.
+Qed.
+
+Lemma weak_valid_pointer_size_bounds : forall f g b1 b2 m1 m2 ofs delta,
+  f b1 = Some (b2, delta) ->
+  inject f g m1 m2 ->
+  weak_valid_pointer m1 b1 (Ptrofs.unsigned ofs) = true ->
+  0 <= delta <= Ptrofs.max_unsigned /\
+  0 <= Ptrofs.unsigned ofs + delta <= Ptrofs.max_unsigned.
+Proof.
+  intros. exploit Mem.mi_representable; eauto. intros [A B].
+  rewrite weak_valid_pointer_nonempty_perm in H1.
+  exploit B; eauto. 
+  destruct H1; eauto with mem. intros.
+  generalize (Ptrofs.unsigned_range ofs). omega.
+Qed.
+
 Theorem valid_pointer_inject:
   forall f g m1 m2 b1 ofs b2 delta,
   f b1 = Some(b2, delta) ->
@@ -5308,6 +5332,21 @@ Proof.
   eapply inject_perm_condition_writable; constructor.
 Qed.
 
+Theorem valid_pointer_inject' : 
+  forall f g m1 m2 b1 ofs b2 delta,
+    f b1 = Some(b2, delta) ->
+    inject f g m1 m2 ->
+    valid_pointer m1 b1 (Ptrofs.unsigned ofs) = true ->
+    valid_pointer m2 b2 (Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta))) = true.
+Proof.
+  intros. exploit valid_pointer_inject; eauto. intros.
+  intros. unfold Ptrofs.add.
+  exploit weak_valid_pointer_size_bounds; eauto. 
+  erewrite weak_valid_pointer_spec; eauto.
+  intros [A B].
+  repeat rewrite Ptrofs.unsigned_repr; auto.
+Qed.
+
 Theorem weak_valid_pointer_inject:
   forall f g m1 m2 b1 ofs b2 delta,
   f b1 = Some(b2, delta) ->
@@ -5319,6 +5358,20 @@ Proof.
   replace (ofs + delta - 1) with ((ofs - 1) + delta) by omega.
   intros []; eauto using valid_pointer_inject.
 Qed.
+
+Theorem weak_valid_pointer_inject': 
+  forall f g m1 m2 b1 ofs b2 delta,
+  f b1 = Some(b2, delta) ->
+  inject f g m1 m2 ->
+  weak_valid_pointer m1 b1 (Ptrofs.unsigned ofs) = true ->
+  weak_valid_pointer m2 b2 (Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta))) = true.
+Proof.
+  intros. exploit weak_valid_pointer_inject; eauto.
+  intros. unfold Ptrofs.add.
+  exploit weak_valid_pointer_size_bounds; eauto. intros [A B].
+  repeat rewrite Ptrofs.unsigned_repr; auto.
+Qed.
+
 
 (** The following lemmas establish the absence of g machine integer overflow
   during address computations. *)
@@ -8239,7 +8292,9 @@ Proof.
   intros; eapply range_perm_inject; eauto.
   intros; eapply valid_access_inject; eauto.
   intros; eapply valid_pointer_inject; eauto.
+  intros; eapply valid_pointer_inject'; eauto.
   intros; eapply weak_valid_pointer_inject; eauto.
+  intros; eapply weak_valid_pointer_inject'; eauto.
   intros; eapply address_inject; eauto.
   intros; eapply address_inject' ; eauto.
   intros; eapply valid_pointer_inject_no_overflow; eauto.

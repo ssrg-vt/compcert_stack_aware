@@ -1230,42 +1230,77 @@ Proof.
   destruct v1; auto. inv H. auto.
 Qed.
 
-Lemma cmpu_bool_lessdef : forall j v1 v2 v1' v2' vp vp' c,
+(* Injection for cmpu_bool and cmplu_bool *)
+Lemma valid_ptr_inj : forall j m m',
+    Mem.inject j (def_frame_inj m) m m' ->
+    forall b i b' delta,                                  
+      j b = Some (b', delta) ->
+      Mem.valid_pointer m b (Ptrofs.unsigned i) = true ->
+      Mem.valid_pointer m' b' (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr delta))) = true.
+Proof.
+  intros. eapply Mem.valid_pointer_inject'; eauto.
+Qed.
+
+
+Lemma weak_valid_ptr_inj: forall j m m',
+  Mem.inject j (def_frame_inj m) m m' ->
+  forall b1 ofs b2 delta,
+  j b1 = Some(b2, delta) ->
+  Mem.weak_valid_pointer m b1 (Ptrofs.unsigned ofs) = true ->
+  Mem.weak_valid_pointer m' b2 (Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta))) = true.
+Proof.
+  intros. eapply Mem.weak_valid_pointer_inject'; eauto.
+Qed.
+
+Lemma weak_valid_ptr_no_overflow: forall j m m',
+  Mem.inject j (def_frame_inj m) m m' ->
+  forall b1 ofs b2 delta,
+  j b1 = Some(b2, delta) ->
+  Mem.weak_valid_pointer m b1 (Ptrofs.unsigned ofs) = true ->
+  0 <= Ptrofs.unsigned ofs + Ptrofs.unsigned (Ptrofs.repr delta) <= Ptrofs.max_unsigned.
+Proof.
+  intros. eapply Mem.weak_valid_pointer_inject_no_overflow; eauto.
+Qed.
+
+Lemma valid_different_ptrs_inj: forall j m m',
+  Mem.inject j (def_frame_inj m) m m' ->
+  forall b1 ofs1 b2 ofs2 b1' delta1 b2' delta2,
+  b1 <> b2 ->
+  Mem.valid_pointer m b1 (Ptrofs.unsigned ofs1) = true ->
+  Mem.valid_pointer m b2 (Ptrofs.unsigned ofs2) = true ->
+  j b1 = Some (b1', delta1) ->
+  j b2 = Some (b2', delta2) ->
+  b1' <> b2' \/
+  Ptrofs.unsigned (Ptrofs.add ofs1 (Ptrofs.repr delta1)) <> Ptrofs.unsigned (Ptrofs.add ofs2 (Ptrofs.repr delta2)).
+Proof.
+  intros. eapply Mem.different_pointers_inject; eauto.
+Qed.
+
+Definition cmpu_bool_inject := fun j m m' (MINJ: Mem.inject j (def_frame_inj m) m m') =>
+                     Val.cmpu_bool_inject j (Mem.valid_pointer m) (Mem.valid_pointer m')
+                                          (valid_ptr_inj j m m' MINJ)
+                                          (weak_valid_ptr_inj j m m' MINJ)
+                                          (weak_valid_ptr_no_overflow j m m' MINJ)
+                                          (valid_different_ptrs_inj j m m' MINJ).
+
+Lemma cmpu_bool_lessdef : forall j v1 v2 v1' v2' m m' c,
     Val.inject j v1 v1' -> Val.inject j v2 v2' ->
-    opt_lessdef (Val.cmpu_bool vp c v1 v2)
-                (Val.cmpu_bool vp' c v1' v2').
+    Mem.inject j (def_frame_inj m) m m' ->
+    opt_lessdef (Val.cmpu_bool (Mem.valid_pointer m) c v1 v2)
+                (Val.cmpu_bool (Mem.valid_pointer m') c v1' v2').
 Proof.
-  intros. unfold Val.cmpu_bool. destruct v1; destruct v2; try constructor.
-  destruct v1'; try inv H.
-  destruct v2'; try inv H0.
-  constructor.
+  intros. destruct (Val.cmpu_bool (Mem.valid_pointer m) c v1 v2) eqn:EQ.
+  - exploit (cmpu_bool_inject j m m' H1 c v1 v2); eauto.
+    intros. rewrite H2. constructor.
+  - constructor.
 Qed.
 
-Lemma valid_pointer_add_conv : forall m m' b b' i j delta, 
-    Mem.valid_pointer m b (Ptrofs.unsigned i) = true ->
-    Mem.inject j (def_frame_inj m) m m' ->
-    j b = Some (b', delta) ->
-    Mem.valid_pointer m' b' (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr delta))) = true.
-Proof.
-  intros. exploit Mem.valid_pointer_inject; eauto. intros.
-  rewrite Mem.valid_pointer_nonempty_perm in H.
-  exploit Mem.address_inject; eauto. intros.
-  rewrite H3. auto.
-Qed.
-
-Lemma valid_pointer_add_minus1_conv : forall m m' b b' i j delta, 
-    Mem.valid_pointer m b (Ptrofs.unsigned i - 1) = true ->
-    Mem.inject j (def_frame_inj m) m m' ->
-    j b = Some (b', delta) ->
-    Mem.valid_pointer m' b' (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr delta)) - 1) = true.
-Admitted.
-(* Proof. *)
-(*   intros. exploit Mem.valid_pointer_inject; eauto. intros. *)
-(*   rewrite Mem.valid_pointer_nonempty_perm in H. *)
-(*   exploit Mem.address_inject; eauto. intros. *)
-(*   rewrite H3. auto. *)
-(* Qed. *)
-
+Definition cmplu_bool_inject := fun j m m' (MINJ: Mem.inject j (def_frame_inj m) m m') =>
+                     Val.cmplu_bool_inject j (Mem.valid_pointer m) (Mem.valid_pointer m')
+                                           (valid_ptr_inj j m m' MINJ)
+                                           (weak_valid_ptr_inj j m m' MINJ)
+                                           (weak_valid_ptr_no_overflow j m m' MINJ)
+                                           (valid_different_ptrs_inj j m m' MINJ).
 
 
 Lemma cmplu_bool_lessdef : forall j v1 v2 v1' v2' m m' c,
@@ -1274,94 +1309,11 @@ Lemma cmplu_bool_lessdef : forall j v1 v2 v1' v2' m m' c,
     opt_lessdef (Val.cmplu_bool (Mem.valid_pointer m) c v1 v2)
                 (Val.cmplu_bool (Mem.valid_pointer m') c v1' v2').
 Proof.
-  intros. unfold Val.cmplu_bool. destruct v1; destruct v2; try constructor.
-  - destruct v1'; try inv H.
-    destruct v2'; try inv H0. constructor.
-  - destruct (negb Archi.ptr64); try constructor.
-    destruct (Int64.eq i Int64.zero && 
-              (Mem.valid_pointer m b (Ptrofs.unsigned i0) || 
-               Mem.valid_pointer m b (Ptrofs.unsigned i0 - 1))) eqn:EQ.
-    destruct c; simpl; try constructor.
-    + destruct v1'; try inv H.
-      destruct v2'; try inv H0.
-      rewrite andb_true_iff in EQ. 
-      rewrite orb_true_iff in EQ.
-      destruct EQ. destruct H0.
-      * rewrite H. 
-        exploit valid_pointer_add_conv; eauto. intros.
-        rewrite H2. simpl. constructor.
-      * rewrite H.
-        exploit valid_pointer_add_minus1_conv; eauto. intros.
-        rewrite H2. rewrite orb_comm. simpl. constructor.
-    + destruct v1'; try inv H.
-      destruct v2'; try inv H0.
-      rewrite andb_true_iff in EQ. 
-      rewrite orb_true_iff in EQ.
-      destruct EQ. destruct H0.
-      * rewrite H. 
-        exploit valid_pointer_add_conv; eauto. intros.
-        rewrite H2. simpl. constructor.
-      * rewrite H.
-        exploit valid_pointer_add_minus1_conv; eauto. intros.
-        rewrite H2. rewrite orb_comm. simpl. constructor.
-    + constructor.
-  - destruct (negb Archi.ptr64); try constructor.
-    destruct (Int64.eq i0 Int64.zero && 
-              (Mem.valid_pointer m b (Ptrofs.unsigned i) || 
-               Mem.valid_pointer m b (Ptrofs.unsigned i - 1))) eqn:EQ.
-    destruct c; simpl; try constructor.
-    + destruct v1'; try inv H.
-      destruct v2'; try inv H0.
-      rewrite andb_true_iff in EQ. 
-      rewrite orb_true_iff in EQ.
-      destruct EQ. destruct H0.
-      * rewrite H. 
-        exploit valid_pointer_add_conv; eauto. intros.
-        rewrite H2. simpl. constructor.
-      * rewrite H.
-        exploit valid_pointer_add_minus1_conv; eauto. intros.
-        rewrite H2. rewrite orb_comm. simpl. constructor.
-    + destruct v1'; try inv H.
-      destruct v2'; try inv H0.
-      rewrite andb_true_iff in EQ. 
-      rewrite orb_true_iff in EQ.
-      destruct EQ. destruct H0.
-      * rewrite H. 
-        exploit valid_pointer_add_conv; eauto. intros.
-        rewrite H2. simpl. constructor.
-      * rewrite H.
-        exploit valid_pointer_add_minus1_conv; eauto. intros.
-        rewrite H2. rewrite orb_comm. simpl. constructor.
-    + constructor.
-  (* - destruct (negb Archi.ptr64); try constructor. *)
-  (*   destruct (eq_block b b0); subst. *)
-  (*   destruct ((Mem.valid_pointer m b0 (Ptrofs.unsigned i) || Mem.valid_pointer m b0 (Ptrofs.unsigned i - 1)) && *)
-  (*             (Mem.valid_pointer m b0 (Ptrofs.unsigned i0) || Mem.valid_pointer m b0 (Ptrofs.unsigned i0 - 1))) eqn:EQ. *)
-  (*   destruct c; simpl; try constructor. *)
-  (*   + destruct v1'; try inv H. *)
-  (*     destruct v2'; try inv H0. *)
-  (*     rewrite andb_true_iff in EQ.  *)
-  (*     rewrite orb_true_iff in EQ. *)
-  (*     destruct EQ. destruct H0. *)
-  (*     * rewrite H.  *)
-  (*       exploit valid_pointer_add_conv; eauto. intros. *)
-  (*       rewrite H2. simpl. constructor. *)
-  (*     * rewrite H. *)
-  (*       exploit valid_pointer_add_minus1_conv; eauto. intros. *)
-  (*       rewrite H2. rewrite orb_comm. simpl. constructor. *)
-  (*   + destruct v1'; try inv H. *)
-  (*     destruct v2'; try inv H0. *)
-  (*     rewrite andb_true_iff in EQ.  *)
-  (*     rewrite orb_true_iff in EQ. *)
-  (*     destruct EQ. destruct H0. *)
-  (*     * rewrite H.  *)
-  (*       exploit valid_pointer_add_conv; eauto. intros. *)
-  (*       rewrite H2. simpl. constructor. *)
-  (*     * rewrite H. *)
-  (*       exploit valid_pointer_add_minus1_conv; eauto. intros. *)
-  (*       rewrite H2. rewrite orb_comm. simpl. constructor. *)
-  (*   + constructor. *)
-Admitted.
+  intros. destruct (Val.cmplu_bool (Mem.valid_pointer m) c v1 v2) eqn:EQ.
+  - exploit (cmplu_bool_inject j m m' H1 c v1 v2); eauto.
+    intros. rewrite H2. constructor.
+  - constructor.
+Qed.
 
 Lemma val_of_optbool_lessdef : forall j v1 v2,
     opt_lessdef v1 v2 -> Val.inject j (Val.of_optbool v1) (Val.of_optbool v2).
@@ -1404,6 +1356,7 @@ Qed.
 
 Lemma compare_ints_inject: forall j v1 v2 v1' v2' rs rs' m m',
     Val.inject j v1 v1' -> Val.inject j v2 v2' ->
+    Mem.inject j (def_frame_inj m) m m' ->
     regset_inject j rs rs' -> 
     regset_inject j (compare_ints v1 v2 rs m) (compare_ints v1' v2' rs' m').
 Proof.

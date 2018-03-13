@@ -1172,12 +1172,26 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   valid_pointer m1 b1 ofs = true ->
   valid_pointer m2 b2 (ofs + delta) = true;
 
+ valid_pointer_inject' {injperm: InjectPerm}: 
+  forall f g m1 m2 b1 ofs b2 delta,
+    f b1 = Some(b2, delta) ->
+    inject f g m1 m2 ->
+    valid_pointer m1 b1 (Ptrofs.unsigned ofs) = true ->
+    valid_pointer m2 b2 (Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta))) = true;
+
  weak_valid_pointer_inject {injperm: InjectPerm}:
   forall f g m1 m2 b1 ofs b2 delta,
   f b1 = Some(b2, delta) ->
   inject f g m1 m2 ->
   weak_valid_pointer m1 b1 ofs = true ->
   weak_valid_pointer m2 b2 (ofs + delta) = true;
+
+ weak_valid_pointer_inject' {injperm: InjectPerm}: 
+  forall f g m1 m2 b1 ofs b2 delta,
+  f b1 = Some(b2, delta) ->
+  inject f g m1 m2 ->
+  weak_valid_pointer m1 b1 (Ptrofs.unsigned ofs) = true ->
+  weak_valid_pointer m2 b2 (Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta))) = true;
 
  address_inject {injperm: InjectPerm}:
   forall f g m1 m2 b1 ofs1 b2 delta p,
