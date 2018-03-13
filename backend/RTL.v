@@ -257,13 +257,14 @@ Inductive step : state -> trace -> state -> Prop :=
       step (State s f (Vptr stk Ptrofs.zero) pc rs m)
         E0 (Callstate s fd rs##args m' (fn_stack_requirements id))
   | exec_Ibuiltin:
-      forall s f sp pc rs m ef args res pc' vargs t vres m',
+      forall s f sp pc rs m ef args res pc' vargs t vres m' m'',
       (fn_code f)!pc = Some(Ibuiltin ef args res pc') ->
       eval_builtin_args ge (fun r => rs#r) sp m args vargs ->
-      external_call ef ge vargs m t vres m' ->
-      forall BUILTIN_ENABLED : builtin_enabled ef,
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
+      forall (BUILTIN_ENABLED : builtin_enabled ef),
         step (State s f sp pc rs m)
-             t (State s f sp pc' (regmap_setres res vres rs) m')
+             t (State s f sp pc' (regmap_setres res vres rs) m'')
   | exec_Icond:
       forall s f sp pc rs m cond args ifso ifnot b pc',
       (fn_code f)!pc = Some(Icond cond args ifso ifnot) ->
@@ -371,7 +372,12 @@ Proof.
     }
     inversion H; subst; auto.
     + exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
-      exists (State s0 f sp pc' (regmap_setres res vres2 rs) m2). eapply exec_Ibuiltin; eauto.
+      destruct (Mem.unrecord_stack_adt _ _ H5) as (b & EQ).
+      edestruct (Mem.unrecord_stack_block_succeeds m2) as (m2' & USB & STK).
+      apply external_call_stack_blocks in EC2.
+      repeat rewrite_stack_blocks.
+      eauto.
+      eexists. eapply exec_Ibuiltin; eauto.
     + exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
       exists (Returnstate s0 vres2 m2). econstructor; eauto.
   - (* trace length *)

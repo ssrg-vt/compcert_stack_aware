@@ -1010,15 +1010,6 @@ Qed.
 
 (** * Correctness of saving and restoring of callee-save registers *)
 
-Lemma store_stack_no_abstract:
-  forall sp ty o v,
-    Mem.abstract_unchanged (fun m m' => store_stack m sp ty o v = Some m').
-Proof.
-  unfold store_stack, Mem.storev.
-  red; simpl; intros.
-  destruct (Val.offset_ptr sp o); try discriminate.
-  eapply Mem.store_no_abstract; eauto.
-Qed.
 
 Lemma store_stack_is_stack_top:
   forall m sp ty o v m',
@@ -2440,17 +2431,6 @@ Qed.
 
 Variables init_m : mem.
 
-Definition stack_blocks_of_callstack (l : list Mach.stackframe) : list (option (block * frame_info)) :=
-  map (fun x =>
-         match x with
-           Stackframe fb sp _ _ =>
-           match Genv.find_funct_ptr tge fb with
-             Some (Internal f) =>
-             Some (sp, Mach.fn_frame f)
-           | _ => None
-           end
-         end) l.
-
 Definition init_sp_has_stackinfo (m: mem) : Prop :=
   match init_sp with
     Vptr b i1 =>
@@ -2467,87 +2447,6 @@ Definition init_sp_has_stackinfo (m: mem) : Prop :=
   end.
 
 (**)
-
-Inductive callstack_function_defined : list stackframe -> Prop :=
-| cfd_empty:
-    callstack_function_defined nil
-| cfd_cons:
-    forall fb sp' ra c' cs' trf
-      (FINDF: Genv.find_funct_ptr tge fb = Some (Internal trf))
-      (CFD: callstack_function_defined cs'),
-      callstack_function_defined (Stackframe fb sp' ra c' :: cs').
-
-Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
-| list_prefix_nil s: list_prefix nil s
-| list_prefix_cons lsp s f r sp bi
-                       (REC: list_prefix lsp s)
-                       (BLOCKS: frame_adt_blocks f = (sp,bi)::nil):
-    list_prefix (Some (sp,bi) :: lsp) ( (f :: r) :: s).
-
-Inductive call_stack_consistency: Mach.state -> Prop :=
-| call_stack_consistency_intro:
-    forall c cs' fb sp' rs m' tf
-      (FIND: Genv.find_funct_ptr tge fb = Some (Internal tf))
-      (CallStackConsistency: list_prefix ((Some (sp', Mach.fn_frame tf))::stack_blocks_of_callstack cs') (Mem.stack_adt m'))
-      (CFD: callstack_function_defined cs'),
-      call_stack_consistency (Mach.State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
-| call_stack_consistency_call:
-    forall cs' fb rs m' 
-      (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (Mem.stack_adt m'))
-      (CFD: callstack_function_defined cs'),
-      call_stack_consistency (Mach.Callstate cs' fb rs m')
-| call_stack_consistency_return:
-    forall cs' rs m' 
-      (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (Mem.stack_adt m'))
-      (CFD: callstack_function_defined cs'),
-      call_stack_consistency (Mach.Returnstate cs' rs m').
-
-Lemma csc_step:
-  forall s1 t s2,
-    step tge s1 t s2 ->
-    (forall fb f, Genv.find_funct_ptr tge fb = Some (Internal f) ->
-             frame_size (fn_frame f) = fn_stacksize f) ->
-    call_stack_consistency s1 ->
-    call_stack_consistency s2.
-Proof.
-  destruct 1; simpl; intros SIZECORRECT CSC; inv CSC; try now (econstructor; eauto).
-  - econstructor; eauto. erewrite store_stack_no_abstract; eauto.
-  - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
-  - econstructor. simpl in *. inv CallStackConsistency.
-    rewrite FIND.
-    econstructor; eauto.
-    econstructor; eauto.
-  - econstructor. simpl in *.
-    inv CallStackConsistency.
-    exploit Mem.unrecord_stack_adt. eauto. intros (b & EQ).
-    erewrite Mem.free_no_abstract in EQ; eauto.
-    rewrite <- H8 in EQ; inv EQ. auto. auto.
-  - econstructor. eauto.
-    erewrite <- external_call_stack_blocks; eauto.
-    eauto.
-  - econstructor. simpl in *.
-    inv CallStackConsistency.
-    exploit Mem.unrecord_stack_adt. eauto. intros (b & EQ).
-    erewrite Mem.free_no_abstract in EQ; eauto.
-    rewrite <- H7 in EQ; inv EQ. auto. auto.
-  - econstructor. eauto.
-    unfold store_stack in H2.
-    repeat rewrite_stack_blocks.
-    revert EQ1 EQ2; repeat rewrite_stack_blocks. intros A B. inv B.
-    econstructor; eauto.
-    erewrite Mem.record_stack_blocks_stack_adt. 2: eauto.
-    rewrite store_stack_no_abstract; eauto.
-    erewrite Mem.alloc_no_abstract; eauto.
-    destruct CallStackConsistency as (l1 & l2 & A & B).
-    repeat eexists; eauto. 2: constructor. simpl. f_equal. eauto.
-    auto. auto. auto.
-  - econstructor.
-    erewrite <- external_call_stack_blocks; eauto.
-    eauto.
-  - inv CFD. econstructor; eauto.
-    destruct CallStackConsistency as (l1 & l2 & A & B).
-    repeat eexists; eauto. simpl in B. rewrite FINDF in B. auto.
-Qed.
 
 (*  *)
 

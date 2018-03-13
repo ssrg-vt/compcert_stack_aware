@@ -194,7 +194,7 @@ Inductive eval_expr: letenv -> expr -> val -> Prop :=
       eval_expr le (Eletvar n) v
   | eval_Ebuiltin: forall le ef al vl v,
       eval_exprlist le al vl ->
-      external_call ef ge vl m E0 v m ->
+      external_call ef ge vl (Mem.push_new_stage m) E0 v (Mem.push_new_stage m) ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
         eval_expr le (Ebuiltin ef al) v
   | eval_Eexternal: forall le id sg al b ef vl v,
@@ -377,12 +377,13 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Stailcall sig a bl) k (Vptr sp Ptrofs.zero) e m)
         E0 (Callstate fd vargs (call_cont k) m' (fn_stack_requirements id))
 
-  | step_builtin: forall f res ef al k sp e m vl t v m',
+  | step_builtin: forall f res ef al k sp e m vl t v m' m'',
       list_forall2 (eval_builtin_arg sp e m) al vl ->
-      external_call ef ge vl m t v m' ->
+      external_call ef ge vl (Mem.push_new_stage m) t v m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
       step (State f (Sbuiltin res ef al) k sp e m)
-         t (State f Sskip k sp (set_builtin_res res v e) m')
+         t (State f Sskip k sp (set_builtin_res res v e) m'')
 
   | step_seq: forall f s1 s2 k sp e m,
       step (State f (Sseq s1 s2) k sp e m)
@@ -604,6 +605,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
                          (MSA1: match_stack_adt (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack_adt m)),
       stack_inv (State f s k (Vptr sp o) e m)
   | stack_inv_call: forall k fd args m sz
+                      (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
                       (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
       stack_inv (Callstate fd args k m sz)
   | stack_inv_return: forall k res m 
@@ -638,6 +640,17 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
     destruct 1; simpl; intros SI;
       inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
         try solve [inv MSA1; simpl; rewrite ?funs_of_call_cont; eauto].
+    - constructor; red; easy.
+    - erewrite <- Mem.free_stack_blocks by eauto.
+      eapply Mem.noperm_top.
+      rewrite_stack_blocks. inv MSA1.
+      intros b IFR o k0 p0 P.
+      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+      eapply Mem.perm_free_2 in P; eauto.
+      exploit Mem.agree_perms_mem.
+      rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+      eapply Mem.perm_free_3 in P; eauto.
+      rewrite SIZE; auto.
     - erewrite find_label_funs_of_cont by eauto.
       rewrite funs_of_call_cont.  auto.
     - apply Mem.alloc_stack_blocks in H. clear H0.
@@ -652,6 +665,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
       stack_inv S.
   Proof.
     intros; inv INIT; econstructor.
+    rewrite_stack_blocks; constructor. red; easy.
     constructor.
   Qed.
 

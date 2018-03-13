@@ -2718,17 +2718,23 @@ Proof.
     rewrite H2, H3 in H0. simpl in H0. inv H0. rewrite H5. reflexivity.
 Qed.
 
+Lemma extends_maybe_push:
+  forall m1 m2,
+    Mem.extends m1 m2 ->
+    forall b: bool,
+      Mem.extends (if b then m1 else Mem.push_new_stage m1)
+                  (if b then m2 else Mem.push_new_stage m2).
+Proof.
+  intros; destruct b; eauto using extends_push.
+Qed.
 
-    Lemma extends_maybe_push:
-      forall m1 m2,
-        Mem.extends m1 m2 ->
-        forall b: bool,
-          Mem.extends (if b then m1 else Mem.push_new_stage m1)
-                      (if b then m2 else Mem.push_new_stage m2).
-    Proof.
-      intros; destruct b; eauto using extends_push.
-    Qed.
-
+Lemma push_new_stage_loadv:
+  forall chunk m v,
+    Mem.loadv chunk (Mem.push_new_stage m) v = Mem.loadv chunk m v.
+Proof.
+  intros; destruct v; simpl; auto. apply Mem.push_new_stage_load.
+Qed.
+    
 End WITHMEMORYMODEL.
 
 End Mem.

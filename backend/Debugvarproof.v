@@ -380,12 +380,14 @@ Proof.
   econstructor.
   constructor. eexact E1. constructor.
   simpl; constructor.
+  apply Mem.unrecord_push.
   simpl; auto.
   auto. traceEq.
 - eapply star_step; eauto.
   econstructor.
   constructor.
   simpl; constructor.
+  apply Mem.unrecord_push.
   simpl; auto.
   auto. traceEq.
 Qed.

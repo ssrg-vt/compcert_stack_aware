@@ -358,22 +358,23 @@ Inductive step: state -> trace -> state -> Prop :=
         E0 (Callstate (Stackframe fb sp (Vptr fb ra) c :: s)
                        f' rs (Mem.push_new_stage m))
   | exec_Mtailcall:
-      forall s fb stk soff sig ros c rs m f f' m_ m',
+      forall s fb stk soff sig ros c rs m f f' m',
       find_function_ptr ge ros rs = Some f' ->
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       (* load_stack m (Vptr stk soff) Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra s) ->
-      Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m_ ->
+      Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
       step (State s fb (Vptr stk soff) (Mtailcall sig ros :: c) rs m)
         E0 (Callstate s f' rs m')
   | exec_Mbuiltin:
-      forall s f sp rs m ef args res b vargs t vres rs' m',
+      forall s f sp rs m ef args res b vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->                                          
       rs' = set_res res vres (undef_regs (destroyed_by_builtin ef) rs) ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
       step (State s f sp (Mbuiltin ef args res :: b) rs m)
-         t (State s f sp b rs' m')
+         t (State s f sp b rs' m'')
   | exec_Mgoto:
       forall s fb f sp lbl c rs m c',
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
@@ -423,18 +424,105 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Callstate s fb rs m)
         E0 (State s fb sp f.(fn_code) rs' m1_)
   | exec_function_external:
-      forall s fb rs m t rs' ef args res m' m'',
+      forall s fb rs m t rs' ef args res m',
       Genv.find_funct_ptr ge fb = Some (External ef) ->
       extcall_arguments rs m (parent_sp s) (ef_sig ef) args ->
       external_call ef ge args m t res m' ->
       rs' = set_pair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
       step (Callstate s fb rs m)
-         t (Returnstate s rs' m'')
+         t (Returnstate s rs' m')
   | exec_return:
       forall s f sp ra c rs m m',
         Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate (Stackframe f sp ra c :: s) rs m)
         E0 (State s f (Vptr sp Ptrofs.zero) c rs m').
+
+
+Inductive callstack_function_defined : list stackframe -> Prop :=
+| cfd_empty:
+    callstack_function_defined nil
+| cfd_cons:
+    forall fb sp' ra c' cs' trf
+      (FINDF: Genv.find_funct_ptr ge fb = Some (Internal trf))
+      (CFD: callstack_function_defined cs'),
+      callstack_function_defined (Stackframe fb sp' ra c' :: cs').
+
+Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
+| list_prefix_nil s: list_prefix nil s
+| list_prefix_cons lsp s f r sp bi
+                       (REC: list_prefix lsp s)
+                       (BLOCKS: frame_adt_blocks f = (sp,bi)::nil):
+    list_prefix (Some (sp,bi) :: lsp) ( (f :: r) :: s).
+
+
+Definition stack_blocks_of_callstack (l : list stackframe) : list (option (block * frame_info)) :=
+  map (fun x =>
+         match x with
+           Stackframe fb sp _ _ =>
+           match Genv.find_funct_ptr ge fb with
+             Some (Internal f) =>
+             Some (sp, fn_frame f)
+           | _ => None
+           end
+         end) l.
+
+Inductive call_stack_consistency: state -> Prop :=
+| call_stack_consistency_intro:
+    forall c cs' fb sp' rs m' tf
+      (FIND: Genv.find_funct_ptr ge fb = Some (Internal tf))
+      (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack cs') (Mem.stack_adt m'))
+      (CFD: callstack_function_defined cs'),
+      call_stack_consistency (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
+| call_stack_consistency_call:
+    forall cs' fb rs m' 
+      (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
+      (CFD: callstack_function_defined cs'),
+      call_stack_consistency (Callstate cs' fb rs m')
+| call_stack_consistency_return:
+    forall cs' rs m' 
+      (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
+      (CFD: callstack_function_defined cs'),
+      call_stack_consistency (Returnstate cs' rs m').
+
+Lemma store_stack_no_abstract:
+  forall sp ty o v,
+    Mem.abstract_unchanged (fun m m' => store_stack m sp ty o v = Some m').
+Proof.
+  unfold store_stack, Mem.storev.
+  red; simpl; intros.
+  destruct (Val.offset_ptr sp o); try discriminate.
+  eapply Mem.store_no_abstract; eauto.
+Qed.
+
+Lemma csc_step:
+  forall s1 t s2,
+    step s1 t s2 ->
+    (forall fb f, Genv.find_funct_ptr ge fb = Some (Internal f) ->
+             frame_size (fn_frame f) = fn_stacksize f) ->
+    call_stack_consistency s1 ->
+    call_stack_consistency s2.
+Proof.
+  destruct 1; simpl; intros SIZECORRECT CSC; inv CSC; try now (econstructor; eauto).
+  - econstructor; eauto. erewrite store_stack_no_abstract; eauto.
+  - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
+  - econstructor. simpl in *. 
+    rewrite FIND. repeat rewrite_stack_blocks. simpl. auto.
+    econstructor; eauto.
+  - econstructor. repeat rewrite_stack_blocks. auto.
+    inv CallStackConsistency; simpl; auto. auto.
+  - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
+  - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
+    inv CallStackConsistency. eauto.
+  - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
+    rewrite store_stack_no_abstract in EQ1 by eauto.
+    revert EQ1; rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
+    constructor; auto.
+  - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
+  - inv CFD. econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
+    rewrite EQ in *; simpl in *.
+    rewrite FINDF in CallStackConsistency.
+    inv CallStackConsistency. constructor; auto.
+Qed.
 
 End RELSEM.
 

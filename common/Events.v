@@ -2097,7 +2097,26 @@ Qed.
 
 End EVAL_BUILTIN_ARG_INJECT.
 
+Lemma eval_builtin_arg_push:
+  forall {A} ge (e: A -> val) sp m a v,
+    eval_builtin_arg ge e sp m a v <->
+    eval_builtin_arg ge e sp (Mem.push_new_stage m) a v.
+Proof.
+  intros A ge0 e sp m a v; split; induction 1; econstructor; eauto;
+    repeat rewrite ? Mem.push_new_stage_loadv in *; eauto.
+  rewrite Mem.push_new_stage_loadv in H. eauto.
+  rewrite Mem.push_new_stage_loadv in H. eauto.
+Qed.
 
+Lemma eval_builtin_args_push:
+  forall {A} ge (e: A -> val) sp m al vl,
+    eval_builtin_args ge e sp m al vl <->
+    eval_builtin_args ge e sp (Mem.push_new_stage m) al vl.
+Proof.
+  unfold eval_builtin_args.
+  intros; apply list_forall2_iff.
+  intros; apply eval_builtin_arg_push.
+Qed.
 
 End WITHEXTERNALCALLS.
 
@@ -2106,7 +2125,7 @@ Hint Constructors eval_builtin_arg: barg.
 
 Ltac rewrite_perms_fw :=
   match goal with
-  | H1: Mem.record_stack_blocks _ _ ?m |- Mem.perm ?m _ _ _ _ =>
+  | H1: Mem.record_stack_blocks _ _ = Some ?m |- Mem.perm ?m _ _ _ _ =>
     eapply (Mem.record_stack_block_perm' _ _ _ H1)
   | H1: Mem.alloc _ _ _ = (?m,_) |- Mem.perm ?m _ _ _ _ =>
     first [
@@ -2148,7 +2167,7 @@ Ltac rewrite_perms_bw H :=
   match type of H with
     Mem.perm ?m2 _ _ _ _ =>
     match goal with
-    | H1: Mem.record_stack_blocks _ _  ?m |- _ =>
+    | H1: Mem.record_stack_blocks _ _ = Some ?m |- _ =>
       apply (Mem.record_stack_block_perm _ _ _ H1) in H
     | H1: Mem.alloc _ _ _ = (?m,_) |- _ =>
       apply (Mem.perm_alloc_inv _ _ _ _ _ H1) in H

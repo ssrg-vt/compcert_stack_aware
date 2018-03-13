@@ -1508,3 +1508,13 @@ Lemma Forall_impl:
 Proof.
   induction l; simpl; intros; inv FP; constructor; auto.
 Qed.
+
+Lemma list_forall2_iff:
+  forall {A B P Q}
+    (EQ: forall a b, P a b <-> Q a b)
+    (la: list A) (lb: list B),
+    list_forall2 P la lb <-> list_forall2 Q la lb.
+Proof.
+  intros; split; induction 1; econstructor; eauto; apply EQ; auto.
+Qed.
+  

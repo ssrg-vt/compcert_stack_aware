@@ -202,13 +202,14 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State s f (Vptr stk Ptrofs.zero) (Ltailcall sig ros :: b) rs m)
         E0 (Callstate s f' rs' m' (fn_stack_requirements id))
   | exec_Lbuiltin:
-      forall s f sp rs m ef args res b vargs t vres rs' m',
+      forall s f sp rs m ef args res b vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       rs' = Locmap.setres res vres (undef_regs (destroyed_by_builtin ef) rs) ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
         step (State s f sp (Lbuiltin ef args res :: b) rs m)
-             t (State s f sp b rs' m')
+             t (State s f sp b rs' m'')
   | exec_Llabel:
       forall s f sp lbl b rs m,
       step (State s f sp (Llabel lbl :: b) rs m)

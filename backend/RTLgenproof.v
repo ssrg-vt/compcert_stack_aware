@@ -709,15 +709,19 @@ Lemma transl_expr_Ebuiltin_correct:
   forall le ef al vl v,
   eval_exprlist ge sp e m le al vl ->
   transl_exprlist_prop le al vl ->
-  external_call ef ge vl m E0 v m ->
+  external_call ef ge vl (Mem.push_new_stage m) E0 v (Mem.push_new_stage m) ->
   forall BUILTIN_ENABLED: builtin_enabled ef,
   transl_expr_prop le (Ebuiltin ef al) v.
 Proof.
   intros; red; intros. inv TE.
   exploit H0; eauto. intros [rs1 [tm1 [EX1 [ME1 [RR1 [RO1 [EXT1 STK1]]]]]]].
-  exploit external_call_mem_extends; eauto.
+  exploit external_call_mem_extends; eauto. apply Mem.extends_push; eauto.
   intros [v' [tm2 [A [B [C DE]]]]].
-  exists (rs1#rd <- v'); exists tm2.
+  edestruct Mem.unrecord_stack_block_extends as (tm2' & USB & EXT'). apply C.
+  apply Mem.unrecord_push.
+  repeat rewrite_stack_blocks. simpl.
+  eapply stack_inject_sizes. eapply Mem.extends_stack_adt. eauto.
+  exists (rs1#rd <- v'); exists tm2'.
 (* Exec *)
   split. eapply star_right. eexact EX1.
   change (rs1#rd <- v') with (regmap_setres (BR rd) v' rs1).
@@ -732,7 +736,7 @@ Proof.
 (* Other regs *)
   split. intros. rewrite Regmap.gso. auto. intuition congruence.
 (* Mem *)
-  split; auto. rewrite_stack_blocks. congruence.
+  split; auto. repeat rewrite_stack_blocks. simpl. auto.
 Qed.
 
 Lemma transl_expr_Eexternal_correct:
@@ -1471,15 +1475,20 @@ Proof.
     intros (vargs'' & X & Y).
     assert (Z: Val.lessdef_list vl vargs'') by (eapply Val.lessdef_list_trans; eauto).
     edestruct external_call_mem_extends as [tv [tm'' [A [B [C D]]]]]; eauto.
+    apply Mem.extends_push; eauto.
+    exploit Mem.unrecord_stack_block_extends; eauto.
+    repeat rewrite_stack_blocks. simpl.
+    apply stack_equiv_fsize in SE; auto. rewrite STK. omega.
+    intros (m2' & USB & EXT).
     econstructor; split.
     left. eapply plus_right. eexact E.
     eapply exec_Ibuiltin. eauto.
     eapply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
-    eapply external_call_symbols_preserved. apply senv_preserved. eauto.
+    eapply external_call_symbols_preserved. apply senv_preserved. eauto. eauto.
     auto. traceEq.
     econstructor; eauto. constructor.
     eapply match_env_update_res; eauto.
-    repeat rewrite_stack_blocks. congruence.
+    repeat rewrite_stack_blocks. simpl. rewrite STK. auto.
 
   - (* seq *)
     inv TS.

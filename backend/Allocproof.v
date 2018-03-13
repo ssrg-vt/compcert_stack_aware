@@ -1718,17 +1718,16 @@ Inductive match_states: RTL.state -> LTL.state -> Prop :=
       match_states (RTL.State s f sp pc rs m)
                    (LTL.State ts tf sp pc ls m')
   | match_states_call:
-      forall s f args m ts tf ls m' sz tc
+      forall s f args m ts tf ls m' sz
         (STACKS: match_stackframes s ts (funsig tf))
         (FUN: transf_fundef f = OK tf)
         (ARGS: Val.lessdef_list args (map (fun p => Locmap.getpair p ls) (loc_arguments (funsig tf))))
         (AG: agree_callee_save (parent_locset init_ls ts) ls)
         (MEM: Mem.extends m m')
         (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
-        (WTARGS: Val.has_type_list args (sig_args (funsig tf)))
-        (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m')),
-      match_states (RTL.Callstate s f args m sz tc)
-                   (LTL.Callstate ts tf ls m' sz tc)
+        (WTARGS: Val.has_type_list args (sig_args (funsig tf))),
+      match_states (RTL.Callstate s f args m sz)
+                   (LTL.Callstate ts tf ls m' sz)
   | match_states_return:
       forall s res m ts ls m' sg
         (STACKS: match_stackframes s ts sg)
@@ -1777,6 +1776,7 @@ Qed.
 
 (** The proof of semantic preservation is a simulation argument of the
     "plus" kind. *)
+
 
 Lemma step_simulation:
   forall S1 t S2, RTL.step fn_stack_requirements ge S1 t S2 -> wt_state restype S1 ->
@@ -2131,8 +2131,9 @@ Proof.
   rewrite SIG. eapply add_equations_args_lessdef; eauto.
   inv WTI. rewrite <- H7. apply wt_regset_list; auto.
   simpl. red; auto.
+  apply Mem.extends_push; auto.
+  repeat rewrite_stack_blocks. repeat constructor; auto.
   inv WTI. rewrite SIG. rewrite <- H7. apply wt_regset_list; auto.
-  congruence.
 
 (* tailcall *)
 - set (sg := RTL.funsig fd) in *.
@@ -2173,21 +2174,15 @@ Proof.
   apply return_regs_agree_callee_save.
   repeat rewrite_stack_blocks; eauto.
   rewrite SIG. inv WTI. rewrite <- H6. apply wt_regset_list; auto.
-  intros; eapply Mem.noperm_top.
-  repeat rewrite_stack_blocks. inv SI.
-  inv MSA1.
-  unfold in_frame, get_frame_blocks. rewrite BLOCKS. intros ? [?|[]]; subst.
-  intros; simpl; intro PP. eapply Mem.perm_free_2; eauto.
-  exploit Mem.agree_perms_mem.
-  rewrite <- H8. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-  eapply Mem.perm_free_3 in PP; eauto.
-  rewrite SIZE.
-  destruct (transf_function_inv _ _ FUN); auto. rewrite H13; auto.
 
 (* builtin *)
 - exploit (exec_moves mv1); eauto. intros [ls1 [A1 B1]].
-  exploit add_equations_builtin_eval; eauto.
-  intros (C & vargs' & vres' & m'' & D & E & F & G).
+  exploit add_equations_builtin_eval. 6: eauto. all: eauto. apply Mem.extends_push; eauto.
+  rewrite <- eval_builtin_args_push. eauto.
+  intros (C & vargs' & vres' & m2' & D & E & F & G).
+  edestruct Mem.unrecord_stack_block_extends as (m3' & USB & EXT'). 2: eauto. eauto.
+  repeat rewrite_stack_blocks. simpl.
+  eapply Mem.extends_stack_size; eauto.
   assert (WTRS': wt_regset env (regmap_setres res vres rs)) by (eapply wt_exec_Ibuiltin; eauto).
   set (ls2 := Locmap.setres res' vres' (undef_regs (destroyed_by_builtin ef) ls1)).
   assert (satisf (regmap_setres res vres rs) ls2 e0).
@@ -2199,7 +2194,8 @@ Proof.
   eapply star_trans. eexact A1.
   eapply star_left. econstructor.
   eapply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
-  eapply external_call_symbols_preserved. apply senv_preserved. eauto.
+  eapply eval_builtin_args_push; eauto.
+  eapply external_call_symbols_preserved. apply senv_preserved. eauto. eauto.
   instantiate (1 := ls2); auto.
   auto. eapply star_right. eexact A3.
   econstructor.
@@ -2239,11 +2235,7 @@ Proof.
 
 (* return *)
 - destruct (transf_function_inv _ _ FUN).
-  exploit Mem.free_parallel_extends; eauto. constructor. rewrite H11. intros [tm' [P Q]].
-  exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in STRUCT; auto.
-  repeat rewrite_stack_blocks; eauto. omega.
-  intros (tm'' & RR & S).
+  exploit Mem.free_parallel_extends; eauto. constructor. rewrite H10. intros [tm' [P Q]].
   inv WTI; MonadInv.
 + (* without an argument *)
   exploit (exec_moves mv); eauto. intros [ls1 [A1 B1]].
@@ -2261,57 +2253,45 @@ Proof.
   eapply plus_left. econstructor; eauto.
   eapply star_right. eexact A1.
   econstructor. eauto. eauto. eauto. traceEq.
-  simpl. econstructor; eauto. rewrite <- H12.
+  simpl. econstructor; eauto. rewrite <- H11.
   replace (Locmap.getpair (map_rpair R (loc_result (RTL.fn_sig f)))
                           (return_regs (parent_locset init_ls ts) ls1))
   with (Locmap.getpair (map_rpair R (loc_result (RTL.fn_sig f))) ls1).
   eapply add_equations_res_lessdef; eauto.
-  rewrite H14. apply WTRS.
+  rewrite H13. apply WTRS.
   generalize (loc_result_caller_save (RTL.fn_sig f)). 
   destruct (loc_result (RTL.fn_sig f)); simpl.
   intros A; rewrite A; auto.
   intros [A B]; rewrite A, B; auto.
   apply return_regs_agree_callee_save.
   repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
-  unfold proj_sig_res. rewrite <- H12; rewrite H14. apply WTRS.
+  unfold proj_sig_res. rewrite <- H11; rewrite H13. apply WTRS.
 
 (* internal function *)
 - monadInv FUN. simpl in *.
   destruct (transf_function_inv _ _ EQ).
   exploit Mem.alloc_extends; eauto. apply Zle_refl. rewrite H9; apply Zle_refl.
   intros [tm' [U V]].
-  exploit Mem.record_stack_blocks_extends. 2: eauto.
-  apply Mem.extends_maybe_push. eauto.
+  exploit Mem.record_stack_blocks_extends. 2: eauto. eauto.
   {
     unfold in_frame. simpl. intros ? [?|[]]; subst.
     intro IFF.
-    assert (in_stack (Mem.stack_adt tm') b).
-    {
-      destruct tc; auto.
-      rewrite Mem.push_new_stage_stack in IFF.
-      rewrite in_stack_cons in IFF. destruct IFF. easy. auto.
-    } clear IFF; rename H11 into IFF.
     erewrite Mem.alloc_stack_blocks in IFF; eauto.
     eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in U. congruence.
   }
   {
     intros b fi o kk p INF. destruct INF as [A|[]]; simpl in A; inv A.
-    simpl. intros; eapply Mem.perm_alloc_3. rewrite H9. eauto.
-    destruct tc; eauto.
-    rewrite Mem.push_new_stage_perm in H11; auto.
+    simpl. intros; eapply Mem.perm_alloc_3. rewrite H9. eauto. eauto.
   }
   {
-    destruct tc.
-    * specialize (TAILNOPERM eq_refl). inv TAILNOPERM.
-      rewrite_stack_blocks. rewrite <- H11. constructor.
-      red in H12. red.
-      intros. intro P.
-      eapply Mem.perm_alloc_inv in P; eauto.
-      destr_in P. subst.
-      exploit Mem.in_frames_valid. rewrite <- H11. rewrite in_stack_cons. left. eauto.
-      eapply Mem.fresh_block_alloc; eauto.
-      eapply H12 in P; eauto.
-    * rewrite_stack_blocks. constructor. easy.
+    inv SI. rewrite_stack_blocks. inv TOPNOPERM. constructor.
+    red in H12. red.
+    intros. intro P.
+    eapply Mem.perm_alloc_inv in P; eauto.
+    destr_in P. subst.
+    exploit Mem.in_frames_valid. rewrite <- H11. rewrite in_stack_cons. left. eauto.
+    eapply Mem.fresh_block_alloc; eauto.
+    eapply H12 in P; eauto.
   }
   intros (tm'' & W & X).
   assert (WTRS: wt_regset env (init_regs args (fn_params f))).
@@ -2329,11 +2309,10 @@ Proof.
   econstructor; eauto.
   eauto. eauto. traceEq.
   econstructor; eauto.
-  destruct tc; repeat rewrite_stack_blocks.
+  repeat rewrite_stack_blocks.
   revert EQ1 EQ0; repeat rewrite_stack_blocks.
   intros EQ1 EQ0; rewrite EQ1, EQ0 in STRUCT.
   inv STRUCT; constructor; eauto. repeat constructor; auto.
-  repeat constructor; auto.
 
 (* external function *)
 - exploit external_call_mem_extends; eauto. intros [v' [m'' [F [G [J K]]]]].
@@ -2374,10 +2353,15 @@ Proof.
 
 (* return *)
 - inv STACKS.
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  apply stack_equiv_tail, stack_equiv_fsize in STRUCT; auto.
+  repeat rewrite_stack_blocks; eauto. omega.
+  intros (tm'' & RR & S).
   exploit STEPS; eauto. rewrite WTRES0; auto. intros [ls2 [A B]].
   econstructor; split.
-  eapply plus_left. constructor. eexact A. traceEq.
+  eapply plus_left. constructor. eauto. eexact A. traceEq.
   econstructor; eauto.
+  repeat rewrite_stack_blocks. eapply stack_equiv_tail; eauto.
   apply wt_regset_assign; auto. rewrite WTRES0; auto.
 Qed.
 
@@ -2390,7 +2374,7 @@ Proof.
   intros. inv H.
   exploit function_ptr_translated; eauto. intros [tf [FIND TR]].
   exploit sig_function_translated; eauto. intros SIG.
-  exists (LTL.Callstate nil tf (Locmap.init Vundef) m2 (fn_stack_requirements (prog_main tprog)) false); split.
+  exists (LTL.Callstate nil tf (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto.
   eapply (Genv.init_mem_transf_partial TRANSF); eauto.
   rewrite symbols_preserved.
@@ -2405,7 +2389,6 @@ Proof.
   repeat rewrite_stack_blocks. repeat constructor.
   erewrite ! Genv.init_mem_stack_adt by eauto ; constructor.
   rewrite SIG, H3. constructor.
-  congruence.
 Qed.
 
 Lemma final_states_simulation:

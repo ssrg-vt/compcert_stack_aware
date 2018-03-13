@@ -1117,7 +1117,14 @@ Proof.
   intros (vargs' & P & Q).
   exploit external_call_inject; eauto.
   eapply match_stacks_preserves_globals; eauto.
+  apply Mem.push_new_stage_inject. eauto.
   intros (j' & tv & tm' & A & B & C & D & E & F & G).
+  edestruct Mem.unrecord_stack_block_inject_parallel_flat as (m2' & USB & INJ' & LEN).
+  eapply Mem.mem_inject_ext. apply C. repeat rewrite_stack_blocks.
+  simpl. setoid_rewrite frameinj_push_flat.  reflexivity.
+  eauto.
+  repeat rewrite_stack_blocks. simpl.
+  eapply stack_equiv_fsize in STRUCT. omega.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   eapply match_states_regular with (j := j'); eauto.
@@ -1125,9 +1132,8 @@ Proof.
   intros. exploit G; eauto. intros [U V].
   assert (Mem.valid_block m sp0) by (eapply Mem.valid_block_inject_1; eauto).
   assert (Mem.valid_block tm tsp) by (eapply Mem.valid_block_inject_2; eauto).
-  unfold Mem.valid_block in *; xomega.
+  unfold Mem.valid_block in *. rewrite Mem.push_new_stage_nextblock in U, V. xomega.
   apply set_res_inject; auto. apply regset_inject_incr with j; auto.
-  erewrite <- external_call_stack_blocks; eauto.
     
 - (* cond *)
   assert (C: eval_condition cond trs##args tm = Some b).

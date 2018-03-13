@@ -9291,6 +9291,7 @@ Proof.
   reflexivity.
   reflexivity.
   simpl. inversion 1. inv mi_inj0. inv mi_stack_blocks0. auto.
+  simpl. inversion 1. inv mext_inj0. inv mi_stack_blocks0. auto.
   intros. tauto.
 
   apply wf_stack_mem.
@@ -9298,7 +9299,7 @@ Proof.
   apply record_stack_blocks_top_noperm.
 
   
-  apply extends_push_new_stage.
+  simpl; intros; eapply extends_push_new_stage; eauto.
   apply push_new_stage_mem_unchanged.
   apply unrecord_push.
 

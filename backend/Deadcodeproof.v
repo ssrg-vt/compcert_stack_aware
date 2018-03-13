@@ -313,15 +313,14 @@ Inductive match_states: state -> state -> Prop :=
       match_states (State s f (Vptr sp Ptrofs.zero) pc e m)
                    (State ts tf (Vptr sp Ptrofs.zero) pc te tm)
   | match_call_states:
-      forall s f args m ts tf targs tm cu sz tc
+      forall s f args m ts tf targs tm cu sz
         (STACKS: list_forall2 match_stackframes s ts)
         (LINK: linkorder cu prog)
         (FUN: transf_fundef (romem_for cu) f = OK tf)
         (ARGS: Val.lessdef_list args targs)
-        (MEM: Mem.extends m tm)
-        (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)),
-      match_states (Callstate s f args m sz tc)
-                   (Callstate ts tf targs tm sz tc)
+        (MEM: Mem.extends m tm),
+      match_states (Callstate s f args m sz)
+                   (Callstate ts tf targs tm sz)
   | match_return_states:
       forall s v m ts tv tm
         (STACKS: list_forall2 match_stackframes s ts)
@@ -562,18 +561,12 @@ Proof.
             H2: (fn_code ?f) ! ?pc = _ |- _ =>
         rewrite H1 in H2; repeat destr_in H2
       end.
-  - revert EQ EQ0. repeat rewrite_stack_blocks. intros A B; rewrite A, B. simpl.
-    inv SEI. constructor. simpl; auto.
-  - revert SEI. rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H).
-    rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H8).
-    intro STRUCT.
-    destruct tc.
-    rewrite EQ1, EQ0 in STRUCT. inv STRUCT; constructor; auto.
-    constructor; auto.
-    rewrite Mem.push_new_stage_stack in EQ1, EQ0. inv EQ1; inv EQ0. constructor; auto.
-    constructor; auto. constructor.
+  - repeat constructor; auto.
+  - revert EQ1 EQ0. repeat rewrite_stack_blocks. intros A B; revert SEI; rewrite A, B. simpl.
+    inversion 1; subst. repeat constructor; auto.
   - monadInv FUN.
   - monadInv FUN.
+  - eauto using stack_equiv_tail.
 Qed.
 
 Theorem step_simulation:
@@ -722,8 +715,8 @@ Proof.
   eapply eagree_ge; eauto. rewrite ANPC. simpl.
   apply eagree_update; eauto with na.
   eauto 2 with na.
+  apply Mem.extends_push.
   eapply magree_extends; eauto. apply nlive_all.
-  congruence.
 
 - (* tailcall *)
   TransfInstr; UseTransfer.
@@ -748,21 +741,12 @@ Proof.
   eapply match_call_states with (cu := cu'); eauto 2 with na.
   eapply Mem.magree_extends; eauto. apply nlive_all.
 
-  intros; eapply Mem.noperm_top.
-  repeat rewrite_stack_blocks. inv SI. inv MSA1.
-  unfold in_frame, get_frame_blocks. rewrite BLOCKS. intros ? [EQ|[]]; subst.
-  simpl; intros; intro PP. eapply Mem.perm_free_2; eauto.
-  exploit Mem.agree_perms_mem.
-  rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-  eapply Mem.perm_free_3 in PP; eauto.
-  rewrite SIZE; auto. erewrite stacksize_translated; eauto.
-
 - (* builtin *)
   TransfInstr; UseTransfer. revert ENV MEM TI.
   functional induction (transfer_builtin (vanalyze cu f)#pc ef args res ne nm);
   simpl in *; intros.
 + (* volatile load *)
-  inv H0. inv H6. rename b1 into v1.
+  inv H0. inv H7. rename b1 into v1.
   destruct (transfer_builtin_arg All
               (kill_builtin_res res ne,
               nmem_add nm (aaddr_arg (vanalyze cu f) # pc a1)
@@ -770,49 +754,74 @@ Proof.
   InvSoundState. exploit transfer_builtin_arg_sound; eauto.
   intros (tv1 & A & B & C & D).
   inv H1. simpl in B. inv B.
-  assert (X: exists tvres, volatile_load ge chunk tm b ofs t tvres /\ Val.lessdef vres tvres).
+  assert (X: exists tvres, volatile_load ge chunk (Mem.push_new_stage tm) b ofs t tvres /\ Val.lessdef vres tvres).
   {
-    inv H2.
+    inv H3.
   * exists (Val.load_result chunk v); split; auto. constructor; auto.
-  * exploit magree_load; eauto.
+  * exploit magree_load.
+    Axiom magree_push:
+      forall P m1 m2,
+        magree m1 m2 P ->
+        magree (Mem.push_new_stage m1) (Mem.push_new_stage m2) P.
+    apply magree_push. eauto. eauto.
     exploit aaddr_arg_sound_1; eauto. rewrite <- AN. intros.
     intros. eapply nlive_add; eassumption.
     intros (tv & P & Q).
     exists tv; split; auto. constructor; auto.
   }
   destruct X as (tvres & P & Q).
+  rewrite Mem.unrecord_push in H2; inv H2.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
   constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
-  constructor. simpl. eauto.
+  constructor. simpl. eauto. apply Mem.unrecord_push.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
   eapply magree_monotone; eauto. intros. apply incl_nmem_add; auto.
 + (* volatile store *)
-  inv H0. inv H6. inv H7. rename b1 into v1. rename b0 into v2.
+  inv H0. inv H7. inv H8. rename b1 into v1. rename b0 into v2.
   destruct (transfer_builtin_arg (store_argument chunk)
               (kill_builtin_res res ne, nm) a2) as (ne2, nm2) eqn: TR2.
   destruct (transfer_builtin_arg All (ne2, nm2) a1) as (ne1, nm1) eqn: TR1.
   InvSoundState.
-  exploit transfer_builtin_arg_sound. eexact H4. eauto. eauto. eauto. eauto. eauto.
+  exploit transfer_builtin_arg_sound. eexact H5. eauto. eauto. eauto. eauto. eauto.
   intros (tv1 & A1 & B1 & C1 & D1).
-  exploit transfer_builtin_arg_sound. eexact H3. eauto. eauto. eauto. eauto. eauto.
+  exploit transfer_builtin_arg_sound. eexact H4. eauto. eauto. eauto. eauto. eauto.
   intros (tv2 & A2 & B2 & C2 & D2).
-  exploit transf_volatile_store; eauto.
+  exploit transf_volatile_store; eauto. apply magree_push. apply D2.
   intros (EQ & tm' & P & Q). subst vres.
+  Axiom magree_unrecord:
+    forall m1 m2 P,
+      magree m1 m2 P ->
+      forall m1',
+        Mem.unrecord_stack_block m1 = Some m1' ->
+        size_stack (tl (Mem.stack_adt m2)) <= size_stack (tl (Mem.stack_adt m1)) ->
+        exists m2',
+          Mem.unrecord_stack_block m2 = Some m2' /\ magree m1' m2' P.
+  edestruct magree_unrecord as (m2' & USB & MAG). apply Q. eauto.
+  replace (Mem.stack_adt tm') with (Mem.stack_adt (Mem.push_new_stage tm)).
+  replace (Mem.stack_adt m') with (Mem.stack_adt (Mem.push_new_stage m)).
+  repeat rewrite_stack_blocks. simpl.
+  Axiom magree_stack_size:
+    forall m1 m2 P,
+      magree m1 m2 P ->
+      size_stack (Mem.stack_adt m2) <= size_stack (Mem.stack_adt m1).
+  eapply magree_stack_size; eauto.
+  inv H1. inv H8; rewrite_stack_blocks; auto.
+  inv P. inv H8; rewrite_stack_blocks; auto. 
   econstructor; split.
-  eapply exec_Ibuiltin; eauto.
+  eapply exec_Ibuiltin. eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
   constructor. eauto. constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
-  simpl; eauto.
+  simpl; eauto. eauto. auto.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
 + (* memcpy *)
   rewrite e1 in TI.
-  inv H0. inv H6. inv H7. rename b1 into v1. rename b0 into v2.
+  inv H0. inv H7. inv H8. rename b1 into v1. rename b0 into v2.
   set (adst := aaddr_arg (vanalyze cu f) # pc dst) in *.
   set (asrc := aaddr_arg (vanalyze cu f) # pc src) in *.
   destruct (transfer_builtin_arg All
@@ -821,20 +830,19 @@ Proof.
            as (ne2, nm2) eqn: TR2.
   destruct (transfer_builtin_arg All (ne2, nm2) src) as (ne1, nm1) eqn: TR1.
   InvSoundState.
-  exploit transfer_builtin_arg_sound. eexact H3. eauto. eauto. eauto. eauto. eauto.
-  intros (tv1 & A1 & B1 & C1 & D1).
   exploit transfer_builtin_arg_sound. eexact H4. eauto. eauto. eauto. eauto. eauto.
+  intros (tv1 & A1 & B1 & C1 & D1).
+  exploit transfer_builtin_arg_sound. eexact H5. eauto. eauto. eauto. eauto. eauto.
   intros (tv2 & A2 & B2 & C2 & D2).
   inv H1.
-  exploit magree_loadbytes. eauto. eauto.
+  exploit magree_loadbytes. 2: eauto. apply magree_push; eauto.
   intros. eapply nlive_add; eauto.
   unfold asrc, vanalyze; rewrite AN; eapply aaddr_arg_sound_1; eauto.
   intros (tbytes & P & Q).
-  exploit magree_storebytes_parallel.
+  exploit magree_storebytes_parallel. 2: eauto. apply magree_push.
   eapply magree_monotone. eexact D2.
   instantiate (1 := nlive ge sp0 (nmem_remove nm adst sz)).
   intros. apply incl_nmem_add; auto.
-  eauto.
   instantiate (1 := nlive ge sp0 nm).
   intros. eapply nlive_remove; eauto.
   unfold adst, vanalyze; rewrite AN; eapply aaddr_arg_sound_1; eauto.
@@ -842,21 +850,30 @@ Proof.
   rewrite nat_of_Z_eq in H1 by omega. auto.
   eauto.
   intros (tm' & A & B).
+  edestruct magree_unrecord as (m2' & USB & MAG). apply B. eauto.
+  replace (Mem.stack_adt tm') with (Mem.stack_adt (Mem.push_new_stage tm)).
+  replace (Mem.stack_adt m') with (Mem.stack_adt (Mem.push_new_stage m)).
+  repeat rewrite_stack_blocks. simpl.
+  eapply magree_stack_size; eauto.
+  rewrite <- (Mem.storebytes_stack_blocks _ _ _ _ _ H13); repeat rewrite_stack_blocks; auto.
+  rewrite <- (Mem.storebytes_stack_blocks _ _ _ _ _ A); repeat rewrite_stack_blocks; auto.
+  
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
   constructor. eauto. constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
   simpl in B1; inv B1. simpl in B2; inv B2. econstructor; eauto.
-  eapply Mem.public_stack_access_magree; eauto.
+  eapply Mem.public_stack_access_magree; eauto. apply magree_push; eauto.
   erewrite <- list_forall2_length; eauto.
   eapply Mem.storebytes_range_perm; eauto.
   erewrite <- list_forall2_length; eauto.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
+
 + (* memcpy eliminated *)
   rewrite e1 in TI.
-  inv H0. inv H6. inv H7. rename b1 into v1. rename b0 into v2.
+  inv H0. inv H7. inv H8. rename b1 into v1. rename b0 into v2.
   set (adst := aaddr_arg (vanalyze cu f) # pc dst) in *.
   set (asrc := aaddr_arg (vanalyze cu f) # pc src) in *.
   inv H1.
@@ -865,7 +882,7 @@ Proof.
   eapply match_succ_states; eauto. simpl; auto.
   destruct res; auto. apply eagree_set_undef; auto.
   eapply magree_storebytes_left; eauto.
-  clear H3.
+  clear H4.
   exploit aaddr_arg_sound; eauto.
   intros (bc & A & B & C).
   intros. eapply nlive_contains; eauto.
@@ -945,16 +962,12 @@ Proof.
   exploit magree_free. eauto. constructor. eauto. instantiate (1 := nlive ge stk nmem_all).
   intros; eapply nlive_dead_stack; eauto.
   intros (tm' & A & B).
-  exploit Mem.unrecord_stack_block_extends; eauto. eapply magree_extends; eauto.
-  apply nlive_all.
-  apply stack_equiv_tail, stack_equiv_fsize in SEI. simpl in SEI.
-  repeat rewrite_stack_blocks. omega.
-  intros (m2' & USB & EXT).
   econstructor; split.
   eapply exec_Ireturn; eauto.
   erewrite stacksize_translated by eauto. eexact A.
   constructor; auto.
   destruct or; simpl; eauto 2 with na.
+  eapply magree_extends; eauto. apply nlive_all.
 
 - (* internal function *)
   monadInv FUN. generalize EQ. unfold transf_function. fold (vanalyze cu f). intros EQ'.
@@ -962,31 +975,22 @@ Proof.
   exploit Mem.alloc_extends; eauto. apply Zle_refl. apply Zle_refl.
   intros (tm' & A & B).
   exploit Mem.record_stack_blocks_extends. 2: eauto.
-  apply Mem.extends_maybe_push. eauto.
+  eauto.
   + unfold in_frame. simpl. intros ? [?|[]]; subst.
     intro IFF.
-    assert (IFF': in_stack (Mem.stack_adt tm') b).
-    {
-      destruct tc; auto.
-      rewrite Mem.push_new_stage_stack in IFF.
-      rewrite in_stack_cons in IFF. destruct IFF. easy. auto.
-    } 
-    erewrite Mem.alloc_stack_blocks in IFF'; eauto.
-    eapply Mem.in_frames_valid in IFF'. eapply Mem.fresh_block_alloc in A. congruence.
+    erewrite Mem.alloc_stack_blocks in IFF; eauto.
+    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
   + intros b fi o k0 p [AA|[]] P; inv AA.
     eapply Mem.perm_alloc_3 with (k:= k0) (p0 := p); eauto.
-    destruct tc; eauto. rewrite Mem.push_new_stage_perm in P.  auto.
-  + destruct tc.
-    * specialize (TAILNOPERM eq_refl). inv TAILNOPERM.
-      rewrite_stack_blocks. rewrite <- H1. constructor.
-      red in H2. red.
-      intros. intro P.
-      eapply Mem.perm_alloc_inv in P; eauto.
-      destr_in P. subst.
-      exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
-      eapply Mem.fresh_block_alloc; eauto.
-      eapply H2 in P; eauto.
-    * rewrite_stack_blocks. constructor. easy.
+  + inv SI. inv TOPNOPERM.
+    rewrite_stack_blocks. rewrite <- H1. constructor.
+    red in H2. red.
+    intros. intro P.
+    eapply Mem.perm_alloc_inv in P; eauto.
+    destr_in P. subst.
+    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
+    eapply Mem.fresh_block_alloc; eauto.
+    eapply H2 in P; eauto.
   + intros (m2' & USB & EXT).
     econstructor; split.
     econstructor; simpl; eauto.
@@ -1004,9 +1008,13 @@ Proof.
   econstructor; eauto.
 
 - (* return *)
-  inv STACKS. inv H1.
+  inv STACKS. inv H2.
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  apply stack_equiv_tail, stack_equiv_fsize in SEI. simpl in SEI.
+  repeat rewrite_stack_blocks. omega.
+  intros (m2' & USB & EXT).
   econstructor; split.
-  constructor.
+  constructor. eauto.
   econstructor; eauto. apply mextends_agree; auto.
 Qed.
 
@@ -1024,7 +1032,7 @@ Lemma transf_initial_states:
 Proof.
   intros. inversion H.
   exploit function_ptr_translated; eauto. intros (cu & tf & A & B & C).
-  exists (Callstate nil tf nil m2 (fn_stack_requirements (prog_main tprog)) false); split.
+  exists (Callstate nil tf nil (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto.
   eapply (Genv.init_mem_match TRANSF); eauto.
   replace (prog_main tprog) with (prog_main prog). 
@@ -1033,7 +1041,6 @@ Proof.
   symmetry; eapply match_program_main; eauto.
   rewrite <- H3. eapply sig_function_translated; eauto.
   erewrite <- match_program_main; eauto. econstructor; eauto. constructor. apply Mem.extends_refl.
-  congruence.
 Qed.
 
 Lemma transf_final_states:

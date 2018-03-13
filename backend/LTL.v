@@ -239,13 +239,14 @@ Inductive step: state -> trace -> state -> Prop :=
       Mem.free m sp 0 f.(fn_stacksize) = Some m' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Ltailcall sig ros :: bb) rs m)
         E0 (Callstate s fd rs' m' (fn_stack_requirements id))
-  | exec_Lbuiltin: forall s f sp ef args res bb rs m vargs t vres rs' m',
+  | exec_Lbuiltin: forall s f sp ef args res bb rs m vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       rs' = Locmap.setres res vres (undef_regs (destroyed_by_builtin ef) rs) ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
         step (Block s f sp (Lbuiltin ef args res :: bb) rs m)
-             t (Block s f sp bb rs' m')
+             t (Block s f sp bb rs' m'')
   | exec_Lbranch: forall s f sp pc bb rs m,
       step (Block s f sp (Lbranch pc :: bb) rs m)
         E0 (State s f sp pc rs m)
@@ -345,6 +346,7 @@ Section STACKINV.
                        (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
       stack_inv (Block s f (Vptr sp o) pc rs m)
   | stack_inv_call: forall s fd args m sz
+                      (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
                       (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
       stack_inv (Callstate s fd args m sz)
   | stack_inv_return: forall s res m 
@@ -364,9 +366,21 @@ Section STACKINV.
     destruct 1; simpl; intros SI;
       inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
         try solve [inv MSA1; eauto].
+    - constructor. red. easy.
+    - erewrite <- Mem.free_stack_blocks by eauto.
+      eapply Mem.noperm_top.
+      rewrite_stack_blocks. inv MSA1.
+      intros b IFR o k p0 P.
+      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+      eapply Mem.perm_free_2 in P; eauto.
+      exploit Mem.agree_perms_mem.
+      rewrite <- H. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+      eapply Mem.perm_free_3 in P; eauto.
+      rewrite SIZE; auto.
     - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
-    - inv MSA1. repeat destr_in H1. econstructor. rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
+    - inv MSA1. repeat destr_in H1. econstructor.
+      rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
   Qed.
 
   Lemma stack_inv_initial:
@@ -374,7 +388,8 @@ Section STACKINV.
       (INIT: initial_state fn_stack_requirements p S),
       stack_inv S.
   Proof.
-    intros; inv INIT; econstructor.
+    intros; inv INIT; econstructor; rewrite_stack_blocks.
+    constructor; red; easy.
     constructor.
   Qed.
 

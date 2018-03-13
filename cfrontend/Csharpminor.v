@@ -372,12 +372,11 @@ Inductive step: state -> trace -> state -> Prop :=
   | step_skip_block: forall f k e le m,
       step (State f Sskip (Kblock k) e le m)
         E0 (State f Sskip k e le m)
-  | step_skip_call: forall f k e le m m' m'',
+  | step_skip_call: forall f k e le m m',
       is_call_cont k ->
       Mem.free_list m (blocks_of_env e) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f Sskip k e le m)
-        E0 (Returnstate Vundef k m'')
+        E0 (Returnstate Vundef k m')
 
   | step_set: forall f id a k e le m v,
       eval_expr e le m a v ->
@@ -397,14 +396,15 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       step (State f (Scall optid sig a bl) k e le m)
-        E0 (Callstate fd vargs (Kcall optid f e le k) m (fn_stack_requirements id))
+        E0 (Callstate fd vargs (Kcall optid f e le k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
-  | step_builtin: forall f optid ef bl k e le m vargs t vres m',
+  | step_builtin: forall f optid ef bl k e le m vargs t vres m' m'',
       eval_exprlist e le m bl vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
       step (State f (Sbuiltin optid ef bl) k e le m)
-         t (State f Sskip k e (Cminor.set_optvar optid vres le) m')
+         t (State f Sskip k e (Cminor.set_optvar optid vres le) m'')
 
   | step_seq: forall f s1 s2 k e le m,
       step (State f (Sseq s1 s2) k e le m)
@@ -440,17 +440,15 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Sswitch islong a cases) k e le m)
         E0 (State f (seq_of_lbl_stmt (select_switch n cases)) k e le m)
 
-  | step_return_0: forall f k e le m m' m'',
+  | step_return_0: forall f k e le m m',
       Mem.free_list m (blocks_of_env e) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn None) k e le m)
-        E0 (Returnstate Vundef (call_cont k) m'')
-  | step_return_1: forall f a k e le m v m' m'',
+        E0 (Returnstate Vundef (call_cont k) m')
+  | step_return_1: forall f a k e le m v m',
       eval_expr e le m a v ->
       Mem.free_list m (blocks_of_env e) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn (Some a)) k e le m)
-        E0 (Returnstate v (call_cont k) m'')
+        E0 (Returnstate v (call_cont k) m')
   | step_label: forall f lbl s k e le m,
       step (State f (Slabel lbl s) k e le m)
         E0 (State f s k e le m)
@@ -467,7 +465,7 @@ Inductive step: state -> trace -> state -> Prop :=
       alloc_variables empty_env m (fn_vars f) e m1 ->
       frame_adt_blocks fa = blocks_with_info e ->
       frame_adt_size fa = sz ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some m1' ->
+      Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters f.(fn_params) vargs (create_undef_temps f.(fn_temps)) = Some le ->
       step (Callstate (Internal f) vargs k m sz)
         E0 (State f f.(fn_body) k e le m1')
@@ -477,9 +475,10 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Callstate (External ef) vargs k m sz)
          t (Returnstate vres k m')
 
-  | step_return: forall v optid f e le k m,
+  | step_return: forall v optid f e le k m m',
+      Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate v (Kcall optid f e le k) m)
-        E0 (State f Sskip k e (Cminor.set_optvar optid v le) m).
+        E0 (State f Sskip k e (Cminor.set_optvar optid v le) m').
 
 End RELSEM.
 
@@ -497,7 +496,7 @@ Inductive initial_state (p: program): state -> Prop :=
       funsig f = signature_main ->
       Mem.alloc m0 0 0 = (m1,b1) ->
       Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
-      initial_state p (Callstate f nil Kstop m2 (fn_stack_requirements (prog_main p))).
+      initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 (** A final state is a [Returnstate] with an empty continuation. *)
 

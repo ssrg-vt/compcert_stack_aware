@@ -920,6 +920,85 @@ Proof.
   discriminate.
 Qed.
 
+
+Lemma valid_pointer_eq m m':
+  forall (PERM: forall b o k p, Mem.perm m b o k p <-> Mem.perm m' b o k p),
+    Mem.valid_pointer m = Mem.valid_pointer m'.
+Proof.
+  intros.
+  apply Axioms.extensionality.
+  intro b; apply Axioms.extensionality.
+  intro o.
+  destruct (Mem.valid_pointer m b o) eqn:?.
+  apply Mem.valid_pointer_nonempty_perm in Heqb0. rewrite PERM in Heqb0.
+  apply Mem.valid_pointer_nonempty_perm in Heqb0. auto.
+  destruct (Mem.valid_pointer m' b o) eqn:?; auto.
+  apply Mem.valid_pointer_nonempty_perm in Heqb1. rewrite <- PERM in Heqb1.
+  apply Mem.valid_pointer_nonempty_perm in Heqb1. congruence.
+Qed.
+
+Lemma eval_operation_perm:
+  forall (ge: Genv.t fundef unit) sp op args m m'
+    (PERM: forall b o k p, Mem.perm m b o k p <-> Mem.perm m' b o k p),
+    eval_operation ge sp op args m = eval_operation ge sp op args m'.
+Proof.
+  intros.
+  destruct (op_depends_on_memory op) eqn:?.
+  + destruct op; simpl in Heqb; try discriminate.
+    simpl in *. f_equal. f_equal.
+    destruct cond; simpl in *; try discriminate; repeat destr.
+    rewrite (valid_pointer_eq _ _ PERM). auto.
+    rewrite (valid_pointer_eq _ _ PERM). auto.
+  + eapply op_depends_on_memory_correct; eauto.
+Qed.
+
+
+Lemma num_holds_perm:
+  forall valu ge sp rs m m' n,
+    numbering_holds valu ge sp rs m n ->
+    forall (PERM: forall b o k p, Mem.perm m b o k p <-> Mem.perm m' b o k p)
+    (LOAD: forall chunk b o, Mem.load chunk m b o = Mem.load chunk m' b o),
+    numbering_holds valu ge sp rs m' n.
+Proof.
+  destruct 1; constructor; eauto.
+  intros eq IN.
+  specialize (num_holds_eq _ IN).
+  inv num_holds_eq; econstructor; eauto.
+  - inv H; econstructor; eauto.
+    rewrite <- H0.
+    symmetry; eapply eval_operation_perm; eauto.
+    destruct a; simpl in *; try discriminate.
+    erewrite <- LOAD; eauto.
+  - inv H; econstructor; eauto.
+    rewrite <- H1.
+    symmetry; eapply eval_operation_perm; eauto.
+    destruct a; simpl in *; try discriminate.
+    erewrite <- LOAD; eauto.
+Qed.
+
+Lemma num_holds_unrecord:
+  forall valu ge sp rs m m' n,
+    numbering_holds valu ge sp rs m n ->
+    Mem.unrecord_stack_block m = Some m' ->
+    numbering_holds valu ge sp rs m' n.
+Proof.
+  intros.
+  edestruct Mem.unrecord_stack_block_mem_unchanged as (NB & PERM & UNCH & LOAD); simpl; eauto.
+  eapply num_holds_perm; eauto.
+  intros; rewrite PERM. tauto.
+Qed.
+
+Lemma num_holds_push:
+  forall valu ge sp rs m n,
+    numbering_holds valu ge sp rs m n ->
+    numbering_holds valu ge sp rs (Mem.push_new_stage m) n.
+Proof.
+  intros.
+  eapply num_holds_perm; eauto.
+  intros; rewrite Mem.push_new_stage_perm. tauto.
+  intros; symmetry; apply Mem.push_new_stage_load.
+Qed.
+
 (** The proof of semantic preservation is a simulation argument using
   diagrams of the following form:
 <<
@@ -965,15 +1044,14 @@ Inductive match_states: state -> state -> Prop :=
       match_states (State s f sp pc rs m)
                    (State s' (transf_function' f approx) sp pc rs' m')
   | match_states_call:
-      forall s f tf args m s' args' m' cu sz tc
+      forall s f tf args m s' args' m' cu sz
              (LINK: linkorder cu prog)
              (STACKS: match_stackframes s s')
              (TFD: transf_fundef (romem_for cu) f = OK tf)
              (ARGS: Val.lessdef_list args args')
-             (MEXT: Mem.extends m m')
-             (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m')),
-      match_states (Callstate s f args m sz tc)
-                   (Callstate s' tf args' m' sz tc)
+             (MEXT: Mem.extends m m'),
+      match_states (Callstate s f args m sz)
+                   (Callstate s' tf args' m' sz)
   | match_states_return:
       forall s s' v v' m m'
              (STACK: match_stackframes s s')
@@ -1125,7 +1203,7 @@ Proof.
   unfold transfer; rewrite H.
   exists (fun _ => Vundef); apply empty_numbering_holds.
   apply regs_lessdef_regs; auto.
-  congruence.
+  apply Mem.extends_push; auto.
 
 - (* Itailcall *)
   exploit find_function_translated; eauto. intros (cu' & tf & FIND' & TRANSF' & LINK').
@@ -1138,21 +1216,14 @@ Proof.
   eapply sig_preserved; eauto.
   econstructor; eauto.
   apply regs_lessdef_regs; auto.
-  
-  intros; eapply Mem.noperm_top.
-  repeat rewrite_stack_blocks. inv SI. inv MSA1.
-  unfold in_frame, get_frame_blocks. rewrite BLOCKS. intros ? [EQ|[]]; subst.
-  simpl; intros; intro PP. eapply Mem.perm_free_2; eauto.
-  exploit Mem.agree_perms_mem.
-  rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-  eapply Mem.perm_free_3 in PP; eauto.
-  rewrite SIZE; auto.
 
 - (* Ibuiltin *)
   exploit (eval_builtin_args_lessdef (ge := ge) (e1 := fun r => rs#r) (fun r => rs'#r)); eauto.
   intros (vargs' & A & B).
-  exploit external_call_mem_extends; eauto.
+  exploit external_call_mem_extends; eauto. apply Mem.extends_push; eauto.
   intros (v' & m1' & P & Q & R & S).
+  edestruct Mem.unrecord_stack_block_extends as (m3' & USB & EXT'); eauto.
+  repeat rewrite_stack_blocks. simpl. eapply Mem.extends_stack_size; eauto.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   eapply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
@@ -1161,37 +1232,40 @@ Proof.
   eapply analysis_correct_1; eauto. simpl; auto.
 * unfold transfer; rewrite H.
   destruct SAT as [valu NH].
-  assert (CASE1: exists valu, numbering_holds valu ge sp (regmap_setres res vres rs) m' empty_numbering).
+  assert (CASE1: exists valu, numbering_holds valu ge sp (regmap_setres res vres rs) m'' empty_numbering).
   { exists valu; apply empty_numbering_holds. }
-  assert (CASE2: m' = m -> exists valu, numbering_holds valu ge sp (regmap_setres res vres rs) m' (set_res_unknown approx#pc res)).
-  { intros. subst m'. exists valu. apply set_res_unknown_holds; auto. }
-  assert (CASE3: exists valu, numbering_holds valu ge sp (regmap_setres res vres rs) m'
+  assert (CASE2: m'' = m -> exists valu, numbering_holds valu ge sp (regmap_setres res vres rs) m'' (set_res_unknown approx#pc res)).
+  { intros. subst m''. exists valu. apply set_res_unknown_holds; auto. }
+  assert (CASE3: exists valu, numbering_holds valu ge sp (regmap_setres res vres rs) m''
                          (set_res_unknown (kill_all_loads approx#pc) res)).
   { exists valu. apply set_res_unknown_holds. eapply kill_all_loads_hold; eauto. }
   destruct ef.
   + apply CASE1.
   + apply CASE3.
   + apply CASE1.
-  + apply CASE2; inv H1; auto.
+  + apply CASE2; inv H1; auto. rewrite Mem.unrecord_push in H2; inv H2; auto.
   + apply CASE3.
   + apply CASE1.
-  + inv H0; auto. inv H3; auto. inv H4; auto.
+  + inv H0; auto. inv H4; auto. inv H5; auto.
     simpl in H1. inv H1.
     exists valu.
+    eapply num_holds_unrecord; eauto. 
     apply set_res_unknown_holds.
     InvSoundState. unfold vanalyze; rewrite AN.
     assert (pmatch bc bsrc osrc (aaddr_arg (VA.State ae am) a0))
     by (eapply aaddr_arg_sound_1; eauto).
     assert (pmatch bc bdst odst (aaddr_arg (VA.State ae am) a1))
-    by (eapply aaddr_arg_sound_1; eauto).
+      by (eapply aaddr_arg_sound_1; eauto).
     eapply add_memcpy_holds; eauto.
-    eapply kill_loads_after_storebytes_holds; eauto.
+    eapply num_holds_push; eauto.
+    eapply kill_loads_after_storebytes_holds. 3: eauto. all: eauto.
+    eapply num_holds_push; eauto.
     eapply Mem.loadbytes_length; eauto.
     simpl. apply Ple_refl.
-  + apply CASE2; inv H1; auto.
-  + apply CASE2; inv H1; auto.
+  + apply CASE2; inv H1; auto. rewrite Mem.unrecord_push in H2; inv H2; auto.
+  + apply CASE2; inv H1; auto. rewrite Mem.unrecord_push in H2; inv H2; auto.
   + apply CASE1.
-  + apply CASE2; inv H1; auto.
+  + apply CASE2; inv H1; auto. rewrite Mem.unrecord_push in H2; inv H2; auto.
 * apply set_res_lessdef; auto.
 
 - (* Icond *)
@@ -1219,10 +1293,6 @@ Proof.
 
 - (* Ireturn *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [A B]].
-  exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in SEI. simpl in SEI.
-  repeat rewrite_stack_blocks. omega.
-  intros (m2'' & E & D).
   econstructor; split.
   eapply exec_Ireturn; eauto.
   econstructor; eauto.
@@ -1234,31 +1304,22 @@ Proof.
   exploit Mem.alloc_extends; eauto. apply Zle_refl. apply Zle_refl.
   intros (m2' & A & B).
   exploit Mem.record_stack_blocks_extends. 2: eauto.
-  apply Mem.extends_maybe_push. eauto.
+  eauto.
   + unfold in_frame. simpl. intros ? [?|[]]; subst.
-    intro IFF.
-    assert (IFF': in_stack (Mem.stack_adt m2') b).
-    {
-      destruct tc; auto.
-      rewrite Mem.push_new_stage_stack in IFF.
-      rewrite in_stack_cons in IFF. destruct IFF. easy. auto.
-    } 
+    intro IFF'.
     erewrite Mem.alloc_stack_blocks in IFF'; eauto.
     eapply Mem.in_frames_valid in IFF'. eapply Mem.fresh_block_alloc in A. congruence.
   + intros b fi o k0 p [AA|[]] P; inv AA.
     eapply Mem.perm_alloc_3 with (k:= k0) (p0 := p); eauto.
-    destruct tc; eauto. rewrite Mem.push_new_stage_perm in P.  auto.
-  + destruct tc.
-    * specialize (TAILNOPERM eq_refl). inv TAILNOPERM.
-      rewrite_stack_blocks. rewrite <- H1. constructor.
-      red in H2. red.
-      intros. intro P.
-      eapply Mem.perm_alloc_inv in P; eauto.
-      destr_in P. subst.
-      exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
-      eapply Mem.fresh_block_alloc; eauto.
-      eapply H2 in P; eauto.
-    * rewrite_stack_blocks. constructor. easy.
+  + inv SI. inv TOPNOPERM.
+    rewrite_stack_blocks. rewrite <- H1. constructor.
+    red in H2. red.
+    intros. intro P.
+    eapply Mem.perm_alloc_inv in P; eauto.
+    destr_in P. subst.
+    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
+    eapply Mem.fresh_block_alloc; eauto.
+    eapply H2 in P; eauto.
   + intros (m2'' & C & D).
     econstructor; split.
     eapply exec_function_internal; simpl; eauto.
@@ -1277,6 +1338,10 @@ Proof.
 
 - (* return *)
   inv STACK.
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  apply stack_equiv_tail, stack_equiv_fsize in SEI. simpl in SEI.
+  repeat rewrite_stack_blocks. omega.
+  intros (m2'' & E & D).
   econstructor; split.
   eapply exec_return; eauto.
   econstructor; eauto.
@@ -1299,18 +1364,12 @@ Proof.
         rewrite H1 in H2; repeat destr_in H2
       end; try congruence;
         unfold stack_equiv_inv in *; simpl in *; repeat rewrite_stack_blocks; eauto.
-  - revert EQ EQ0. repeat rewrite_stack_blocks. intros A B; rewrite A, B. simpl.
-    inv SEI. constructor. simpl; auto.
-  - revert SEI. rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H).
-    rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H8).
-    intro STRUCT.
-    destruct tc.
-    rewrite EQ1, EQ0 in STRUCT. inv STRUCT; constructor; auto.
-    constructor; auto.
-    rewrite Mem.push_new_stage_stack in EQ1, EQ0. inv EQ1; inv EQ0. constructor; auto.
-    constructor; auto. constructor.
+  - repeat constructor; auto.
+  - revert EQ1 EQ0. repeat rewrite_stack_blocks. intros A B; revert SEI; rewrite A, B. simpl.
+    inversion 1; subst. repeat constructor; auto.
   - monadInv TFD.
   - monadInv TFD.
+  - eauto using stack_equiv_tail.
 Qed.
 
 End WITHROMEMFOR.
@@ -1329,7 +1388,7 @@ Proof.
   intros. inversion H.
   replace ge0 with ge in *.
   exploit funct_ptr_translated; eauto. intros (cu & tf & A & B & C).
-  exists (Callstate nil tf nil m2 (fn_stack_requirements (prog_main tprog)) false); split.
+  exists (Callstate nil tf nil (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto.
   eapply (Genv.init_mem_match TRANSF); eauto.
   replace (prog_main tprog) with (prog_main prog).
@@ -1339,7 +1398,7 @@ Proof.
   rewrite <- H3. eapply sig_preserved; eauto.
   erewrite <- match_program_main; eauto.
   econstructor. eauto. constructor. auto. auto. apply Mem.extends_refl.
-  congruence. unfold ge, ge0; congruence.
+  unfold ge, ge0; congruence.
 Qed.
 
 Lemma transf_final_states:

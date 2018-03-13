@@ -1347,6 +1347,35 @@ Proof.
   apply mmatch_push; auto.
 Qed.
 
+Lemma sound_state_base_unrecord:
+  forall s f sp pc e m m',
+    sound_state_base (State s f sp pc e m) ->
+    Mem.unrecord_stack_block m = Some m' ->
+    sound_state_base (State s f sp pc e m').
+Proof.
+  inversion 1; subst; econstructor; eauto.
+  eapply sound_stack_unrecord; eauto.
+  eapply romatch_unrecord; eauto.
+  eapply mmatch_unrecord; eauto.
+Qed.
+
+
+Lemma sound_state_base_push_state:
+  forall s f sp pc e m,
+    sound_state_base (State s f sp pc e m) ->
+    sound_state_base (State s f sp pc e (Mem.push_new_stage m)).
+Proof.
+  inversion 1; subst; econstructor; eauto.
+  eapply sound_stack_push; eauto.
+  eapply romatch_push; eauto.
+  eapply mmatch_push; eauto.
+Qed.
+
+Hint Resolve mmatch_push mmatch_unrecord.
+Hint Resolve romatch_push romatch_unrecord.
+Hint Resolve sound_stack_push sound_stack_unrecord.
+Hint Resolve sound_state_base_push sound_state_base_push_state sound_state_base_unrecord.
+
 Variable fn_stack_requirements: ident -> Z.
 Theorem sound_step_base:
   forall st t st', RTL.step fn_stack_requirements ge st t st' -> sound_state_base st -> sound_state_base st'.
@@ -1432,7 +1461,7 @@ Proof.
   assert (DEFAULT:
             transfer f rm pc ae am = transfer_builtin_default ae am rm args res ->
             sound_state_base
-               (State s f (Vptr sp0 Ptrofs.zero) pc' (regmap_setres res vres rs) m')).
+               (State s f (Vptr sp0 Ptrofs.zero) pc' (regmap_setres res vres rs) m'')).
   { unfold transfer_builtin_default, analyze_call; intros TR'.
   set (aargs := map (abuiltin_arg ae am rm) args) in *.
   assert (ARGS: list_forall2 (vmatch bc) vargs aargs) by (eapply abuiltin_args_sound; eauto).
@@ -1440,28 +1469,40 @@ Proof.
             forallb (fun av => vpincl av Nonstack) aargs)
         eqn: NOLEAK.
 * (* private builtin call *)
-  InvBooleans. rewrite forallb_forall in H3.
+  InvBooleans. rewrite forallb_forall in H4.
   exploit hide_stack; eauto. apply pincl_ge; auto.
   intros (bc1 & A & B & C & D & E & F & G).
   exploit external_call_match; eauto.
   intros. exploit list_forall2_in_l; eauto. intros (av & U & V).
-  eapply D; eauto with va. apply vpincl_ge. apply H3; auto.
+  eapply D; eauto with va. apply vpincl_ge. apply H4; auto.
   intros (bc2 & J & K & L & M & N & O & P & Q).
   exploit (return_from_private_call bc bc2); eauto.
   eapply mmatch_below; eauto.
-  rewrite K; auto.
+  rewrite K; auto. rewrite Mem.push_new_stage_nextblock; auto.
   intros. rewrite K; auto. rewrite C; auto.
+  rewrite Mem.push_new_stage_nextblock; auto.
   apply bmatch_inv with m. eapply mmatch_stack; eauto.
-  intros. apply Q; auto.
-  eapply external_call_nextblock; eauto.
+  intros. rewrite Q; auto.
+  eapply Mem.loadbytes_unchanged_on_1; eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on; eauto.
+  instantiate (1 := fun _ _ => True). simpl. auto.
+  exploit mmatch_below. apply MM. rewrite SP. congruence.
+  red; rewrite Mem.push_new_stage_nextblock. auto.
+  eapply external_call_nextblock in H1; eauto. revert H1. rewrite Mem.push_new_stage_nextblock. auto.
   intros (bc3 & U & V & W & X & Y & Z & AA).
   eapply sound_succ_state with (bc := bc3); eauto. simpl; auto.
   apply set_builtin_res_sound; auto.
+  eapply sound_stack_unrecord; eauto.
   apply sound_stack_exten with bc.
   apply sound_stack_inv with m. auto.
-  intros. apply Q. red. eapply Plt_trans; eauto.
-  rewrite C; auto.
-  exact AA.
+  intros. rewrite Q.
+  eapply Mem.loadbytes_unchanged_on_1; eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on; eauto.
+  exploit mmatch_below. apply MM. rewrite SP. congruence. red; xomega.
+  instantiate (1 := fun _ _ => True). simpl. auto.
+  exploit mmatch_below. apply MM. rewrite SP. congruence.
+  red; rewrite Mem.push_new_stage_nextblock.  xomega. 
+  rewrite C; auto. auto.
 * (* public builtin call *)
   exploit anonymize_stack; eauto.
   intros (bc1 & A & B & C & D & E & F & G).
@@ -1470,67 +1511,91 @@ Proof.
   intros (bc2 & J & K & L & M & N & O & P & Q).
   exploit (return_from_public_call bc bc2); eauto.
   eapply mmatch_below; eauto.
-  rewrite K; auto.
+  rewrite K; auto. rewrite Mem.push_new_stage_nextblock; auto.
   intros. rewrite K; auto. rewrite C; auto.
-  eapply external_call_nextblock; eauto.
+  rewrite Mem.push_new_stage_nextblock; auto.
+  eapply Ple_trans. 
+  2: eapply external_call_nextblock; eauto. rewrite Mem.push_new_stage_nextblock; xomega.
   intros (bc3 & U & V & W & X & Y & Z & AA).
   eapply sound_succ_state with (bc := bc3); eauto. simpl; auto.
   apply set_builtin_res_sound; auto.
+  eapply sound_stack_unrecord; eauto.
   apply sound_stack_exten with bc.
   apply sound_stack_inv with m. auto.
-  intros. apply Q. red. eapply Plt_trans; eauto.
+  intros. rewrite Q; auto.
+  eapply Mem.loadbytes_unchanged_on_1; eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on; eauto.
+  exploit mmatch_below. apply MM. rewrite SP. congruence.
+  red; xomega. 
+  instantiate (1 := fun _ _ => True). simpl. auto.
+  exploit mmatch_below. apply MM. rewrite SP. congruence.
+  red; rewrite Mem.push_new_stage_nextblock. xomega.
   rewrite C; auto.
   exact AA.
   }
   unfold transfer_builtin in TR.
-  destruct ef; auto.
+  destruct ef; eauto.
 + (* volatile load *)
-  inv H0; auto. inv H3; auto. inv H1.
+  inv H0; auto. inv H4; auto. inv H1.
   exploit abuiltin_arg_sound; eauto. intros VM1.
+  eapply sound_state_base_unrecord; eauto.
+  eapply sound_state_base_push_state.
   eapply sound_succ_state; eauto. simpl; auto.
   apply set_builtin_res_sound; auto.
-  inv H3.
+  inv H4.
   * (* true volatile access *)
     assert (V: vmatch bc v (Ifptr Glob)).
-    { inv H4; simpl in *; constructor. econstructor. eapply GE; eauto. }
+    { inv H5; simpl in *; constructor. econstructor. eapply GE; eauto. }
     destruct (va_strict tt). apply vmatch_lub_r. apply vnormalize_sound. auto.
     apply vnormalize_sound. eapply vmatch_ge; eauto. constructor. constructor.
   * (* normal memory access *)
+    rewrite Mem.push_new_stage_load in H1.
     exploit loadv_sound; eauto. simpl; eauto. intros V.
     destruct (va_strict tt).
     apply vmatch_lub_l. auto.
     eapply vnormalize_cast; eauto. eapply vmatch_top; eauto.
 + (* volatile store *)
-  inv H0; auto. inv H3; auto. inv H4; auto. inv H1.
+  inv H0; auto. inv H4; auto. inv H5; auto. inv H1.
   exploit abuiltin_arg_sound. eauto. eauto. eauto. eauto. eauto. eexact H0. intros VM1.
-  exploit abuiltin_arg_sound. eauto. eauto. eauto. eauto. eauto. eexact H2. intros VM2.
-  inv H9.
+  exploit abuiltin_arg_sound. eauto. eauto. eauto. eauto. eauto. eexact H3. intros VM2.
+  inv H10.
   * (* true volatile access *)
+    eapply sound_state_base_unrecord; eauto.
+    eapply sound_state_base_push_state.
     eapply sound_succ_state; eauto. simpl; auto.
     apply set_builtin_res_sound; auto. constructor.
     apply mmatch_lub_l; auto.
   * (* normal memory access *)
+    eapply sound_state_base_unrecord; eauto.
     eapply sound_succ_state; eauto. simpl; auto.
     apply set_builtin_res_sound; auto. constructor.
-    apply mmatch_lub_r. eapply storev_sound; eauto. auto.
-    eapply romatch_store; eauto.
-    eapply sound_stack_storev; eauto. simpl; eauto.
+    apply mmatch_lub_r. eapply storev_sound with (addr:= Vptr b ofs). simpl; eauto. 
+    eapply mmatch_push; auto. auto.
+    auto.
+    eapply romatch_store, romatch_push; eauto.
+    eapply sound_stack_storev with (addr:=Vptr b ofs); simpl; eauto.
 + (* memcpy *)
-  inv H0; auto. inv H3; auto. inv H4; auto. inv H1.
+  inv H0; auto. inv H4; auto. inv H5; auto. inv H1.
   exploit abuiltin_arg_sound. eauto. eauto. eauto. eauto. eauto. eexact H0. intros VM1.
-  exploit abuiltin_arg_sound. eauto. eauto. eauto. eauto. eauto. eexact H2. intros VM2.
+  exploit abuiltin_arg_sound. eauto. eauto. eauto. eauto. eauto. eexact H3. intros VM2.
+  eapply sound_state_base_unrecord; eauto.
   eapply sound_succ_state; eauto. simpl; auto.
   apply set_builtin_res_sound; auto. constructor.
   eapply storebytes_sound; eauto.
   apply match_aptr_of_aval; auto.
   eapply Mem.loadbytes_length; eauto.
-  intros. eapply loadbytes_sound; eauto. apply match_aptr_of_aval; auto.
+  intros. eapply loadbytes_sound; eauto.
+  apply match_aptr_of_aval; auto.
   eapply romatch_storebytes; eauto.
   eapply sound_stack_storebytes; eauto.
 + (* annot *)
-  inv H1. eapply sound_succ_state; eauto. simpl; auto. apply set_builtin_res_sound; auto. constructor.
+  inv H1.
+  eapply sound_state_base_unrecord; eauto.
+  eapply sound_succ_state; eauto. simpl; auto. apply set_builtin_res_sound; auto. constructor.
+
 + (* annot val *)
-  inv H0; auto. inv H3; auto. inv H1.
+  inv H0; auto. inv H4; auto. inv H1.
+  eapply sound_state_base_unrecord; eauto.
   eapply sound_succ_state; eauto. simpl; auto.
   apply set_builtin_res_sound; auto. eapply abuiltin_arg_sound; eauto.
 + (* debug *)
@@ -1594,7 +1659,6 @@ Proof.
     eapply sound_regular_state with (bc := bc1); eauto.
     eapply sound_stack_unrecord. eauto. apply sound_stack_exten with bc'; auto.
     eapply ematch_ge; eauto. apply ematch_update. auto. auto.
-    eapply romatch_unrecord; eauto. eapply mmatch_unrecord; eauto.
   + (* from private call *)
     exploit return_from_private_call; eauto.
     intros; rewrite SAME; auto.
@@ -1603,7 +1667,6 @@ Proof.
     eapply sound_regular_state with (bc := bc1); eauto.
     eapply sound_stack_unrecord. eauto. apply sound_stack_exten with bc'; auto.
     eapply ematch_ge; eauto. apply ematch_update. auto. auto.
-    eapply romatch_unrecord; eauto. eapply mmatch_unrecord; eauto.
 Qed.
 
 End SOUNDNESS.
