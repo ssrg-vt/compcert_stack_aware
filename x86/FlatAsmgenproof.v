@@ -1710,7 +1710,6 @@ Lemma goto_tbl_label_inject : forall gm lm id tbl tbl' l b f j rs1 rs2 m1 m2 rs1
       regset_inject j rs1' rs2' /\ Mem.inject j (def_frame_inj m1') m1' m2.
 Admitted.
 
-
 (** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f b
                         (MINJ: Mem.inject j (def_frame_inj m1) m1 m2)
@@ -1822,16 +1821,45 @@ Proof.
     assert (m1 = m1') by (eapply goto_label_pres_mem; eauto). subst. auto.
     
   - (* Pcall_s *)
-    admit.
-
+    generalize (RSINJ PC). intros. rewrite H in *. inv H3.
+    repeat apply regset_inject_expand; auto.
+    + unfold instr_size. setoid_rewrite H. 
+      apply Val.offset_ptr_inject. eauto.
+    + exploit (inject_symbol_sectlabel gm lm j symb s0 Ptrofs.zero); eauto. 
+      unfold Genv.get_label_addr. unfold Genv.get_label_addr0.
+      unfold get_sect_label_addr. 
+      generalize (Val.offset_ptr_zero (get_sect_label_addr0 (Genv.genv_smap tge) s0)).
+      intros. inv H3. auto. rewrite <- H8 in *. inv H4. auto.
+      
   - (* Pcall_r *)
-    admit.
+    generalize (RSINJ PC). intros. rewrite H in *. inv H3.
+    repeat apply regset_inject_expand; auto.
+    unfold instr_size. setoid_rewrite H. 
+    apply Val.offset_ptr_inject. eauto.
 
   - (* Pallocframe *)
+    (* destruct (Mem.store Mptr m1 (Genv.genv_next ge) *)
+    (*                     (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_link))  *)
+    (*                     (rs1 Asm.RSP)) eqn:EQLINK; try inv H6. *)
+    (* destruct (Mem.store Mptr m (Genv.genv_next ge)  *)
+    (*                     (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_ra)) *)
+    (*                     (rs1 Asm.RA)) eqn:EQRA; try inv H4. *)
+    (* eexists; eexists. split. simpl. *)
+    (* exploit (fun g => Mem.store_mapped_inject j g Mptr m1); eauto. *)
     admit.
 
   - (* Pfreeframe *)
-    admit.
+    generalize (RSINJ Asm.RSP). intros.
+    destruct (Mem.loadv Mptr m1 (Val.offset_ptr (rs1 Asm.RSP) ofs_ra)) eqn:EQRA; try inv H6.
+    destruct (Mem.loadv Mptr m1 (Val.offset_ptr (rs1 Asm.RSP) ofs_link)) eqn:EQLINK; try inv H5.
+    exploit (fun g a2 => Mem.loadv_inject j g m1' m2 Mptr (Val.offset_ptr (rs1 Asm.RSP) ofs_ra) a2 v); eauto.
+    apply Val.offset_ptr_inject. auto.
+    exploit (fun g a2 => Mem.loadv_inject j g m1' m2 Mptr (Val.offset_ptr (rs1 Asm.RSP) ofs_link) a2 v0); eauto.
+    apply Val.offset_ptr_inject. auto.
+    intros (v2 & MLOAD2 & VINJ2) (v3 & MLOAD3 & VINJ3).
+    eexists; eexists. split. simpl.
+    setoid_rewrite MLOAD3. setoid_rewrite MLOAD2. auto.
+    eapply match_states_intro; eauto with inject_db.
 
 Admitted.
 
