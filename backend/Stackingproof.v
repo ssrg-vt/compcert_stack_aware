@@ -3775,7 +3775,8 @@ Inductive match_states_inv (s : Linear.state) (s': Mach.state): Prop :=
     match_states_inv s s'.
 
 Theorem transf_step_correct'
-  (frame_size_correct: forall (fb : block) (f : function), Genv.find_funct_ptr tge fb = Some (Internal f) -> frame_size (fn_frame f) = fn_stacksize f):
+        (frame_size_correct: forall (fb : block) (f : function), Genv.find_funct_ptr tge fb = Some (Internal f) -> frame_size (fn_frame f) = fn_stacksize f)
+        (init_sp_zero: forall b o, init_sp = Vptr b o -> o = Ptrofs.zero):
   forall s1 t s2, Linear.step fn_stack_requirements init_ls ge s1 t s2 ->
              forall (WTS: wt_state init_ls s1) s1'
                (MS: match_states_inv s1 s1'),
@@ -3956,11 +3957,13 @@ Proof.
         change (fe_ofs_arg) with 0 in RNG. omega.
     + constructor.
   - constructor. constructor.
-    repeat rewrite_stack_blocks. inversion 1. simpl. subst.
-    rewrite in_stack_cons; left.
-    left. simpl.
+    repeat rewrite_stack_blocks. split. inversion 1. simpl. subst.
+    unfold get_frames_blocks. simpl.
     erewrite Mem.alloc_result with (b0:=b1); eauto.
-    erewrite <- Genv.init_mem_genv_next; eauto. fold ge. auto.
+    erewrite <- Genv.init_mem_genv_next; eauto. fold ge. auto. eauto.
+    simpl. intros (fsp & fr & r & TOP & EQ). inv TOP. inv EQ.
+    erewrite Mem.alloc_result with (b1:=b0); eauto.
+    erewrite <- Genv.init_mem_genv_next; eauto. fold ge. auto. 
     constructor.
 Qed.
 
@@ -4030,6 +4033,7 @@ Proof.
   exploit transf_step_correct'; eauto. 
   + apply Val.Vnullptr_has_type.
   + eapply stacking_frame_correct; eauto.
+  + inversion 1. auto.
   + intros [s2' [A B]].
     exists s2'; split.
     simpl. 

@@ -705,8 +705,7 @@ Section WITHMEMORYMODEL.
     - repeat (destr_in H1; [idtac]). inv H1.
       rewrite <- (Mem.nextblock_free _ _ _ _ _ Heqo0).
       destr_in Heqo1.
-      edestruct Mem.unrecord_stack_block_mem_unchanged. simpl; eauto.
-      rewrite H0. xomega. inv Heqo1. xomega.
+      erewrite <- Mem.unrecord_stack_block_nextblock by eauto. xomega. inv Heqo1. xomega.
     - repeat destr_in H1. apply Ple_refl.
   Qed.
 

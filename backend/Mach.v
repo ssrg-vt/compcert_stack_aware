@@ -447,11 +447,16 @@ Inductive callstack_function_defined : list stackframe -> Prop :=
       (CFD: callstack_function_defined cs'),
       callstack_function_defined (Stackframe fb sp' ra c' :: cs').
 
+Hypothesis init_sp_ofs_zero:
+  forall b o, init_sp = Vptr b o -> o = Ptrofs.zero.
+
 Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
-| list_prefix_nil s: (forall b o, init_sp = Vptr b o -> in_stack s b) -> list_prefix nil s
+| list_prefix_nil s: (forall b, init_sp = Vptr b Ptrofs.zero <-> exists fsp fr r, s = (fsp::fr)::r /\ get_frame_blocks fsp = b::nil) ->
+                     list_prefix nil s
 | list_prefix_cons lsp s f r sp bi
-                       (REC: list_prefix lsp s)
-                       (BLOCKS: frame_adt_blocks f = (sp,bi)::nil):
+                   (REC: list_prefix lsp s)
+                   (FSIZE: frame_adt_size f = frame_size bi)
+                   (BLOCKS: frame_adt_blocks f = (sp,bi)::nil):
     list_prefix (Some (sp,bi) :: lsp) ( (f :: r) :: s).
 
 Definition stack_blocks_of_callstack (l : list stackframe) : list (option (block * frame_info)) :=
@@ -518,6 +523,8 @@ Proof.
     rewrite store_stack_no_abstract in EQ1 by eauto.
     revert EQ1; rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
     auto.
+    simpl.
+    erewrite <- SIZECORRECT. apply Z.max_r. apply H0. eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
   - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     simpl in *; eauto. rewrite FINDF in CallStackConsistency. eauto.
@@ -620,11 +627,17 @@ Opaque Z.mul Z.add.
 
 Lemma lp_has_init_sp s m:
   list_prefix s m ->
-  forall b o,
-    init_sp = Vptr b o ->
+  forall b,
+    init_sp = Vptr b Ptrofs.zero ->
     in_stack m b.
 Proof.
   induction 1; simpl; intros; eauto.
+  unfold in_stack.
+  unfold get_stack_blocks.
+  rewrite H in H0. revert H0.
+  unfold get_stack_top_blocks.
+  intros (fsp & fr & r & EQ & BLOCKS). subst. simpl. unfold get_frames_blocks. simpl. rewrite BLOCKS. 
+  rewrite in_app. rewrite in_app. left; left; left. reflexivity.
   rewrite in_stack_cons. right; eauto.    
 Qed.
 
@@ -656,6 +669,7 @@ Proof.
     rewrite EQ1 in CallStackConsistency. simpl in CallStackConsistency.
     exploit Mem.stack_norepet. intro ND. rewrite EQ1 in ND. revert Heqv. inv ND.
     eapply H7 in CallStackConsistency; eauto.
+    rewrite Heqv; f_equal. eauto.
   - revert EQ1; repeat rewrite_stack_blocks. intro.
     rewrite EQ1 in MSISHS.
     destruct MSISHS as (fi & INS & O).
@@ -675,6 +689,7 @@ Proof.
     exploit Mem.stack_norepet. intro ND. rewrite <- H4 in ND. revert Heqv. inv ND.
     intros. intro INFR.
     eapply H3 in REC; eauto.
+    rewrite Heqv; f_equal. eauto.
   - destruct MSISHS as (fi & INS & O).
     exists fi; split; eauto. destruct INS as (ff & fr & A & B & C).
     rewrite EQ in C |- *. simpl.
@@ -688,7 +703,9 @@ Proof.
     eapply H3 in CallStackConsistency; eauto.
     eapply in_frame_in_frames; eauto.
     red. unfold get_frame_blocks.
-    change b with (fst (b, fi)); apply in_map; eauto.
+    apply in_map. eauto.
+    simpl.
+    rewrite Heqv; f_equal. eauto.
   - intros; intro; subst. inv NI.
     eapply NI0; eauto.
   - inv NI; auto.

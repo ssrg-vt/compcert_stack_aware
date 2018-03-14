@@ -1051,9 +1051,9 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | _ => Stuck
       end
   | Pcall_s id sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m)
   | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC Ptrofs.one) #PC <- (rs r)) (Mem.push_new_stage m)
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
