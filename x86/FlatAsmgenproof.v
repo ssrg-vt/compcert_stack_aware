@@ -1625,15 +1625,90 @@ Hint Resolve nextinstr_nf_pres_inject nextinstr_pres_inject regset_inject_expand
   addfs_inject subfs_inject mulfs_inject divfs_inject negfs_inject absfs_inject
   val_of_optbool_lessdef eval_testcond_inject: inject_db.
 
+Ltac solve_exec_instr :=
+  match goal with
+  | [ |- Next _ _ = Next _ _ ] =>
+    reflexivity
+  | [ |- context [eval_testcond _ _] ]=>
+    unfold eval_testcond; solve_exec_instr
+  | [ H: Asm.eval_testcond ?c ?r = _ |- context [Asm.eval_testcond ?c ?r] ] =>
+    rewrite H; solve_exec_instr
+  | [ H: _ = Asm.eval_testcond ?c ?r |- context [Asm.eval_testcond ?c ?r] ] =>
+    rewrite <- H; solve_exec_instr
+  end.
 
 Ltac solve_match_states :=
   match goal with
+  | [ H: Asm.Stuck = Next _ _ |- _ ] => inv H
   | [ |- exists _, _ ] => eexists; solve_match_states
   | [ |- (FlatAsm.exec_instr _ _ _ _ = Next _ _) /\ match_states _ _ ] =>
-    split; [reflexivity | econstructor; eauto; solve_match_states]
+    split; [simpl; solve_exec_instr | econstructor; eauto; solve_match_states]
   | [ |- regset_inject _ _ _ ] =>
     eauto 10 with inject_db
   end.
+
+Ltac destr_eval_testcond :=
+  match goal with
+  | [ H : match Asm.eval_testcond ?c ?rs with | _ => _ end = Next _ _ |- _ ] =>
+    let ETEQ := fresh "ETEQ" in (
+      destruct (Asm.eval_testcond c rs) eqn:ETEQ); destr_eval_testcond
+  | [ H : Some ?b = Asm.eval_testcond _ _ |- _ ] =>
+    match b with
+    | true => fail 1
+    | false => fail 1
+    | _ => destruct b; destr_eval_testcond
+    end
+  | [ H : Asm.eval_testcond _ _ = Some ?b |- _] =>
+    match b with
+    | true => fail 1
+    | false => fail 1
+    | _ => destruct b; destr_eval_testcond
+    end
+  | [ H : Asm.Next _ _ = Next _ _ |- _ ] =>
+    inv H; destr_eval_testcond
+  | [ H: opt_lessdef (Some true) (Asm.eval_testcond _ _) |- _ ] =>
+    inv H; destr_eval_testcond
+  | [ H: opt_lessdef (Some false) (Asm.eval_testcond _ _) |- _ ] =>
+    inv H; destr_eval_testcond
+  | _ => idtac
+  end.
+
+
+Lemma goto_label_pres_mem : forall f l rs1 m1 rs1' m1',
+    Asm.goto_label ge f l rs1 m1 = Next rs1' m1' -> m1 = m1'.
+Proof.
+  unfold Asm.goto_label. intros.
+  destruct (label_pos l 0 (Asm.fn_code f)); try inv H. 
+  destruct (rs1 Asm.PC); try inv H1.
+  destruct (Genv.find_funct_ptr ge b); try inv H0. auto.
+Qed.
+
+Lemma goto_label_inject : forall gm lm id b f l z j rs1 rs2 m1 m2 rs1' m1'
+                            (MATCHSMINJ: match_sminj gm lm j)
+                            (RINJ: regset_inject j rs1 rs2)
+                            (MINJ:Mem.inject j (def_frame_inj m1) m1 m2),
+    Genv.find_symbol ge id = Some b ->
+    Genv.find_funct_ptr ge b = Some (Internal f) ->
+    Asm.goto_label ge f l rs1 m1 = Next rs1' m1' ->
+    lm id l = Some z ->
+    exists rs2', goto_label tge (code_label z) rs2 m2 = Next rs2' m2 /\
+            regset_inject j rs1' rs2' /\ Mem.inject j (def_frame_inj m1') m1' m2.
+Admitted.
+
+Lemma goto_tbl_label_inject : forall gm lm id tbl tbl' l b f j rs1 rs2 m1 m2 rs1' m1' i
+                                (MATCHSMINJ: match_sminj gm lm j)
+                                (RINJ: regset_inject j rs1 rs2)
+                                (MINJ:Mem.inject j (def_frame_inj m1) m1 m2),
+    Genv.find_symbol ge id = Some b ->
+    Genv.find_funct_ptr ge b = Some (Internal f) ->
+    list_nth_z tbl (Int.unsigned i) = Some l ->
+    Asm.goto_label ge f l ((rs1 # RAX <- Vundef) # RDX <- Vundef) m1 = Next rs1' m1' ->
+    transl_tbl lm id tbl = OK tbl' ->
+    exists rs2' l', 
+      list_nth_z tbl' (Int.unsigned i) = Some l' /\
+      FlatAsm.goto_label tge l' ((rs2 # RAX <- Vundef) # RDX <- Vundef) m2 = Next rs2' m2 /\
+      regset_inject j rs1' rs2' /\ Mem.inject j (def_frame_inj m1') m1' m2.
+Admitted.
 
 
 (** The internal step preserves the invariant *)
@@ -1684,26 +1759,12 @@ Proof.
   - (* Pcmov *)
     unfold Asm.exec_instr in H6; simpl in H6.
     exploit (eval_testcond_inject j c rs1 rs2); eauto.
-    intros. destruct (Asm.eval_testcond c rs1) eqn:EQ; inv H3. destruct b0; inv H6.
-    + eexists; eexists. split. simpl. unfold eval_testcond. rewrite <- H7. auto.
-      eapply match_states_intro; eauto.
-      eauto with inject_db.
-    + eexists; eexists. split. simpl. unfold eval_testcond. rewrite <- H7. auto.
-      eapply match_states_intro; eauto.
-      eauto with inject_db.
-    + inv H6. destruct (Asm.eval_testcond c rs2) eqn:EQ'. destruct b0.
-      * eexists; eexists. split. simpl. unfold eval_testcond.
-        rewrite EQ'. eauto.
-        eapply match_states_intro; eauto.
-        eauto with inject_db.
-      * eexists; eexists. split. simpl. unfold eval_testcond.
-        rewrite EQ'. eauto.
-        eapply match_states_intro; eauto.
-        eauto with inject_db.
-      * eexists; eexists. split. simpl. unfold eval_testcond.
-        rewrite EQ'. eauto.
-        eapply match_states_intro; eauto.
-        eauto with inject_db.
+    intros. 
+
+
+    destr_eval_testcond; try solve_match_states.
+    destruct (Asm.eval_testcond c rs2) eqn:EQ'. destruct b0; solve_match_states.
+    solve_match_states.
 
   - (* Pjmp_l *)
     unfold Asm.exec_instr in H6; simpl in H6.
@@ -1728,14 +1789,38 @@ Proof.
     simpl_goal. auto.
 
   - (* Pjcc *)
-    admit.
+    unfold Asm.exec_instr in H6; simpl in H6.
+    exploit (eval_testcond_inject j c rs1 rs2); eauto.
+    intros.
+    destr_eval_testcond; try solve_match_states.
+    exploit goto_label_inject; eauto. intros (rs2' & GOTO & RINJ' & MINJ').
+    exists rs2', m2. split. simpl. unfold eval_testcond. rewrite <- H7. auto.
+    eapply match_states_intro; eauto.
+    assert (m1 = m1') by (eapply goto_label_pres_mem; eauto). subst. auto.
 
   - (* Pjcc2 *)
-    admit.
+    unfold Asm.exec_instr in H6; simpl in H6.
+    exploit (eval_testcond_inject j c1 rs1 rs2); eauto.
+    exploit (eval_testcond_inject j c2 rs1 rs2); eauto.
+    intros ELF1 ELF2.
+    destr_eval_testcond; try solve_match_states.
+    exploit goto_label_inject; eauto. intros (rs2' & GOTO & RINJ' & MINJ').
+    exists rs2', m2. split. simpl. setoid_rewrite <- H5. setoid_rewrite <- H7. auto.
+    eapply match_states_intro; eauto.
+    assert (m1 = m1') by (eapply goto_label_pres_mem; eauto). subst. auto.
 
   - (* Pjmptbl *)
-    admit.
-
+    unfold Asm.exec_instr in H6; simpl in H6.
+    destruct (rs1 r) eqn:REQ; inv H6.
+    destruct (list_nth_z tbl (Int.unsigned i)) eqn:LEQ; inv H4.
+    assert (rs2 r = Vint i) by
+        (generalize (RSINJ r); rewrite REQ; inversion 1; auto).
+    exploit (goto_tbl_label_inject gm lm id tbl x0 l); eauto. 
+    intros (rs2' & l' & LEQ' & GLBL & RSINJ' & MINJ').
+    exists rs2', m2. split. simpl. setoid_rewrite H3. setoid_rewrite LEQ'. auto. 
+    eapply match_states_intro; eauto.
+    assert (m1 = m1') by (eapply goto_label_pres_mem; eauto). subst. auto.
+    
   - (* Pcall_s *)
     admit.
 
