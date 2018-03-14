@@ -2514,6 +2514,20 @@ Proof.
   apply mkmem_ext; auto.
 Qed.
 
+Lemma push_store_unrecord:
+  forall m b o chunk v m1 m2,
+    store chunk m b o v = Some m1 ->
+    store chunk (push_new_stage m) b o v = Some m2 ->
+    unrecord_stack_block m2 = Some m1.
+Proof.
+  unfold store, unrecord_stack_block. simpl; intros.
+  repeat destr_in H0. simpl in *.
+  repeat destr_in H. f_equal.
+  apply mkmem_ext; auto.
+Qed.
+
+
+
 Section STOREBYTES.
 Variable m1: mem.
 Variable b: block.
@@ -9195,6 +9209,7 @@ Proof.
   apply unrecord_push.
 
   intros; eapply push_storebytes_unrecord; eauto.
+  intros; eapply push_store_unrecord; eauto.
   
 Qed.
 

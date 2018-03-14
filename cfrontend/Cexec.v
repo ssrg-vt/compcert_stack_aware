@@ -922,7 +922,7 @@ Fixpoint step_expr (k: kind) (a: expr) (m: mem): reducts expr :=
               do fd <- Genv.find_funct ge vf;
               do vargs <- sem_cast_arguments vtl tyargs m;
               check type_eq (type_of_fundef fd) (Tfunction tyargs tyres cconv);
-              topred (Callred "red_call" fd vargs ty m i)
+              topred (Callred "red_call" fd vargs ty (Mem.push_new_stage m) i)
           | _ => stuck
           end
       | _, _ =>
@@ -934,9 +934,11 @@ Fixpoint step_expr (k: kind) (a: expr) (m: mem): reducts expr :=
       | Some vtl =>
         do vargs <- sem_cast_arguments vtl tyargs m;
           if builtin_is_enabled ef then
-            match do_external ef w vargs m with
+            match do_external ef w vargs (Mem.push_new_stage m) with
             | None => stuck
-            | Some(w',t,v,m') => topred (Rred "red_builtin" (Eval v ty) m' t)
+            | Some(w',t,v,m') =>
+              do m'' <- Mem.unrecord_stack_block m' ;
+                topred (Rred "red_builtin" (Eval v ty) m'' t)
             end
           else stuck
       | _ =>
@@ -1047,9 +1049,10 @@ Definition invert_expr_prop (a: expr) (m: mem) : Prop :=
   | Ebuiltin ef tyargs rargs ty =>
     exprlist_all_values rargs ->
     builtin_enabled ef /\
-    exists vargs t vres m' w',
+    exists vargs t vres m' m'' w',
       cast_arguments m rargs tyargs vargs
-      /\ external_call ef ge vargs m t vres m'
+      /\ external_call ef ge vargs (Mem.push_new_stage m) t vres m'
+      /\ Mem.unrecord_stack_block m' = Some m''
       /\ possible_trace w t w'
   | _ => True
   end.
@@ -1080,7 +1083,7 @@ Proof.
   exists t; exists v1; exists w'; auto.
   exists t; exists v1; exists w'; auto.
   exists v; auto.
-  intros; split. apply BUILTIN_ENABLED. exists vargs; exists t; exists vres; exists m'; exists w'; auto.
+  intros; split. apply BUILTIN_ENABLED. exists vargs; exists t; exists vres; exists m', m''; exists w'; auto.
 Qed.
 
 Lemma callred_invert:
@@ -1181,7 +1184,7 @@ Definition reduction_ok (k: kind) (a: expr) (m: mem) (rd: reduction) : Prop :=
   match k, rd with
   | LV, Lred _ l' m' => lred ge e a m l' m'
   | RV, Rred _ r' m' t => rred ge a m t r' m' /\ exists w', possible_trace w t w'
-  | RV, Callred _ fd args tyres m' i => callred ge a m fd args tyres i /\ m' = m
+  | RV, Callred _ fd args tyres m' i => callred ge a m fd args tyres i /\ m' = Mem.push_new_stage m
   | LV, Stuckred => ~imm_safe_t k a m
   | RV, Stuckred => ~imm_safe_t k a m
   | _, _ => False
@@ -1562,12 +1565,15 @@ Proof with (try (apply not_invert_ok; simpl; intro; myinv; intuition congruence;
   exploit is_val_list_all_values; eauto. intros ALLVAL.
   (* top *)
   destruct (sem_cast_arguments vtl tyargs m) as [vargs|] eqn:?...
-  destruct (do_external ef w vargs m) as [[[[? ?] v] m'] | ] eqn:?...
+  destruct (do_external ef w vargs (Mem.push_new_stage m)) as [[[[? ?] v] m'] | ] eqn:?...
   exploit do_ef_external_sound; eauto. intros [EC PT].
   destruct (builtin_is_enabled ef) eqn:?...
+  destruct (Mem.unrecord_stack_block m') eqn:?...
   apply topred_ok; auto. red. split; auto. eapply red_builtin; eauto.
   eapply sem_cast_arguments_sound; eauto.
   exists w0; auto.
+  edestruct (Mem.unrecord_stack_block_succeeds) as (m2' & USB & EQSTK); [|rewrite USB in Heqo2; congruence].
+  repeat rewrite_stack_blocks. reflexivity.
   destruct (builtin_is_enabled ef) eqn:?...
   apply not_invert_ok; simpl; intros; myinv. specialize (H ALLVAL). myinv.
   assert (x = vargs).
@@ -1672,20 +1678,21 @@ Proof.
   exploit sem_cast_arguments_complete; eauto. intros [vtl [A B]].
   destruct (builtin_is_enabled ef); try contradiction.
   exploit do_ef_external_complete; eauto. intros C.
-  rewrite A. rewrite B. rewrite C. econstructor; eauto.
+  rewrite A. rewrite B. rewrite C, H1. 
+  econstructor; eauto.
 Qed.
 
 Lemma callred_topred:
   forall a fd args ty i m,
   callred ge a m fd args ty i ->
-  exists rule, step_expr RV a m = topred (Callred rule fd args ty m i).
+  exists rule, step_expr RV a m = topred (Callred rule fd args ty (Mem.push_new_stage m) i).
 Proof.
   induction 1; simpl.
   rewrite H2. exploit sem_cast_arguments_complete; eauto. intros [vtl [A B]].
   destruct IFI as (bb & oo & IFI & IFI'). subst. simpl in *.
   rewrite A; rewrite H; rewrite B; rewrite H1.
   erewrite Genv.find_invert_symbol; eauto.
-  rewrite dec_eq_true. econstructor; eauto.
+  rewrite dec_eq_true. econstructor; eauto. 
 Qed.
 
 Definition reducts_incl {A B: Type} (C: A -> B) (res1: reducts A) (res2: reducts B) : Prop :=
@@ -2090,7 +2097,7 @@ Qed.
 Program Definition alloc_variables_record f m sz : option (env * mem) :=
   check (list_norepet_dec ident_eq (var_names (fn_params f) ++ var_names (fn_vars f)));
     let '(e,m1) := do_alloc_variables empty_env m (f.(fn_params) ++ f.(fn_vars)) in
-    do m1 <- Mem.record_stack_blocks (Mem.push_new_stage m1) (Build_frame_adt (blocks_with_info ge e) (Z.max 0 sz) _ _);
+    do m1 <- Mem.record_stack_blocks m1 (Build_frame_adt (blocks_with_info ge e) (Z.max 0 sz) _ _);
       Some (e,m1).
 Next Obligation.
   unfold blocks_with_info. unfold blocks_of_env.
@@ -2171,7 +2178,7 @@ Lemma alloc_variables_record_spec:
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 /\
       frame_adt_blocks fa = blocks_with_info ge e /\
       frame_adt_size fa = Z.max 0 sz /\
-      Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some m'.
+      Mem.record_stack_blocks m1 fa = Some m'.
 Proof.
   unfold alloc_variables_record.
   intros f m sz e m' AV.
@@ -2181,7 +2188,7 @@ Proof.
             exists (m1 : mem) (fa : frame_adt),
               alloc_variables ge empty_env m (fn_params f ++ fn_vars f) (fst em) m1 /\
               frame_adt_blocks fa = blocks_with_info ge (fst em) /\
-              frame_adt_size fa = Z.max 0 sz /\ Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some (snd em)) (e,m')).
+              frame_adt_size fa = Z.max 0 sz /\ Mem.record_stack_blocks m1 fa = Some (snd em)) (e,m')).
   eapply (destr_dep_let (B:=env*mem) (do_alloc_variables empty_env m (fn_params f ++ fn_vars f))).
   apply AV. clear AV.
   intros.
@@ -2272,7 +2279,6 @@ Definition do_step (w: world) (s: state) : list transition :=
         | Kreturn k =>
             do v' <- sem_cast v ty f.(fn_return) m;
               do m' <- Mem.free_list m (blocks_of_env ge e);
-              do m' <- Mem.unrecord_stack_block m';
             ret "step_return_2" (Returnstate v' (call_cont k) m')
         | Kswitch1 sl k =>
             do n <- sem_switch_arg v ty;
@@ -2325,13 +2331,11 @@ Definition do_step (w: world) (s: state) : list transition :=
 
   | State f (Sreturn None) k e m =>
     do m' <- Mem.free_list m (blocks_of_env ge e);
-      do m' <- Mem.unrecord_stack_block m';
       ret "step_return_0" (Returnstate Vundef (call_cont k) m')
   | State f (Sreturn (Some x)) k e m =>
       ret "step_return_1" (ExprState f x (Kreturn k) e m)
   | State f Sskip ((Kstop | Kcall _ _ _ _ _) as k) e m =>
     do m' <- Mem.free_list m (blocks_of_env ge e);
-      do m' <- Mem.unrecord_stack_block m';
       ret "step_skip_call" (Returnstate Vundef k m')
 
   | State f (Sswitch x sl) k e m =>
@@ -2363,6 +2367,7 @@ Definition do_step (w: world) (s: state) : list transition :=
       end
 
   | Returnstate v (Kcall f e C ty k) m =>
+    do m <- Mem.unrecord_stack_block m ;
       ret "step_returnstate" (ExprState f (C (Eval v ty)) k e m)
 
   | _ => nil
@@ -2470,7 +2475,7 @@ Lemma alloc_variables_record_complete:
     list_norepet (var_names (fn_params f) ++ var_names (fn_vars f)) ->
     alloc_variables ge empty_env m (fn_params f ++ fn_vars f) e m1 ->
     frame_adt_blocks fa = blocks_with_info ge e ->
-    Mem.record_stack_blocks (Mem.push_new_stage m1) fa = Some m1' ->
+    Mem.record_stack_blocks m1 fa = Some m1' ->
     alloc_variables_record f m (frame_adt_size fa) = Some (e,m1').
 Proof.
   intros.
@@ -2516,8 +2521,8 @@ Proof with (unfold ret; eauto with coqlib).
   unfold do_step; rewrite NOTVAL.
   exploit callred_topred; eauto. instantiate (1 := w). instantiate (1 := e).
   intros (rule & STEP). exists rule.
-  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) m (fn_stack_requirements i)))
-    with (expr_final_state f k e (C, Callred rule fd vargs ty m i)).
+  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) (Mem.push_new_stage m) (fn_stack_requirements i)))
+    with (expr_final_state f k e (C, Callred rule fd vargs ty (Mem.push_new_stage m) i)).
   apply in_map.
   generalize (step_expr_context e w _ _ _ H1 a m). unfold reducts_incl.
   intro. replace C with (fun x => C x). apply H2.
@@ -2544,9 +2549,9 @@ Proof with (unfold ret; eauto with coqlib).
   rewrite H0...
   rewrite H0...
   destruct H0; subst x...
+  rewrite H0...
   rewrite H0... rewrite H1...
-  rewrite H0; rewrite H1, H2...
-  rewrite H1, H2. red in H0. destruct k; try contradiction...
+  rewrite H1. red in H0. destruct k; try contradiction...
   rewrite H0...
   destruct H0; subst x...
   rewrite H0...
@@ -2555,6 +2560,8 @@ Proof with (unfold ret; eauto with coqlib).
   rewrite <- H3. erewrite alloc_variables_record_complete; eauto.
   rewrite (sem_bind_parameters_complete _ _ _ _ _ _ H5)...
   exploit do_ef_external_complete; eauto. intro EQ; rewrite EQ. auto with coqlib.
+
+  rewrite H0...
 Qed.
 
 End EXEC.
@@ -2569,7 +2576,7 @@ Definition do_initial_state (p: program): option (genv * state) :=
   do b <- Genv.find_symbol ge p.(prog_main);
   do f <- Genv.find_funct_ptr ge b;
   check (type_eq (type_of_fundef f) (Tfunction Tnil type_int32s cc_default));
-  Some (ge, Callstate f nil Kstop m0 (fn_stack_requirements (prog_main p))).
+  Some (ge, Callstate f nil Kstop (Mem.push_new_stage m0) (fn_stack_requirements (prog_main p))).
 
 Definition at_final_state (S: state): option int :=
   match S with

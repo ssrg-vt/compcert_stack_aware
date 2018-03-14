@@ -2064,6 +2064,12 @@ wf_stack_mem:
      storebytes (push_new_stage m) b o bytes = Some m2 ->
      unrecord_stack_block m2 = Some m1;
 
+ push_store_unrecord:
+   forall m b o chunk v m1 m2,
+     store chunk m b o v = Some m1 ->
+     store chunk (push_new_stage m) b o v = Some m2 ->
+     unrecord_stack_block m2 = Some m1;
+ 
  magree_push {injperm:InjectPerm}:
       forall P m1 m2,
         magree m1 m2 P ->
