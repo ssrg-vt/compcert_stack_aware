@@ -1683,6 +1683,15 @@ Ltac destr_eval_testcond :=
   | _ => idtac
   end.
 
+Ltac destr_match_outcome :=
+  match goal with
+  | [ H: Asm.Stuck = Next _ _ |- _ ] => inv H
+  | [ H: Asm.Next _ _ = Next _ _ |- _ ] => inv H; destr_match_outcome
+  | [ H: match ?a with _ => _ end = Next _ _ |- _] =>
+    let EQ := fresh "EQ" in (destruct a eqn:EQ; destr_match_outcome)
+  | _ => idtac
+  end.
+
 
 Lemma goto_label_pres_mem : forall f l rs1 m1 rs1' m1',
     Asm.goto_label ge f l rs1 m1 = Next rs1' m1' -> m1 = m1'.
@@ -1785,10 +1794,37 @@ Proof.
     rewrite Ptrofs.repr_unsigned. auto.
 
   (* Divisions *)
-  - admit.
-  - admit.
-  - admit.
-  - admit.
+  - unfold Asm.exec_instr in H6; simpl in H6.
+    destr_match_outcome. 
+    generalize (RSINJ Asm.RDX). generalize (RSINJ Asm.RAX). generalize (RSINJ r1).
+    rewrite EQ, EQ0, EQ1. inversion 1; subst. inversion 1; subst. inversion 1; subst.
+    eexists; eexists. split. simpl. setoid_rewrite <- H10. setoid_rewrite <- H8.
+    setoid_rewrite <- H6. rewrite EQ2. auto.
+    eapply match_states_intro; eauto with inject_db.
+
+  - unfold Asm.exec_instr in H6; simpl in H6.
+    destr_match_outcome. 
+    generalize (RSINJ Asm.RDX). generalize (RSINJ Asm.RAX). generalize (RSINJ r1).
+    rewrite EQ, EQ0, EQ1. inversion 1; subst. inversion 1; subst. inversion 1; subst.
+    eexists; eexists. split. simpl. setoid_rewrite <- H10. setoid_rewrite <- H8.
+    setoid_rewrite <- H6. rewrite EQ2. auto.
+    eapply match_states_intro; eauto with inject_db.
+
+  - unfold Asm.exec_instr in H6; simpl in H6.
+    destr_match_outcome. 
+    generalize (RSINJ Asm.RDX). generalize (RSINJ Asm.RAX). generalize (RSINJ r1).
+    rewrite EQ, EQ0, EQ1. inversion 1; subst. inversion 1; subst. inversion 1; subst.
+    eexists; eexists. split. simpl. setoid_rewrite <- H10. setoid_rewrite <- H8.
+    setoid_rewrite <- H6. rewrite EQ2. auto.
+    eapply match_states_intro; eauto with inject_db.
+
+  - unfold Asm.exec_instr in H6; simpl in H6.
+    destr_match_outcome. 
+    generalize (RSINJ Asm.RDX). generalize (RSINJ Asm.RAX). generalize (RSINJ r1).
+    rewrite EQ, EQ0, EQ1. inversion 1; subst. inversion 1; subst. inversion 1; subst.
+    eexists; eexists. split. simpl. setoid_rewrite <- H10. setoid_rewrite <- H8.
+    setoid_rewrite <- H6. rewrite EQ2. auto.
+    eapply match_states_intro; eauto with inject_db.
      
   - (* Pcmov *)
     unfold Asm.exec_instr in H6; simpl in H6.
