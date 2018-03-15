@@ -1598,14 +1598,28 @@ Ltac solve_store_load :=
     exploit exec_load_step; eauto
   end.
 
+Ltac solve_opt_lessdef := 
+  match goal with
+  | [ |- opt_lessdef (match ?rs1 ?r with
+                     | _ => _
+                     end) _ ] =>
+    let EQ := fresh "EQ" in (destruct (rs1 r) eqn:EQ; solve_opt_lessdef)
+  | [ |- opt_lessdef None _ ] => constructor
+  | [ |- opt_lessdef (Some _) (match ?rs2 ?r with
+                              | _ => _
+                              end) ] =>
+    let EQ := fresh "EQ" in (destruct (rs2 r) eqn:EQ; solve_opt_lessdef)
+  | [ H1: regset_inject _ ?rs1 ?rs2, H2: ?rs1 ?r = _, H3: ?rs2 ?r = _ |- _ ] =>
+    generalize (H1 r); rewrite H2, H3; clear H2 H3; inversion 1; subst; solve_opt_lessdef
+  | [ |- opt_lessdef (Some ?v) (Some ?v) ] => constructor
+  end.
+
 Lemma eval_testcond_inject: forall j c rs1 rs2,
     regset_inject j rs1 rs2 ->
     opt_lessdef (Asm.eval_testcond c rs1) (Asm.eval_testcond c rs2).
-(* Proof. *)
-(*   intros. destruct c; simpl. *)
-(*   - destruct (rs1 Asm.ZF) eqn:EQ1; try constructor. *)
-(*     destruct (rs2 Asm.ZF) eqn:EQ2; try congruence. *)
-Admitted.
+Proof.
+  intros. destruct c; simpl; try solve_opt_lessdef.
+Qed.
 
 Hint Resolve nextinstr_nf_pres_inject nextinstr_pres_inject regset_inject_expand 
   regset_inject_expand_vundef_left undef_regs_pres_inject 
