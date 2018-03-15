@@ -480,6 +480,7 @@ Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_call:
     forall cs' fb rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
+      (TTNP: Mem.top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m'))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:
@@ -511,9 +512,20 @@ Proof.
   - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
   - econstructor. rewrite_stack_blocks. simpl. 
     rewrite FIND. repeat rewrite_stack_blocks. simpl. auto.
+    rewrite_stack_blocks. constructor. red; easy.
     econstructor; eauto.
   - econstructor; repeat rewrite_stack_blocks. auto.
     inv CallStackConsistency; simpl; auto.
+    erewrite <- Mem.free_stack_blocks; eauto. eapply Mem.noperm_top.
+    rewrite_stack_blocks. inv CallStackConsistency.
+    intros b IFR o k p0 P.
+    red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+    eapply Mem.perm_free_2 in P; eauto.
+    exploit Mem.agree_perms_mem.
+    rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+    eapply Mem.perm_free_3 in P; eauto.
+    erewrite <- SIZECORRECT; eauto. rewrite Ptrofs.unsigned_zero.
+    rewrite H0 in FIND. inv FIND. omega.
     inv CallStackConsistency; simpl; auto.
   - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.

@@ -1239,26 +1239,19 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) ->
         step ge (State rs m) t (State rs' m'')
 | exec_step_external:
-    forall b ef args res rs m t rs' m',
+    forall b ef args res rs m t rs' m' m'',
       rs PC = Vptr b Ptrofs.zero ->
       Genv.find_funct_ptr ge b = Some (External ef) ->
       extcall_arguments rs m (ef_sig ef) args ->
-      forall (* CompCertX: BEGIN additional conditions for calling convention *)
-        (* (STACK: *)
-        (*    exists m_, *)
-        (*      free_extcall_args (rs RSP) m (regs_of_rpairs (Conventions1.loc_arguments (ef_sig ef))) = Some m_ /\ *)
-        (*      exists t_ res'_ m'_, *)
-        (*        external_call ef ge args m_ t_ res'_ m'_ *)
-        (* ) *)
-        (SP_TYPE: Val.has_type (rs RSP) Tptr)
+      forall (SP_TYPE: Val.has_type (rs RSP) Tptr)
         (RA_TYPE: Val.has_type (rs RA) Tptr)
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
-        (RA_NOT_VUNDEF: rs RA <> Vundef)
-      ,      (* CompCertX: END additional conditions for calling convention *)
+        (RA_NOT_VUNDEF: rs RA <> Vundef),
         external_call ef ge args m t res m' ->
+        Mem.unrecord_stack_block m' = Some m'' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
-        step ge (State rs m) t (State rs' m').
+        step ge (State rs m) t (State rs' m'').
 
 End RELSEM.
 
@@ -1268,14 +1261,14 @@ Inductive initial_state {F V} (p: AST.program F V): state -> Prop :=
   | initial_state_intro: forall m0 m1 b m2,
       Genv.init_mem p = Some m0 ->
       Mem.alloc m0 0 0 = (m1,b) ->
-      Mem.record_stack_blocks m1 (make_singleton_frame_adt b 0 0) = Some m2 ->
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b 0 0) = Some m2 ->
       let ge := Genv.globalenv p in
       let rs0 :=
         (Pregmap.init Vundef)
         # PC <- (Genv.symbol_address ge p.(prog_main) Ptrofs.zero)
         # RA <- Vnullptr
         # RSP <- (Vptr b Ptrofs.zero) in
-      initial_state p (State rs0 m2).
+      initial_state p (State rs0 (Mem.push_new_stage m2)).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m r,
@@ -1330,8 +1323,8 @@ Ltac Equalities :=
   exploit external_call_determ. eexact H5. eexact H13. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto. congruence.
 + assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
-  exploit external_call_determ. eexact H4. eexact H10. intros [A B].
-  split. auto. intros. destruct B; auto. subst. auto.
+  exploit external_call_determ. eexact H4. eexact H11. intros [A B].
+  split. auto. intros. destruct B; auto. subst. congruence.
 - (* trace length *)
   red; intros; inv H; simpl.
   omega.

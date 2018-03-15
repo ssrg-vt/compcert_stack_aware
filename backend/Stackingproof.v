@@ -3964,6 +3964,7 @@ Proof.
     simpl. intros (fsp & fr & r & TOP & EQ). inv TOP. inv EQ.
     erewrite Mem.alloc_result with (b1:=b0); eauto.
     erewrite <- Genv.init_mem_genv_next; eauto. fold ge. auto. 
+    rewrite_stack_blocks. constructor. red; easy.
     constructor.
 Qed.
 
