@@ -125,11 +125,7 @@ Definition regset_inject (j:meminj) (rs rs' : regset) : Prop :=
     the mappings for sections, global id and labels *)    
 Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :=
   mk_match_sminj {
-      (* agree_sminj : forall b id sid ofs ofs', *)
-      (*   Genv.find_symbol ge id = Some b -> *)
-      (*   gm id = Some (sid,ofs) -> PTree.get sid sm = Some ofs' -> *)
-      (*   mj b = Some (mem_block, Ptrofs.unsigned (Ptrofs.add ofs ofs')); *)
- 
+
       agree_sminj_instr :  forall b b' f ofs ofs' i,
         Genv.find_funct_ptr ge b = Some (Internal f) -> 
         Asm.find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
@@ -140,18 +136,18 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :
           transl_instr gm lm ofs1 id i = OK i';
 
       agree_sminj_glob : forall id gloc,
-        gm id = Some gloc ->
-        exists ofs' b, 
-          Genv.find_symbol ge id = Some b /\
-          get_sect_label_offset0 (Genv.genv_smap tge) gloc = Some ofs' /\
-          mj b = Some (mem_block, Ptrofs.unsigned ofs');
+          gm id = Some gloc ->
+          exists ofs' b, 
+            Genv.find_symbol ge id = Some b /\
+            get_sect_label_offset0 (Genv.genv_smap tge) gloc = Some ofs' /\
+            mj b = Some (mem_block, Ptrofs.unsigned ofs');
 
-    agree_sminj_lbl : forall id b f l z z',
-        Genv.find_symbol ge id = Some b ->
-        Genv.find_funct_ptr ge b = Some (Internal f) ->
-        label_pos l 0 (Asm.fn_code f) = Some z ->
-        lm id l = Some z' ->
-        Val.inject mj (Vptr b (Ptrofs.repr z)) (get_sect_label_addr0 (Genv.genv_smap tge) (code_label z'));
+      agree_sminj_lbl : forall id b f l z z',
+          Genv.find_symbol ge id = Some b ->
+          Genv.find_funct_ptr ge b = Some (Internal f) ->
+          label_pos l 0 (Asm.fn_code f) = Some z ->
+          lm id l = Some z' ->
+          Val.inject mj (Vptr b (Ptrofs.repr z)) (get_sect_label_addr0 (Genv.genv_smap tge) (code_label z'));
       
     }.
 
@@ -1697,32 +1693,57 @@ Proof.
   destruct (Genv.find_funct_ptr ge b); try inv H0. auto.
 Qed.
 
-Lemma goto_label_inject : forall gm lm id b f l z j rs1 rs2 m1 m2 rs1' m1'
+Lemma goto_label_inject : forall rs1 rs2 gm lm id b f l z j m1 m2 rs1' m1' ofs
                             (MATCHSMINJ: match_sminj gm lm j)
                             (RINJ: regset_inject j rs1 rs2)
                             (MINJ:Mem.inject j (def_frame_inj m1) m1 m2),
+    rs1 PC = Vptr b ofs ->
     Genv.find_symbol ge id = Some b ->
     Genv.find_funct_ptr ge b = Some (Internal f) ->
     Asm.goto_label ge f l rs1 m1 = Next rs1' m1' ->
     lm id l = Some z ->
     exists rs2', goto_label tge (code_label z) rs2 m2 = Next rs2' m2 /\
             regset_inject j rs1' rs2' /\ Mem.inject j (def_frame_inj m1') m1' m2.
-Admitted.
+Proof.
+  intros. unfold Asm.goto_label in H2.
+  destruct (label_pos l 0 (Asm.fn_code f)) eqn:EQLBL; try inv H2.
+  setoid_rewrite H in H5. rewrite H1 in H5. inv H5.
+  exploit agree_sminj_lbl; eauto. intros. inv H2.
+  eexists. split.
+  unfold goto_label. auto. split; auto.
+  repeat apply regset_inject_expand; auto. setoid_rewrite <- H6.
+  eapply Val.inject_ptr; eauto.
+Qed.
 
-Lemma goto_tbl_label_inject : forall gm lm id tbl tbl' l b f j rs1 rs2 m1 m2 rs1' m1' i
+Lemma goto_tbl_label_inject : forall gm lm id tbl tbl' l b f j rs1 rs2 m1 m2 rs1' m1' i ofs
                                 (MATCHSMINJ: match_sminj gm lm j)
                                 (RINJ: regset_inject j rs1 rs2)
                                 (MINJ:Mem.inject j (def_frame_inj m1) m1 m2),
+    rs1 PC = Vptr b ofs ->
     Genv.find_symbol ge id = Some b ->
     Genv.find_funct_ptr ge b = Some (Internal f) ->
-    list_nth_z tbl (Int.unsigned i) = Some l ->
+    list_nth_z tbl i = Some l ->
     Asm.goto_label ge f l ((rs1 # RAX <- Vundef) # RDX <- Vundef) m1 = Next rs1' m1' ->
     transl_tbl lm id tbl = OK tbl' ->
     exists rs2' l', 
-      list_nth_z tbl' (Int.unsigned i) = Some l' /\
+      list_nth_z tbl' i = Some l' /\
       FlatAsm.goto_label tge l' ((rs2 # RAX <- Vundef) # RDX <- Vundef) m2 = Next rs2' m2 /\
       regset_inject j rs1' rs2' /\ Mem.inject j (def_frame_inj m1') m1' m2.
-Admitted.
+Proof.
+  induction tbl; simpl; intros.
+  - congruence.
+  - destruct (zeq i 0).
+    + inv H2. monadInvX H4.
+      exploit (goto_label_inject ((rs1 # RAX <- Vundef) # RDX <- Vundef) ((rs2 # RAX <- Vundef) # RDX <- Vundef)); eauto with inject_db. 
+      intros (rs2' & GLBL & RSINJ' & MINJ').
+      eexists; eexists. split. simpl. auto. split.
+      rewrite GLBL. auto. split; eauto.
+    + monadInvX H4.
+      exploit (IHtbl x); eauto.
+      intros (rs2' & l' & LNTH & GLBL & RSINJ' & MINJ').
+      exists rs2', l'. split. simpl. erewrite zeq_false; auto. split; auto.
+Qed.
+
 
 (** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f b
