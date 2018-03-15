@@ -169,9 +169,49 @@ Definition in_frames (l: tframe_adt) (b: block) :=
 Definition in_stack (s: stack_adt) (b: block) :=
   In b (get_stack_blocks s).
 
-Definition in_stack' (s: stack_adt) (b: block * frame_info) :=
-  exists (f: frame_adt) (fr: tframe_adt),
-    In b (frame_adt_blocks f) /\ In f fr /\ In fr s.
+Definition in_frame' (f: frame_adt) bfi :=
+  In bfi (frame_adt_blocks f).
+
+Fixpoint in_frames' (tf: tframe_adt) b :=
+  match tf with
+  | nil => False
+  | f::tf => in_frame' f b \/ in_frames' tf b
+  end.
+
+Fixpoint in_stack' (s: stack_adt) b :=
+  match s with
+  | nil => False
+  | tf::s => in_frames' tf b \/ in_stack' s b
+  end.
+
+Lemma in_frames'_rew:
+  forall tf b,
+    in_frames' tf b <->
+    exists fr, in_frame' fr b /\ In fr tf.
+Proof.
+  induction tf; simpl; split; intros; eauto.
+  - easy.
+  - decompose [ex and] H; eauto.
+  - destruct H; eauto. rewrite IHtf in H.
+    decompose [ex and] H; eauto.
+  - rewrite IHtf.
+    decompose [ex and] H; eauto. destruct H2; subst; eauto.
+Qed.
+
+Lemma in_stack'_rew:
+  forall s b,
+    in_stack' s b <->
+    exists (tf: tframe_adt),
+      in_frames' tf b /\ In tf s.
+Proof.
+  induction s; simpl; split; intros; eauto.
+  - easy.
+  - decompose [ex and] H; easy.
+  - destruct H; eauto. rewrite IHs in H.
+    decompose [ex and] H; eauto.
+  - rewrite IHs.
+    decompose [ex and] H; eauto. destruct H2; subst; eauto.
+Qed.
 
 Lemma in_frame_dec:
   forall f b, {in_frame f b} + {~ in_frame f b}.
@@ -1350,8 +1390,10 @@ Section INJ.
         move NDT3 at bottom.
         apply nodupt_nodupt' in NDT3. red in NDT3.
         generalize (NDT3 b3 _ _ INf3'' VF3 INFR2' IFR3). intro; subst.
-        destruct INS3 as (ff3 & fr3 & IN1 & IN2 & IN3).
         generalize (get_assoc_in _ _ _ _ _ _ ASS). intro INVFR3.
+        rewrite in_stack'_rew in INS3.
+        setoid_rewrite in_frames'_rew in INS3.
+        destruct INS3 as (fr3 & (ff3 & IN1 & IN2) & IN3).
         assert (f3'' = fr3).
         {
           move ND3 at bottom.
@@ -1380,8 +1422,10 @@ Section INJ.
         setoid_rewrite Forall_forall in FAP.
         specialize (FAP _ INF2'). red in FAP. eapply FAP. eauto.
         eapply PERM; eauto.
-        red.
-        eexists; eexists; split; eauto. 
+        rewrite in_stack'_rew.
+        eexists; split; eauto.
+        rewrite in_frames'_rew.
+        eexists; split; eauto.
       + rewrite Z.add_assoc.
         eapply stack_inject_not_in_source1; eauto.
     - unfold compose_frameinj; intros i j CINJ; repeat destr_in CINJ.
@@ -1657,8 +1701,8 @@ Section INJ.
       + apply option_le_none_some.
         edestruct get_assoc_spec as (fr & tfr & IN & AIN & INR); eauto.
         intros; eapply stack_inject_not_in_source; eauto.
-        red.
-        exists fr, tfr; split;[|split]; auto.
+        rewrite in_stack'_rew. setoid_rewrite in_frames'_rew.
+        exists tfr. split. exists fr; split; auto. auto.
       + apply option_le_none_none.
   Qed.
 
@@ -1751,7 +1795,9 @@ Section INJ.
       in_stack' s (b,bi) ->
       in_stack s b.
   Proof.
-    intros b bi s (fr & tfr & IN & AIN & IN2).
+    setoid_rewrite in_stack'_rew.
+    setoid_rewrite in_frames'_rew.
+    intros b bi s (tfr & (fr & IN & AIN) & IN2).
     eapply in_frames_in_stack; eauto.
     eapply in_frame_in_frames; eauto.
     apply in_map_iff; eexists; split; eauto; reflexivity.
@@ -1933,10 +1979,8 @@ Qed.
     - red. congruence.
     - inversion 1. rewrite nth_error_nil in H; congruence.
     - congruence.
-    - simpl. unfold in_stack'. simpl.
-      intros b1 b2 delta bi2 FB NIS (f0 & fr & IN & AIN & []).
+    - easy.
     - congruence.
-    (* - simpl; intros; omega. *)
     - congruence.
     - reflexivity.
     - red. simpl. intros; omega.
@@ -1965,8 +2009,6 @@ Qed.
     intros (C & D).
     exploit stack_inject_pack0; eauto. omega.
   Qed.
-
-
 
   Fixpoint list_nats n :=
     match n with
@@ -2841,8 +2883,7 @@ Proof.
       eapply in_stack'_in_stack; eauto.
     * eapply stack_inject_not_in_source0 in JB; eauto.
       rewrite in_stack_cons. intuition.
-      destruct INS as (fr & tfr & IN & AIN & IN2).
-      exists fr,tfr; split;[|split]; eauto. right; auto.
+      simpl. auto.
   + intros i j0 GS.
     unfold option_map in GS; repeat destr_in GS.
     exploit NO0; eauto. omega. intro. destruct n. omega. simpl.
@@ -2907,8 +2948,7 @@ Proof.
       eapply in_stack'_in_stack; eauto. 
     * eapply stack_inject_not_in_source0 in JB; eauto.
       rewrite in_stack_cons. intuition.
-      destruct INS as (fr & tfr & IN & AIN & IN2).
-      exists fr,tfr; split;[|split]; eauto. right; auto.
+      simpl; auto.
   + intros i j0 GS.
     unfold flat_frameinj in *. repeat destr_in GS.
     simpl in LEN; inv LEN. rewrite H0. auto.

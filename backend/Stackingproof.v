@@ -2852,7 +2852,9 @@ Proof.
         intro NPSA.
         unfold init_sp_has_stackinfo in MSISHS.
         destruct MSISHS as (fi & MSI1 & MSI15 & MSI2).
-        destruct MSI1 as (fr & ttf & IN1 & IN2 & IN3).
+        rewrite in_stack'_rew in MSI1.
+        setoid_rewrite in_frames'_rew in MSI1.
+        destruct MSI1 as (ttf & (fr & IN1 & IN2) & IN3).
         erewrite get_assoc_stack_lnr in NPSA; eauto.
         3: apply Mem.stack_norepet.
         specialize (NPSA i0).
@@ -2869,9 +2871,7 @@ Proof.
         rewrite size_type_chunk. rewrite typesize_typesize.
         omega.
         eapply in_stack_slot_bounds; eauto.
-        Axiom stack_norepet':
-          forall m, Forall nodupt (Mem.stack_adt m).
-        apply stack_norepet'.
+        apply Mem.stack_norepet'.
       * split. apply sep_proj2 in C. rewrite sep_comm in C. eauto.
         rewrite sep_swap12 in SEP_init.
         apply mconj_proj2 in SEP_init.
@@ -3162,7 +3162,9 @@ Proof.
          intro. simpl in MSISHS.
          destruct MSISHS as (fi & MSI1 & MSI2 & MSI4).
          unfold public_stack_access in C3.
-         destruct MSI1 as (fr & ttf & IN1 & IN2 & IN3).
+         rewrite in_stack'_rew in MSI1.
+         setoid_rewrite in_frames'_rew in MSI1.
+         destruct MSI1 as (ttf & (fr & IN1 & IN2) & IN3).
          erewrite get_assoc_stack_lnr in C3; eauto.
          destruct C3 as [C3 | C3]; try congruence.
          (* simpl in ISP'NST. exfalso; apply ISP'NST. apply C3. *)
@@ -3210,7 +3212,7 @@ Proof.
          rewrite MSI4. 
          destruct (chunk_of_type ty); simpl; omega.
          eapply in_stack_slot_bounds; eauto.
-         apply stack_norepet'.
+         apply Mem.stack_norepet'.
          apply Mem.stack_norepet.
       -- apply mconj_proj2 in SEP_init.
          apply sep_swap23 in SEP_init. destruct SEP_init as (A1 & A2 & A3).
@@ -3483,7 +3485,9 @@ Proof.
          revert Heqv0. inv MACH. intro.
          unfold init_sp_has_stackinfo in MSISHS.
          destruct MSISHS as (fi &  MSI1 & MSI2 &  MSI4).
-         destruct MSI1 as (fr & ttf & IN1 & IN2 & IN3).
+         rewrite in_stack'_rew in MSI1.
+         setoid_rewrite in_frames'_rew in MSI1.
+         destruct MSI1 as (ttf & (fr & IN1 & IN2) & IN3).
          erewrite get_assoc_stack_lnr in NPSA; eauto.
          specialize (NPSA i0).
          trim (NPSA). omega.
@@ -3499,7 +3503,7 @@ Proof.
          rewrite size_type_chunk. rewrite typesize_typesize.
          omega.
          eapply in_stack_slot_bounds; eauto.
-         apply stack_norepet'. apply Mem.stack_norepet.
+         apply Mem.stack_norepet'. apply Mem.stack_norepet.
       -- split.
          apply sep_proj2 in SEP'. rewrite sep_comm in SEP'. rewrite <- sep_assoc.  eauto.
          rewrite sep_swap23, sep_swap12 in SEP_init.
@@ -3940,12 +3944,8 @@ Proof.
       eexists; split;[|split].
       erewrite Mem.alloc_result with (b0:=b1); eauto.
       erewrite <- Genv.init_mem_genv_next; eauto. fold ge.
-      red.
-      eexists _, _.
-      split; [|split].
-      3: right. 3: left; reflexivity.
-      2: left; reflexivity.
-      simpl. left; reflexivity.
+      simpl. right. left. left.
+      red. simpl. left. reflexivity.
       * unfold signature_main. unfold size_arguments. simpl.
         change (if Archi.ptr64 then 0 else 0) with 0. simpl.
         intros o RNG.

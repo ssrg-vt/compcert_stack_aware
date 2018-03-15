@@ -199,26 +199,28 @@ Section WITHMEMORYMODEL.
   Inductive inject_stack: meminj -> stack_adt -> Prop :=
   | inject_stack_nil j :
       inject_stack j nil
-  | inject_stack_cons j l b fi fr r:
+  | inject_stack_cons j l f:
       inject_stack j l ->
-      j b = Some (bstack, Mem.stack_limit - size_stack l - align (Z.max 0 (frame_size fi)) 8) ->
-      frame_adt_blocks fr = (b,fi)::nil ->
-      frame_adt_size fr = frame_size fi ->
-      inject_stack j ((fr::r)::l).
+      (forall fr,
+          In fr f ->
+          exists b fi,
+            j b = Some (bstack, Mem.stack_limit - size_stack l - align (Z.max 0 (frame_size fi)) 8) /\
+            frame_adt_blocks fr = (b,fi)::nil /\
+            frame_adt_size fr = frame_size fi) ->
+      inject_stack j (f::l).
 
   Inductive perm_stack: stack_adt -> mem -> Prop :=
   | ps_nil m:
       perm_stack nil m
-  | ps_cons l m b fi fr r:
-      perm_stack l m ->
-      (forall o k p, Mem.perm m b o k p <-> 0 <= o < frame_size fi) ->
-      (forall b', in_stack l b' -> Plt b' b) ->
-      frame_adt_blocks fr = (b,fi)::nil ->
+  | ps_cons l m fr r
+            (PSrec: perm_stack l m)
+            (PERMEQ: forall b fi o k p, In (b,fi) (frame_adt_blocks fr) -> Mem.perm m b o k p <-> 0 <= o < frame_size fi)
+            (ORDER: forall fr0, In fr0 (fr::r) -> exists b fi, frame_adt_blocks fr0 = (b,fi)::nil /\ forall b', in_stack l b' -> Plt b' b):
       perm_stack ((fr::r)::l) m.
 
   Definition inject_padding (j: meminj) (m: mem) : Prop :=
     forall b fi delta,
-      get_frame_info (Mem.stack_adt m) b = Some fi ->
+      in_stack' (Mem.stack_adt m) (b,fi) ->
       j b = Some (bstack, delta) ->
       forall b' o delta' k p,
         j b' = Some (bstack, delta') ->
@@ -271,6 +273,8 @@ Section WITHMEMORYMODEL.
       inject_stack j' l.
   Proof.
     induction 2; econstructor; eauto.
+    intros fr IN.
+    specialize (H fr IN). decompose [ex and] H; clear H. eapply INCR in H0. eauto.
   Qed.
   
   Definition is_ptr v :=
@@ -286,24 +290,18 @@ Section WITHMEMORYMODEL.
 
   Lemma perm_stack_inv:
     forall l m (PS: perm_stack l m) m'
-      (V: forall b, in_stack l b -> Mem.valid_block m b)
       (U: forall b o k p, in_stack l b -> Mem.perm m' b o k p <-> Mem.perm m b o k p),
       perm_stack l m'.
   Proof.
-    induction 1; simpl; intros; econstructor; auto.
-    eapply IHPS; eauto. intros; eapply V. rewrite in_stack_cons; auto.
-    intros; eapply U. rewrite in_stack_cons; auto.
-    intros. 
-    split; intros.
-    - eapply U in H2; eauto.
-      eapply H; eauto. unfold in_frame; simpl.
-      eapply in_frames_in_stack. left; reflexivity. eapply in_frame_in_frames.
-      red. unfold get_frame_blocks. rewrite H1. simpl; auto. simpl; auto.
-    - eapply U; eauto; unfold in_frame; simpl; eauto.
-      eapply in_frames_in_stack. left; reflexivity. eapply in_frame_in_frames.
-      red. unfold get_frame_blocks. rewrite H1. simpl; auto. simpl; auto.
-      apply H. auto.
-    - auto.
+    induction 1; simpl; intros; econstructor; eauto.
+    - eapply IHPS. intros. apply U. apply in_stack_tl. simpl. auto.
+    - intros.
+      edestruct ORDER as (bb & ffi & BLOCKS & ORDER'). left; reflexivity.
+      rewrite BLOCKS in H. destruct H as [H|[]]. inv H.
+      rewrite U. apply PERMEQ. rewrite BLOCKS; simpl; auto.
+      rewrite in_stack_cons; left.
+      rewrite  in_frames_cons; left. red. unfold get_frame_blocks. setoid_rewrite BLOCKS.
+      left; reflexivity.
   Qed.
 
   Axiom exec_instr_inject:
@@ -373,28 +371,30 @@ Section WITHMEMORYMODEL.
   Proof.
     induction 2; simpl; intros; eauto. easy.
     destruct INSTK as [EQ | INSTK].
-    - inv EQ. rewrite H1 in INBLOCKS. destruct INBLOCKS as [INBLOCKS|[]]; inv INBLOCKS. eauto.
+    - inv EQ. apply PERMEQ. auto.
     - eapply IHPS; eauto. inv WF; auto.
   Qed.
-
+  
   Lemma in_stack_inj_below:
     forall j l
       (IS: inject_stack j l)
-      b fi fr r
-      (INBLOCKS: In (b,fi) (frame_adt_blocks fr))
-      (INSTK: In (fr::r) l),
+      b fi f
+      (INFRAMES: in_frames' f (b,fi))
+      (INSTK: In f l),
     exists l1 l2,
       l = l1 ++ l2 /\
-      j b = Some (bstack, Mem.stack_limit - StackADT.size_stack l2).
+      j b = Some (bstack, Mem.stack_limit - StackADT.size_stack l2 + size_frames f - align (frame_size fi) 8).
   Proof.
-    induction 1; simpl; intros; eauto.
-    easy.
+    induction 1; simpl; intros; eauto. easy.
     destruct INSTK as [EQ|INSTK].
-    - inv EQ.
-      rewrite H0 in INBLOCKS. destruct INBLOCKS as [INBLOCKS|[]]; inv INBLOCKS.
-      rewrite H. exists nil. simpl. eexists; split; eauto. simpl. f_equal. f_equal. rewrite <- H1.
-      rewrite Z.max_r. 2: destruct fr0; auto. omega.
-    - specialize (IHIS _ _ _ _ INBLOCKS INSTK).
+    - rewrite in_frames'_rew in INFRAMES. destruct INFRAMES as (fr & IFR & IFR'). subst.
+      specialize (H _ IFR').
+      destruct H as (bb & ffi & JB & BLOCKS & SIZE). red in IFR.
+      rewrite BLOCKS in IFR.
+      simpl in IFR. destruct IFR as [IFR|[]]; inv IFR.
+      rewrite JB. exists nil. simpl. eexists; split; eauto. simpl. f_equal. f_equal. rewrite <- SIZE.
+      rewrite Z.max_r. 2: destruct fr; auto. omega.
+    - specialize (IHIS _ _ _ INFRAMES INSTK).
       destruct IHIS as (l1 & l2 & EQl & JB).
       subst.
       rewrite JB.
@@ -482,7 +482,7 @@ Section WITHMEMORYMODEL.
     apply H0.
   Qed.
 
-  Lemma alloc_inject:
+(*  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4,
       (* (frame_link fi = fl::nil) -> *)
       match_states j (Ptrofs.unsigned ostack) (State rs1 m1) (State rs1' m1') ->
@@ -853,62 +853,70 @@ Section WITHMEMORYMODEL.
     - repeat rewrite_stack_blocks. intros. right. eauto.       
     - rewrite Z.add_comm, <- EQ'. apply Ptrofs.unsigned_range_2.
   Qed.
+ *)
 
   Lemma size_stack_divides l:
     (8 | StackADT.size_stack l).
   Proof.
     induction l; simpl; intros; eauto.
     exists 0; omega.
-    apply Z.divide_add_r. auto. apply align_divides. omega.
+    apply Z.divide_add_r. auto. destruct a. simpl. exists 0; omega. apply align_divides. omega.
   Qed.
 
-  Lemma inject_stack_all_below:
-    forall l m,
-      perm_stack l m ->
-      forall b b' d,
-        in_frame ((hd d l)) b ->
-        in_frames (tl l) b' ->
-        Plt b' b. 
-  Proof.
-    induction 1; simpl; intros. easy.
-    unfold in_frame in *. simpl in *.
-    rewrite H2 in H3. destruct H3 as [|[]].  simpl in *; subst. eauto. 
-  Qed.
+  (* Lemma inject_stack_all_below: *)
+  (*   forall l m, *)
+  (*     perm_stack l m -> *)
+  (*     forall b b' d, *)
+  (*       in_frames ((hd d l)) b -> *)
+  (*       in_stack (tl l) b' -> *)
+  (*       Plt b' b. *)
+  (* Proof. *)
+  (*   induction 1; simpl; intros. easy. *)
+  (*   rewrite in_frames_cons in H3. *)
+  (*   destruct H3. unfold in_frame, get_frame_blocks in H3; rewrite H2 in H3. *)
+  (*   simpl in H3. destruct H3 as [|[]]. *)
+  (*   subst. eauto. *)
+    
+  (*   simpl in *; subst. eauto. *)
+  (* Qed. *)
 
-  Lemma inject_stack_only_once:
-    forall l m a b,
-      perm_stack (a::l) m ->
-      in_frame a b ->
-      get_assoc_stack l b = None.
-  Proof.
-    inversion 1; subst.
-    unfold in_frame. rewrite H6. simpl. intros [|[]]; subst.
-    rewrite not_in_frames_get_assoc; auto.
-    intro INF.
-    apply H4 in INF. xomega.
-  Qed.
+  (* Lemma inject_stack_only_once: *)
+  (*   forall l m a b, *)
+  (*     perm_stack (a::l) m -> *)
+  (*     in_frames a b -> *)
+  (*     get_assoc_stack l b = None. *)
+  (* Proof. *)
+  (*   inversion 1; subst. *)
+  (*   rewrite in_frames_cons. *)
+  (*   unfold in_frame, get_frame_blocks. rewrite H6. simpl. intros [[|[]]|]; subst. *)
+  (*   rewrite not_in_stack_get_assoc; auto. *)
+  (*   intro INF. *)
+  (*   apply H4 in INF. xomega. *)
+    
+  (* Qed. *)
 
-  Lemma inject_stack_norepeat:
-    forall l m a b,
-      perm_stack (a::l) m ->
-      in_frame (a) b ->
-      ~ in_frames l b.
-  Proof.
-    inversion 1; subst.
-    unfold in_frame. rewrite H6. simpl. intros [?|[]].
-    subst. intro INF; apply H4 in INF.  xomega. 
-  Qed.
+  (* Lemma inject_stack_norepeat: *)
+  (*   forall l m a b, *)
+  (*     perm_stack (a::l) m -> *)
+  (*     in_frame (a) b -> *)
+  (*     ~ in_frames l b. *)
+  (* Proof. *)
+  (*   inversion 1; subst. *)
+  (*   unfold in_frame. rewrite H6. simpl. intros [?|[]]. *)
+  (*   subst. intro INF; apply H4 in INF.  xomega.  *)
+  (* Qed. *)
 
   Lemma inject_stack_init_sp:
     forall j l,
       inject_stack j l ->
       forall b,
-        in_frames l b ->
+        in_stack l b ->
         exists o,
           j b = Some (bstack, o).
   Proof.
     induction 1; simpl; intros. easy.
-    destruct H3.
+    rewrite in_stack_cons in H3. destruct H3.
+    
     red in H3; rewrite H1 in H3; simpl in H3; destruct H3 as [|[]]; subst. eauto.
     eauto.
   Qed.
@@ -916,7 +924,7 @@ Section WITHMEMORYMODEL.
   Lemma init_sp_inj:
     forall j l,
       inject_stack j l ->
-      in_frames l binit_sp ->
+      in_stack l binit_sp ->
       exists o,
         Val.inject j init_sp (Vptr bstack o).
   Proof.

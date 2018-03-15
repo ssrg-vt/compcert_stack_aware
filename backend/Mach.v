@@ -667,8 +667,8 @@ Proof.
         rewnb; eauto;
           try assumption.
   - destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto. destruct INS as (ff & fr & A & B & C).
-    exists ff, fr; repeat split; eauto. right; auto.
+    exists fi; split; eauto.
+    simpl; auto.
   - constructor; auto.
   - xomega.
   - revert EQ1; repeat rewrite_stack_blocks. intro.
@@ -685,10 +685,7 @@ Proof.
   - revert EQ1; repeat rewrite_stack_blocks. intro.
     rewrite EQ1 in MSISHS.
     destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto. destruct INS as (ff & fr & A & B & C).
-    destruct C. subst f0.
-    eexists ff, (_ :: fr); repeat split; eauto. right; auto. left; reflexivity.
-    exists ff, fr; repeat split; eauto. right; auto.
+    exists fi; split; eauto. simpl. simpl in INS. clear - INS. intuition.
   - xomega.
   - intros; subst. intro; subst stk.
     eapply Mem.fresh_block_alloc; eauto.
@@ -703,21 +700,18 @@ Proof.
     eapply H3 in REC; eauto.
     rewrite Heqv; f_equal. eauto.
   - destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto. destruct INS as (ff & fr & A & B & C).
-    rewrite EQ in C |- *. simpl.
-    destruct C; eauto.
-    2: eexists; eauto.
-    exfalso. subst f0.
+    exists fi; split; eauto. rewrite EQ. simpl. rewrite EQ in INS.  simpl in INS.
     revert Heqv. inv CSC. intro.
+    exploit init_sp_ofs_zero; eauto. intro; subst i.
     eapply lp_has_init_sp in CallStackConsistency; eauto. rewrite EQ in CallStackConsistency; simpl in CallStackConsistency.
+    destruct INS; auto. 
+    exfalso.
     exploit Mem.stack_norepet. intro ND. rewrite EQ in ND. revert Heqv. inv ND.
     intros. 
-    eapply H3 in CallStackConsistency; eauto.
+    eapply H4 in CallStackConsistency; eauto.
+    rewrite in_frames'_rew in H0. destruct H0 as (fr & IFR & INF0).
     eapply in_frame_in_frames; eauto.
-    red. unfold get_frame_blocks.
-    apply in_map. eauto.
-    simpl.
-    rewrite Heqv; f_equal. eauto.
+    change b with (fst (b,fi)). apply in_map. auto.
   - intros; intro; subst. inv NI.
     eapply NI0; eauto.
   - inv NI; auto.

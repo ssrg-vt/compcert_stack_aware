@@ -1005,10 +1005,7 @@ Proof.
   apply alignof_blockcopy_1248.
   apply sizeof_pos.
   apply sizeof_alignof_blockcopy_compat.
-  Axiom loadbytes_push:
-    forall m b o n,
-      Mem.loadbytes (Mem.push_new_stage m) b o n = Mem.loadbytes m b o n.
-  rewrite loadbytes_push; eauto.
+  rewrite Mem.loadbytes_push; eauto.
   rewrite_stack_blocks.
   apply Mem.storebytes_stack_access in H9.
   destruct H9; auto.

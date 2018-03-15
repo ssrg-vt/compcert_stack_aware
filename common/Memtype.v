@@ -1895,6 +1895,9 @@ for [unchanged_on]. *)
  stack_norepet:
    forall m, nodup (stack_adt m);
 
+ stack_norepet':
+   forall m, Forall nodupt (stack_adt m);
+ 
  inject_ext {injperm: InjectPerm}:
     forall j1 j2 g m1 m2,
       inject j1 g m1 m2 ->
@@ -2086,6 +2089,10 @@ wf_stack_mem:
     forall m1 m2 P,
       magree m1 m2 P ->
       size_stack (Mem.stack_adt m2) <= size_stack (Mem.stack_adt m1);
+
+ loadbytes_push:
+   forall m b o n,
+     Mem.loadbytes (Mem.push_new_stage m) b o n = Mem.loadbytes m b o n;
 
  
 }.
