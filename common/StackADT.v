@@ -712,12 +712,11 @@ Definition wf_stack (m: perm_type) j (s: stack_adt) : Prop :=
   Forall (wf_tframe m j) s.
 
 Definition size_frames (l: tframe_adt) : Z :=
-  fold_right Z.add Z0 (map (fun fr => align (frame_adt_size fr) 8) l).
-  (* match l with *)
-  (*   nil => 0 *)
-  (* | fr::nil => align (frame_adt_size fr) 8 *)
-  (* | a::r => size_frames r *)
-  (* end. *)
+  (* fold_right Z.add Z0 (map (fun fr => align (frame_adt_size fr) 8) l). *)
+  match l with
+    nil => 0
+  | fr::_ => align (frame_adt_size fr) 8
+  end.
 
 
 Fixpoint size_stack (l: stack_adt) : Z :=
@@ -732,7 +731,7 @@ Lemma size_frames_pos:
 Proof.
   unfold size_frames. 
   induction s; simpl; intros; auto. omega.
-  apply Z.add_nonneg_nonneg; auto.
+  (* apply Z.add_nonneg_nonneg; auto. *)
   etransitivity.
   2: apply align_le. apply frame_adt_size_pos. omega.
 Qed.
@@ -2947,8 +2946,7 @@ Lemma same_size_frames:
     size_frames tf2 = size_frames tf1.
 Proof.
   induction 1; simpl; intros; eauto.
-  unfold size_frames.
-  simpl. setoid_rewrite IHLF2. rewrite H. reflexivity.
+  unfold size_frames. rewrite H. reflexivity.
 Qed.
 
 Inductive stack_equiv (R: frame_adt -> frame_adt -> Prop) : stack_adt -> stack_adt -> Prop :=
