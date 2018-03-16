@@ -467,7 +467,8 @@ Qed.
     unfold down, downstar in SMALLEST.
     destruct i.
     rewrite (proj1 H) in H0 by omega. inv H0.
-    omega. specialize (SMALLEST i). rewrite H0 in SMALLEST. simpl in SMALLEST.
+    eapply compat_frameinj_rec_above in GS. 2: destruct H; eauto. 2: omega. omega.
+    specialize (SMALLEST i). rewrite H0 in SMALLEST. simpl in SMALLEST.
     trim SMALLEST. auto. omega.
     eapply compat_frameinj_rec_above in GS. 2: destruct H; eauto. 2: omega. omega.
     auto.
@@ -818,6 +819,504 @@ Proof.
   - specialize (SEP _ _ _ FB1 H).
     xomega.
 Qed.
+
+
+
+Fixpoint sum (l: list Z) :=
+  match l with
+    nil => 0
+  | a::r => a + sum r
+  end.
+
+Require Import Permutation.
+
+Lemma size_stack_permut:
+  forall s s',
+    Permutation s s' ->
+    size_stack s = size_stack s'.
+Proof.
+  induction 1; simpl; intros; eauto; omega.
+Qed.
+
+Lemma size_stack_app:
+  forall s1 s2,
+    size_stack (s1 ++ s2) = size_stack s1 + size_stack s2.
+Proof.
+  induction s1; simpl; intros; eauto. rewrite IHs1. omega.
+Qed.
+
+Lemma size_stack_concat:
+  forall ss,
+    size_stack (concat ss) = sum (map size_stack ss).
+Proof.
+  induction ss; simpl; intros; eauto.
+  rewrite size_stack_app.
+  omega.
+Qed.
+
+Definition inject_into (g: frameinj) (thr: nat) (target: nat) : list nat :=
+  filter (fun i => option_eq Nat.eq_dec (g i) (Some target)) (list_nats thr).
+
+Fixpoint frames_at {A} (l: list nat) (s: list A) : option (list A) :=
+  match l with
+  | nil => Some nil
+  | a::r => match nth_error s a with
+             Some f => option_map (fun r => f :: r) (frames_at r s)
+           | None => None
+           end
+  end.
+
+Opaque minus.
+
+Lemma frames_at_cons:
+  forall {A} l (s: list A) a,
+    frames_at l s = frames_at (map S l) (a::s).
+Proof.
+  induction l; simpl; intros; eauto.
+  destr.
+Qed.
+
+Lemma frames_at_eq:
+  forall {A} (s: list A),
+    frames_at (map (fun n => length s - S n)%nat (list_nats (length s))) s = Some (s).
+Proof.
+  induction s; simpl; intros. auto.
+  replace (S (length s) - S (length s))%nat with O by omega. simpl.
+  unfold option_map.
+  erewrite map_ext_in with (g := fun n => (S (length s - S n))%nat).
+  rewrite <- map_map. rewrite <- frames_at_cons. rewrite IHs. auto.
+  intros. rewrite in_list_nats in H.
+  omega.
+Qed.
+
+Lemma list_nats_S:
+  forall n,
+    list_nats (S n) = map S (list_nats n) ++ O :: nil.
+Proof.
+  induction n; simpl; intros; eauto.
+  rewrite <- IHn. simpl. auto.
+Qed.
+
+Lemma map_list_nats_rev:
+  forall n,
+    map (fun m => n - S m)%nat (list_nats n) = rev (list_nats n).
+Proof.
+  induction n; simpl; intros. reflexivity.
+  erewrite map_ext_in with (g := fun m => (S (n - S m))%nat).
+  rewrite <- map_map. 
+  2: intros; rewrite in_list_nats in H; omega.
+  rewrite minus_diag.
+  rewrite IHn. rewrite map_rev. rewrite <- rev_unit.
+  rewrite <- list_nats_S. simpl. reflexivity.
+Qed.
+
+Lemma frames_at_permut:
+  forall {A} (s: list A) (l1 l2: list nat) (P: Permutation l1 l2) f1,
+    frames_at l1 s = Some f1 ->
+    exists f2,
+      frames_at l2 s = Some f2 /\ Permutation f1 f2.
+Proof.
+  induction 1; simpl; unfold option_map; intros; eauto.
+  - repeat destr_in H. edestruct IHP as (f2 & FAT & PERM); eauto. rewrite FAT. eexists; split; eauto.
+  - repeat destr_in H. repeat destr_in Heqo0.
+    eexists; split; eauto. apply perm_swap.
+  - edestruct IHP1 as (f2 & FAT1 & PERM); eauto.
+    edestruct IHP2 as (f3 & FAT2 & PERM2); eauto.
+    eexists; split; eauto.
+    eapply perm_trans; eauto.
+Qed.
+
+Lemma frames_at_permut':
+  forall {A} (s: list A) f,
+    frames_at (list_nats (length s)) s = Some f ->
+    Permutation f s.
+Proof.
+  intros A s f FAT.
+  edestruct (frames_at_permut s) as (f2 & FAT2 & PERM12).
+  apply Permutation_rev. apply FAT. rewrite <- map_list_nats_rev in FAT2.
+  rewrite frames_at_eq in FAT2. inv FAT2. auto.
+Qed.
+
+Lemma frames_at_permut_ex:
+  forall {A} (s: list A),
+  exists f, frames_at (list_nats (length s)) s = Some f /\
+       Permutation f s.
+Proof.
+  intros A s.
+  edestruct (frames_at_permut s) as (f2 & FAT2 & PERM12).
+  2: apply frames_at_eq.
+  rewrite map_list_nats_rev. symmetry; apply Permutation_rev. eexists; split; eauto. symmetry; eauto.
+Qed.
+
+Fixpoint opt_concat {A} (l: list (option (list A))) : option (list A) :=
+  match l with
+    nil => Some nil
+  | None :: l => None
+  | Some a::l =>
+    match opt_concat l with
+    | None => None
+    | Some r => Some (a ++ r)
+    end
+  end.
+
+Lemma frames_at_app:
+  forall {A} (s: list A) l1 l2,
+    frames_at (l1 ++ l2) s =
+    match frames_at l1 s with
+      Some r1 =>
+      match frames_at l2 s with
+        Some r2 => Some (r1++r2)
+      | _ => None
+      end
+    | _ => None
+    end.
+Proof.
+  induction l1; simpl; intros; eauto. destr.
+  destr.
+  rewrite IHl1. destr. destr.
+Qed.
+
+Lemma opt_concat_concat:
+  forall {A} (s: list A) l,
+    opt_concat (map (fun f => frames_at f s) l) = frames_at (concat l) s.
+Proof.
+  induction l; simpl; intros; eauto.
+  rewrite frames_at_app. rewrite IHl. reflexivity.
+Qed.
+
+Lemma frames_at_permut_concat:
+  forall {A} (s: list A) ff,
+    Permutation (list_nats (length s)) (concat ff) ->
+    exists t, opt_concat (map (fun f => frames_at f s) ff) = Some t /\
+    Permutation t s.
+Proof.
+  intros.
+  rewrite opt_concat_concat.
+  edestruct (frames_at_permut_ex s) as (f & EQ & PERM).
+  edestruct (frames_at_permut s) as (t & EQ' & PERM'); eauto.
+  eexists; split; eauto.
+  symmetry in PERM'. etransitivity; eauto.
+Qed.
+
+Inductive sublist {A: Type}  : list A -> list A -> Prop :=
+| sublist_intro s: sublist nil s
+| sublist_skip a s1 s2: sublist s1 s2 -> sublist s1 (a::s2)
+| sublist_same a s1 s2: sublist s1 s2 -> sublist (a::s1) (a::s2).
+
+Lemma frames_at_filter:
+  forall {A} g (s: list A) l f,
+    frames_at l s = Some f ->
+    exists f', frames_at (filter g l) s = Some f' /\ sublist f' f.
+Proof.
+  induction l; simpl; intros. inv H.
+  - eexists; split; eauto. constructor.
+  - unfold option_map in H. repeat destr_in H.
+    edestruct IHl as (f' & FAT & SUB); eauto.
+    repeat (destr; simpl; unfold option_map).
+    inv FAT. inv Heqo.
+    eexists; split; eauto. apply sublist_same; eauto.
+    eexists; split; eauto. apply sublist_skip; eauto.
+Qed.
+
+Lemma size_stack_sublist:
+  forall s1 s2,
+    sublist s1 s2 ->
+    size_stack s1 <= size_stack s2.
+Proof.
+  induction 1; simpl; intros; eauto. apply size_stack_pos.
+  generalize (size_frames_pos a); omega.
+  omega.
+Qed.
+
+Definition smallest (g: frameinj) i1 s1 :=
+  match g i1 with
+    Some i2 =>
+    forallb (fun i => negb (option_eq Nat.eq_dec (g i) (Some i2)) || le_dec i1 i) (list_nats s1)
+  | None => false
+  end.
+
+Fixpoint minl (l: list nat) : option nat :=
+  match l with
+  | nil => None
+  | a::r => match minl r with
+             Some b => Some (Nat.min a b)
+           | None => Some a
+           end
+  end.
+
+Lemma smallest_spec:
+  forall g i n1,
+    smallest g i n1 = true ->
+    (forall i j, g i = Some j -> i < n1)%nat ->
+    exists i2,
+      g i = Some i2 /\ forall i', g i' = Some i2 -> (i <= i')%nat.
+Proof.
+  unfold smallest. intros. destr_in H.
+  eexists; split; eauto.
+  rewrite forallb_forall in H. intros.
+  specialize (H i'). trim H. apply in_list_nats. eauto.
+  apply orb_true_iff in H.
+  rewrite H1 in H.
+  destruct (le_dec i i'); simpl in *; auto.
+  destruct H; try congruence.
+  rewrite negb_true_iff in H.
+  destruct option_eq; simpl in H; try congruence.
+Qed.
+
+Lemma map_concat:
+  forall {A} (l: list A),
+    concat (map (fun x => x::nil) l) = l.
+Proof.
+  induction l; simpl; intros; eauto. congruence.
+Qed.
+
+Lemma partition:
+  forall {A} f 
+    (l2: list A)
+    (l1: list A)
+    (INCL: forall i, In i l2 -> forall x, In x (f i) -> In x l1)
+    x
+    (IN: In x (concat (map f l2))),
+    In x l1.
+Proof.
+  induction l2; simpl; intros; eauto.
+  - easy.
+  - rewrite in_app in IN.
+    destruct IN; eauto.
+Qed.
+
+Lemma lnr_concat:
+  forall {A B} (f: A -> list B)
+    (LNRf: forall i, list_norepet (f i))
+    (DISJ: forall i j, i <> j -> list_disjoint (f i) (f j))
+    (l2: list A)
+    (LNR2: list_norepet l2),
+    list_norepet (concat (map f l2)).
+Proof.
+  intros A B f LNRf DISJ l2.
+  induction 1; simpl. constructor.
+  apply list_norepet_app. split; [|split]; auto.
+  red; intros.
+  rewrite concat_In in H1.
+  destruct H1 as (xx & INx & INMAP).
+  rewrite in_map_iff in INMAP. destruct INMAP as (a & Fa & INFa).
+  subst.
+  eapply DISJ. 2: apply H0. 2: apply INx. congruence.
+Qed.
+
+Lemma norepet_incl_perm_sublist:
+  forall {A} (l1: list A)
+    (lnr1: list_norepet l1)
+    l2
+    (incl: forall x, In x l1 -> In x l2),
+  exists l2', sublist l1 l2' /\ Permutation l2 l2'.
+Proof.
+  induction 1; simpl; intros.
+  - exists l2; split. constructor. reflexivity.
+  - edestruct (in_split hd l2) as (l1' & l2' & EQ). apply incl; auto. subst.
+    edestruct (IHlnr1 (l1' ++ l2')) as (l3' & SUB & PERM).
+    intros. specialize (incl _ (or_intror H0)).
+    rewrite in_app in incl. rewrite in_app. destruct incl as [IN|[EQ|IN]]; auto. subst. congruence.
+    exists (hd::l3'); split. apply sublist_same; auto.
+    etransitivity. symmetry. apply Permutation_middle. apply perm_skip. auto.
+Qed.
+
+Lemma filter_norepet:
+  forall {A} f (l: list A),
+    list_norepet l ->
+    list_norepet (filter f l).
+Proof.
+  induction 1; simpl; intros; try destr; econstructor; eauto.
+  rewrite filter_In. intros (B & C). congruence.
+Qed.
+
+Lemma sublist_inj:
+  forall g (l1 l2: list nat),
+    list_norepet l1 ->
+    list_norepet l2 ->
+  exists l1',
+    sublist
+      (concat (map
+                 (fun j => filter (fun i => option_eq Nat.eq_dec (g i) (Some j)) l1)
+                 l2)) l1'
+      /\ Permutation l1 l1'.
+Proof.
+  intros. apply norepet_incl_perm_sublist; auto.
+  - apply lnr_concat; auto.
+    + intros; apply filter_norepet; auto.
+    + intros i j DIFF x y INx INy.
+      rewrite filter_In in INx, INy.
+      destruct INx as (INx & EQx), INy as (INy & EQy).
+      destruct option_eq; simpl in *; try congruence.
+      destruct option_eq; simpl in *; try congruence.
+  - intros x INC.
+    rewrite concat_In in INC.
+    setoid_rewrite in_map_iff in INC.
+    destruct INC as (x0 & INx0 & (xx & EQx0 & INl2)).
+    subst.
+    rewrite filter_In in INx0.
+    destruct INx0; auto.
+Qed.
+
+
+Lemma lnr_list_nats:
+  forall n,
+    list_norepet (list_nats n).
+Proof.
+  induction n; simpl; intros; constructor; eauto.
+  rewrite in_list_nats. omega.
+Qed.
+
+Lemma sublist_frames_at:
+  forall {A} (s: list A) (l1 l2: list nat) (S: sublist l1 l2)
+    t2 (EQ: frames_at l2 s = Some t2),
+  exists t1, frames_at l1 s = Some t1 /\ sublist t1 t2.
+Proof.
+  induction 1; simpl; intros; eauto.
+  - exists nil; split; eauto. constructor.
+  - unfold option_map in EQ. repeat destr_in EQ.
+    edestruct IHS as (t1 & EQ & SS); eauto.
+    exists t1; split; auto. apply sublist_skip. auto.
+  - unfold option_map in EQ. repeat destr_in EQ.
+    edestruct IHS as (t1 & EQ & SS); eauto.
+    rewrite EQ. simpl.
+    eexists; split; eauto. apply sublist_same. auto.
+Qed.
+
+
+Lemma frames_at_succeeds:
+  forall {A} (s: list A) l,
+    Forall (fun p => p < length s)%nat l ->
+    exists f, frames_at l s = Some f.
+Proof.
+  induction 1; simpl; intros; eauto.
+  destruct IHForall as (f & EQ); rewrite EQ.
+  rewrite <- nth_error_Some in H. destr.
+  simpl. eauto.
+Qed.
+
+Lemma min_exists:
+  forall l i, In i l -> exists mi, minl l = Some mi.
+Proof.
+  destruct l; simpl. easy. intros. destr; eauto.
+Qed.
+
+Lemma min_in:
+  forall l m,
+    minl l = Some m ->
+    In m l /\ forall x, In x l -> (m <= x)%nat.
+Proof.
+  induction l; simpl; intros; eauto. easy.
+  repeat destr_in H.
+  - specialize (IHl _ eq_refl). destruct IHl as (IN & MIN).
+    split. destruct (le_dec a n). rewrite Nat.min_l; auto.
+    rewrite Nat.min_r by omega. auto.
+    intros. destruct H. subst. apply Nat.le_min_l.
+    apply Nat.min_le_iff. apply MIN in H. auto.
+  - destruct l. simpl. split; auto. intros x [|[]]; subst; omega.
+    simpl in Heqo. destr_in Heqo.
+Qed.
+Lemma frames_at_in:
+  forall s l i t f,
+    frames_at l s = Some t ->
+    In i l ->
+    frame_at_pos s i f -> In f t.
+Proof.
+  induction l; simpl; intros; eauto. easy. unfold option_map in H; repeat destr_in H.
+  destruct H0; subst. inv H1. rewrite Heqo in H; inv H. left; auto.
+  eapply IHl in H. 2: reflexivity. 2: eauto. right; auto.
+Qed.
+
+Lemma opt_concat_sizes:
+  forall l1 l2,
+    list_forall2 (fun ol1 ol2 => match ol1, ol2 with
+                                Some l1, Some l2 => size_stack l1 <= size_stack l2
+                              | _, _ => False
+                              end) l1 l2 ->
+    forall s1 s2,
+      opt_concat l1 = Some s1 ->
+      opt_concat l2 = Some s2 ->
+      size_stack s1 <= size_stack s2.
+Proof.
+  induction 1; simpl; intros. inv H; inv H0. omega.
+  repeat destr_in H. subst.
+  repeat destr_in H1. repeat destr_in H2.
+  rewrite ! size_stack_app.
+  specialize (IHlist_forall2 _ _ eq_refl eq_refl); omega.
+Qed.
+
+Lemma lf2_list_ints_map:
+  forall {A B C} (f1: A -> B) (f2: A -> C) (P: B -> C -> Prop)
+    (l: list A)
+    (PROP: forall x, In x l -> P (f1 x) (f2 x)),
+    list_forall2 P (map f1 l) (map f2 l).
+Proof.
+  induction l; simpl; intros; constructor; eauto.
+Qed.
+
+Lemma sizes_size_stack:
+  forall g s1 s2
+    (SZ: sizes g s1 s2)
+    (SURJ: frameinj_surjective g (length s2))
+    (RNG: forall i j, (g i = Some j -> i < length s1 /\ j < length s2)%nat),
+    size_stack s2 <= size_stack s1.
+Proof.
+  intros.
+  edestruct (frames_at_permut_concat s2) as (f2 & FAT2 & PERM2). rewrite map_concat. reflexivity.
+  rewrite <- (size_stack_permut _ _ PERM2).
+  edestruct (sublist_inj g (list_nats (length s1)) (list_nats (length s2))) as (l1' & SUB & PERM).
+  apply lnr_list_nats.
+  apply lnr_list_nats.
+  destruct (frames_at_permut_ex s1) as (f & FAT1 & PERM1).
+  destruct (frames_at_permut _ _ _ PERM _ FAT1) as (f3 & FAT3 & PERM3).
+  destruct (sublist_frames_at s1 _ _ SUB _ FAT3) as (f4 & FAT4 & SUB2).
+  rewrite <- (size_stack_permut _ _ PERM1).
+  rewrite (size_stack_permut _ _ PERM3).
+  etransitivity.
+  2: apply (size_stack_sublist _ _ SUB2).
+  rewrite <- opt_concat_concat in FAT4.
+  eapply opt_concat_sizes. 2-3: eauto.
+  rewrite ! map_map.
+  apply lf2_list_ints_map.
+  clear - SZ SURJ RNG.
+  simpl.
+  setoid_rewrite in_list_nats.
+  intros j LT.
+  rewrite <- nth_error_Some in LT.
+  destruct nth_error eqn:?; try congruence.
+  edestruct (frames_at_succeeds s1) as (f & EQ).
+  2: rewrite EQ.
+  rewrite Forall_forall; intros x IN. rewrite filter_In in IN.
+  rewrite in_list_nats in IN. apply IN.
+  red in SZ.
+  destruct (SURJ j) as (i & G). apply nth_error_Some. congruence.
+  assert (INF: In i (filter (fun i0 => option_eq Nat.eq_dec (g i0) (Some j)) (list_nats (length s1)))).
+  rewrite filter_In. rewrite G. split; auto.
+  2: destruct option_eq; auto; try congruence.
+  rewrite in_list_nats; eauto. eapply RNG. eauto.
+  destruct (min_exists _ _ INF) as (mi & MIN).
+  apply min_in in MIN. destruct MIN as (IN & MIN).
+  generalize IN; intro MIN'.
+  setoid_rewrite filter_In in MIN.
+  setoid_rewrite in_list_nats in MIN.
+  setoid_rewrite filter_In in IN.
+  setoid_rewrite in_list_nats in IN.
+  destruct IN as (LTmi & Gmi).
+  destruct option_eq; simpl in *; try congruence.
+  destruct (frame_at_pos_ex mi s1) as (f1 & FAP1). eauto.
+  specialize (SZ _ _ _ _ FAP1 (frame_at_pos_intro _ _ _ Heqo) e).
+  transitivity (size_frames f1). apply SZ.
+  intros.
+  specialize (MIN i0). trim MIN. split. eapply RNG; eauto. rewrite H. destruct option_eq; auto.
+  auto.
+  eapply frames_at_in in FAP1; eauto.
+  destruct (in_split _ _ FAP1) as (l1 & l2 & EQl12).
+  subst.
+  rewrite size_stack_app. simpl.
+  generalize (size_stack_pos l1) (size_stack_pos l2). omega.
+Qed.
+
+
 
 Lemma transf_step_correct:
   forall s1 t s2, step fn_stack_requirements ge s1 t s2 ->
@@ -1234,316 +1733,25 @@ Proof.
   eapply compat_frameinj_rec_above in H0. 2: destruct CFG as ( _ & CFG); eauto. omega. omega.
   destruct CFG as (CFG & _); apply CFG. omega.
 
+  exploit Mem.inject_stack_adt; eauto. destruct 1.
   eapply compat_sizes_tl in SZ. 2: eauto.
-
-  Fixpoint sum (l: list Z) :=
-    match l with
-      nil => 0
-    | a::r => a + sum r
-    end.
-
-  Require Import Permutation.
-
-
-  Lemma size_stack_permut:
-    forall s s',
-      Permutation s s' ->
-      size_stack s = size_stack s'.
-  Proof.
-    induction 1; simpl; intros; eauto; omega.
-  Qed.
-
-  Lemma size_stack_app:
-    forall s1 s2,
-      size_stack (s1 ++ s2) = size_stack s1 + size_stack s2.
-  Proof.
-    induction s1; simpl; intros; eauto. rewrite IHs1. omega.
-  Qed.
-  
-  Lemma size_stack_concat:
-    forall ss,
-      size_stack (concat ss) = sum (map size_stack ss).
-  Proof.
-    induction ss; simpl; intros; eauto.
-    rewrite size_stack_app.
-    omega.
-  Qed.
-
-  (* Lemma filteri_filteri_rec: *)
-  (*   forall {A} f (l: list A) n, *)
-  (*     filteri_rec l n f = filteri (fun i n => f i) (pairi l n). *)
-  (* Proof. *)
-  (*   induction l; simpl; intros. auto. *)
-  (*   rewrite IHl. auto. *)
-  (* Qed. *)
-
-  (* Lemma filter_eq_nth: *)
-  (*   forall {A} (s: list A) i a, *)
-  (*     nth_error s i = Some a -> *)
-  (*     filteri_rec s O (Nat.eqb i) = a::nil. *)
-  (* Proof. *)
-    
-  (* Qed. *)
-
-  Definition inject_into (g: frameinj) (thr: nat) (target: nat) : list nat :=
-    filter (fun i => option_eq Nat.eq_dec (g i) (Some target)) (list_nats thr).
-
-  Fixpoint frames_at {A} (l: list nat) (s: list A) : option (list A) :=
-    match l with
-    | nil => Some nil
-    | a::r => match nth_error s a with
-               Some f => option_map (fun r => f :: r) (frames_at r s)
-             | None => None
-             end
-    end.
-
-  Opaque minus.
-
-  Lemma frames_at_cons:
-    forall {A} l (s: list A) a,
-      frames_at l s = frames_at (map S l) (a::s).
-  Proof.
-    induction l; simpl; intros; eauto.
-    destr.
-  Qed.
-  
-  Lemma frames_at_eq:
-    forall {A} (s: list A),
-      frames_at (map (fun n => length s - S n)%nat (list_nats (length s))) s = Some (s).
-  Proof.
-    induction s; simpl; intros. auto.
-    replace (S (length s) - S (length s))%nat with O by omega. simpl.
-    unfold option_map.
-    erewrite map_ext_in with (g := fun n => (S (length s - S n))%nat).
-    rewrite <- map_map. rewrite <- frames_at_cons. rewrite IHs. auto.
-    intros. rewrite in_list_nats in H.
-    omega.
-  Qed.
-
-  Lemma list_nats_S:
-    forall n,
-      list_nats (S n) = map S (list_nats n) ++ O :: nil.
-  Proof.
-    induction n; simpl; intros; eauto.
-    rewrite <- IHn. simpl. auto.
-  Qed.
-
-  Lemma map_list_nats_rev:
-    forall n,
-      map (fun m => n - S m)%nat (list_nats n) = rev (list_nats n).
-  Proof.
-    induction n; simpl; intros. reflexivity.
-    erewrite map_ext_in with (g := fun m => (S (n - S m))%nat).
-    rewrite <- map_map. 
-    2: intros; rewrite in_list_nats in H; omega.
-    rewrite minus_diag.
-    rewrite IHn. rewrite map_rev. rewrite <- rev_unit.
-    rewrite <- list_nats_S. simpl. reflexivity.
-  Qed.
-
-  Lemma frames_at_permut:
-    forall {A} (s: list A) (l1 l2: list nat) (P: Permutation l1 l2) f1,
-      frames_at l1 s = Some f1 ->
-      exists f2,
-        frames_at l2 s = Some f2 /\ Permutation f1 f2.
-  Proof.
-    induction 1; simpl; unfold option_map; intros; eauto.
-    - repeat destr_in H. edestruct IHP as (f2 & FAT & PERM); eauto. rewrite FAT. eexists; split; eauto.
-    - repeat destr_in H. repeat destr_in Heqo0.
-      eexists; split; eauto. apply perm_swap.
-    - edestruct IHP1 as (f2 & FAT1 & PERM); eauto.
-      edestruct IHP2 as (f3 & FAT2 & PERM2); eauto.
-      eexists; split; eauto.
-      eapply perm_trans; eauto.
-  Qed.
-  
-  Lemma frames_at_permut':
-    forall {A} (s: list A) f,
-      frames_at (list_nats (length s)) s = Some f ->
-      Permutation f s.
-  Proof.
-    intros A s f FAT.
-    edestruct (frames_at_permut s) as (f2 & FAT2 & PERM12).
-    apply Permutation_rev. apply FAT. rewrite <- map_list_nats_rev in FAT2.
-    rewrite frames_at_eq in FAT2. inv FAT2. auto.
-  Qed.
-
-  Lemma frames_at_permut_ex:
-    forall {A} (s: list A),
-    exists f, frames_at (list_nats (length s)) s = Some f /\
-         Permutation f s.
-  Proof.
-    intros A s.
-    edestruct (frames_at_permut s) as (f2 & FAT2 & PERM12).
-    2: apply frames_at_eq.
-    rewrite map_list_nats_rev. symmetry; apply Permutation_rev. eexists; split; eauto. symmetry; eauto.
-  Qed.
-  
-  Fixpoint opt_concat {A} (l: list (option (list A))) : option (list A) :=
-    match l with
-      nil => Some nil
-    | None :: l => None
-    | Some a::l =>
-      match opt_concat l with
-      | None => None
-      | Some r => Some (a ++ r)
-      end
-    end.
-
-  Lemma frames_at_app:
-    forall {A} (s: list A) l1 l2,
-      frames_at (l1 ++ l2) s =
-      match frames_at l1 s with
-        Some r1 =>
-        match frames_at l2 s with
-          Some r2 => Some (r1++r2)
-        | _ => None
-        end
-      | _ => None
-      end.
-  Proof.
-    induction l1; simpl; intros; eauto. destr.
-    destr.
-    rewrite IHl1. destr. destr.
-  Qed.
-  
-  Lemma opt_concat_concat:
-    forall {A} (s: list A) l,
-      opt_concat (map (fun f => frames_at f s) l) = frames_at (concat l) s.
-  Proof.
-    induction l; simpl; intros; eauto.
-    rewrite frames_at_app. rewrite IHl. reflexivity.
-  Qed.
-  
-  Lemma frames_at_permut'':
-    forall {A} (s: list A) ff t,
-      Permutation (list_nats (length s)) (concat ff) ->
-      opt_concat (map (fun f => frames_at f s) ff) = Some t ->
-      Permutation t s.
-  Proof.
-    intros.
-    rewrite opt_concat_concat in H0.
-    edestruct (frames_at_permut s). 2: eauto. apply Permutation_sym. eauto. destruct H1.
-    eapply perm_trans. eauto.
-    eapply frames_at_permut'. eauto.
-  Qed.
-
-  Inductive sublist {A: Type}  : list A -> list A -> Prop :=
-  | sublist_intro s: sublist nil s
-  | sublist_skip a s1 s2: sublist s1 s2 -> sublist s1 (a::s2)
-  | sublist_same a s1 s2: sublist s1 s2 -> sublist (a::s1) (a::s2).
-  
-  Lemma frames_at_filter:
-    forall {A} g (s: list A) l f,
-      frames_at l s = Some f ->
-      exists f', frames_at (filter g l) s = Some f' /\ sublist f' f.
-  Proof.
-    induction l; simpl; intros. inv H.
-    - eexists; split; eauto. constructor.
-    - unfold option_map in H. repeat destr_in H.
-      edestruct IHl as (f' & FAT & SUB); eauto.
-      repeat (destr; simpl; unfold option_map).
-      inv FAT. inv Heqo.
-      eexists; split; eauto. apply sublist_same; eauto.
-      eexists; split; eauto. apply sublist_skip; eauto.
-  Qed.
-
-  Lemma size_stack_sublist:
-    forall s1 s2,
-      sublist s1 s2 ->
-      size_stack s1 <= size_stack s2.
-  Proof.
-    induction 1; simpl; intros; eauto. apply size_stack_pos.
-    generalize (size_frames_pos a); omega.
-    omega.
-  Qed.
-
-  Definition smallest (g: frameinj) i1 s1 :=
-    match g i1 with
-      Some i2 =>
-      forallb (fun i => negb (option_eq Nat.eq_dec (g i) (Some i2)) || le_dec i1 i) (list_nats s1)
-    | None => false
-    end.
-  
-  Lemma sizes_size_stack:
-    forall g s1 s2,
-      sizes g s1 s2 ->
-      size_stack s2 <= size_stack s1.
-  Proof.
-    intros.
-    destruct (frames_at_permut_ex s2) as (f2 & FAT2 & PERM2).
-    rewrite <- (size_stack_permut _ _ PERM2).
-    destruct (frames_at_permut_ex s1) as (f1 & FAT1 & PERM1).
-    rewrite <- (size_stack_permut _ _ PERM1).
-    eapply frames_at_filter with (g0 := fun i => smallest g i (length s1)) in FAT1.
-    destruct FAT1 as (f' & FAT1 & SUBLIST).
-    etransitivity.
-    2: apply size_stack_sublist; eauto.
-
-    Fixpoint minl (l: list nat) : option nat :=
-      match l with
-      | nil => None
-      | a::r => match minl r with
-                 Some b => Some (Nat.min a b)
-               | None => None
-               end
-      end.
-
-    Lemma filter_smallest_eq:
-      forall g (s1 s2: stack_adt),
-        map Some (filter (fun i => smallest g i (length s1)) (list_nats (length s1))) = 
-        map minl (map (fun j => filter (fun i => option_eq Nat.eq_dec (g i) (Some j)) (list_nats (length s1))) (list_nats (length s2))).
-    Proof.
-      induction s1; simpl; intros.
-      - 
-    Qed.
-    
-
-    
-    transitivity (size_stack )
-    transitivity (size_stack (filteri (fun i1 _ => smallestb g i1 (length s1)) (pairi s1 O))).
-    2: apply size_stack_filteri.
-    erewrite <- (map_snd_pairi s2).
-    instantiate (1:=O).
-    apply size_stack_filteri_le.
-    - apply sorted_fst_pairi.
-    - apply sorted_fst_pairi.
-    - intros. apply In_pairi_nth in H.
-      apply In_pairi_nth in H0.
-      rewrite <- minus_n_O in *.
-      eapply stack_inject_sizes; eauto; try (now (constructor; eauto)).
-    - intros.
-      apply In_pairi_nth in H. rewrite <- minus_n_O in H.
-      exploit stack_inject_frame_inject; eauto. constructor; eauto. intros (f2 & FAP & FI).
-      inv FAP. eapply nth_In_pairi with (n:=O) in H1.
-      rewrite plus_0_r in H1. eauto.
-    - intros.
-      rewrite in_map_iff in IN.
-      destruct IN as ((ii & f) & EQ & IN). subst. simpl in *.
-      eapply In_pairi_nth in IN. rewrite <- minus_n_O in IN.
-      eapply stack_inject_range in GJ; eauto.
-      destruct GJ as (LTi1 & LTj0).
-      replace (i1) with (i1+O)%nat by omega. eapply In_map_fst_pairi. auto.
-    - intros; eapply stack_inject_range in H; eauto. tauto.
-    - intros. inv SI. eauto.
-    - intros j0 f IN.
-      eapply In_pairi_nth in IN. rewrite <- minus_n_O in IN.
-      destruct (stack_inject_surjective _ _ _ _ _ SI j0). rewrite <- nth_error_Some. congruence.
-      exists x; split; auto.
-      replace (x) with (x+O)%nat by omega. eapply In_map_fst_pairi. 
-eapply stack_inject_range in H; eauto. tauto.
-    intros. etransitivity. 2: etransitivity.
-
-    2: apply size_stack_filteri_le. 10: apply size_stack_filteri.
-    rewrite map_snd_pairi. reflexivity.
-    apply sorted_fst_pairi.
-    apply sorted_fst_pairi.
-    
-    
-  Qed.
-  
-
-  admit.
+  eapply sizes_size_stack; eauto.
+  {
+    red; intros.
+    unfold down, downstar.
+    destruct (stack_inject_surjective (S j0)). 
+    destruct (Mem.stack_adt m'0); simpl in *; omega.
+    destruct x. destruct CFG as (A & B). rewrite A in H0. inv H0. omega.
+    exists (x). rewrite H0. destr.
+  }
+  {
+    unfold down, downstar, option_map.
+    simpl. intros i j0 EQ.
+    destr_in EQ. destr_in Heqo. rewrite Heqo in n1. inv EQ.
+    apply stack_inject_range in Heqo.
+    destruct (Mem.stack_adt m); simpl in *. omega. split. omega.
+    destruct (Mem.stack_adt m'0); simpl in *. omega. destruct n; simpl in *. congruence. omega.
+  }
   
   econstructor; split.
   apply exec_return; eauto.
