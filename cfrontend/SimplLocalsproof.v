@@ -2388,7 +2388,6 @@ Proof.
     intros [j' [tvres [tm' [P [Q [R [S [T [U V]]]]]]]]].
     erewrite (external_call_stack_blocks) in R. 2: eauto.
     exploit Mem.unrecord_stack_block_inject_parallel_flat. apply R. eauto.
-    repeat rewrite_stack_blocks. simpl. apply stack_equiv_fsize in SE; omega.
     intros (m2' & USB & MINJ'' & LEN).
     econstructor; split.
     apply plus_one. econstructor. eauto. eapply external_call_symbols_preserved; eauto. apply senv_preserved.
@@ -2633,6 +2632,8 @@ Proof.
     eapply H6; eauto.
     eapply alloc_variables_perm_2; eauto.
     eapply Mem.in_frames_valid; eauto. rewrite <- H3, in_stack_cons; left. auto.
+    simpl. repeat rewrite_stack_blocks.
+    apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
     intros (m2' & RSB & INJ).
     exploit store_params_correct.
     eauto.
@@ -2716,7 +2717,6 @@ Proof.
   - (* return *)
     specialize (MCONT (cenv_for f)). inv MCONT.
     exploit Mem.unrecord_stack_block_inject_parallel_flat. apply MINJ. eauto.
-    apply stack_equiv_tail, stack_equiv_fsize in SE; omega.
     intros (m2' & USB & MINJ'' & LEN).
     econstructor; split.
     apply plus_one. econstructor. eauto.
@@ -2790,6 +2790,7 @@ Proof.
     intros b0 b2 delta. rewrite EXT. unfold Mem.flat_inj.
     intro FI; repeat destr_in FI.
   + rewrite Mem.push_new_stage_stack. constructor. red; easy.
+  + apply Z.eq_le_incl. repeat rewrite_stack_blocks. eauto using stack_equiv_fsize, stack_equiv_tail.
   + assert (m2 = m2'') by congruence. subst m2''.
     assert (PLE:  Ple (Mem.nextblock m0) (Mem.nextblock m2)).
     {

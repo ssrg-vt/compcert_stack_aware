@@ -719,8 +719,6 @@ Proof.
   intros [v' [tm2 [A [B [C DE]]]]].
   edestruct Mem.unrecord_stack_block_extends as (tm2' & USB & EXT'). apply C.
   apply Mem.unrecord_push.
-  repeat rewrite_stack_blocks. simpl.
-  eapply stack_inject_sizes. eapply Mem.extends_stack_adt. eauto.
   exists (rs1#rd <- v'); exists tm2'.
 (* Exec *)
   split. eapply star_right. eexact EX1.
@@ -756,9 +754,6 @@ Proof.
   intros [v' [tm2 [A [B [C DE]]]]].
   exploit Mem.unrecord_stack_block_extends; eauto.
   apply Mem.unrecord_push.
-  repeat rewrite_stack_blocks. simpl.
-  rewrite STK1.
-  eapply stack_inject_sizes. eapply Mem.extends_stack_adt. eauto.
   intros (tm2' & USB & EXT').
   exploit function_ptr_translated; eauto. simpl. intros [tf [P Q]]. inv Q.
   exists (rs1#rd <- v'); exists tm2'.
@@ -1477,8 +1472,6 @@ Proof.
     edestruct external_call_mem_extends as [tv [tm'' [A [B [C D]]]]]; eauto.
     apply Mem.extends_push; eauto.
     exploit Mem.unrecord_stack_block_extends; eauto.
-    repeat rewrite_stack_blocks. simpl.
-    apply stack_equiv_fsize in SE; auto. rewrite STK. omega.
     intros (m2' & USB & EXT).
     econstructor; split.
     left. eapply plus_right. eexact E.
@@ -1612,6 +1605,7 @@ Proof.
       exploit Mem.in_frames_valid. rewrite <- H9. rewrite in_stack_cons. left. eauto.
       eapply Mem.fresh_block_alloc; eauto.
       eapply H10 in P; eauto.
+    + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
     + intros (m2' & USB & EXT).
       econstructor; split.
       left; apply plus_one. eapply exec_function_internal; simpl; eauto.
@@ -1635,7 +1629,6 @@ Proof.
   - (* return *)
     inv MS.
     exploit Mem.unrecord_stack_block_extends; eauto.
-    apply stack_equiv_tail, stack_equiv_fsize in SE; auto. omega.
     intros (m2' & USB & EXT).
     econstructor; split.
     left; apply plus_one; constructor. eauto.

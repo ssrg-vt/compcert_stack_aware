@@ -1123,8 +1123,6 @@ Proof.
   eapply Mem.mem_inject_ext. apply C. repeat rewrite_stack_blocks.
   simpl. setoid_rewrite frameinj_push_flat.  reflexivity.
   eauto.
-  repeat rewrite_stack_blocks. simpl.
-  eapply stack_equiv_fsize in STRUCT. omega.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   eapply match_states_regular with (j := j'); eauto.
@@ -1213,6 +1211,7 @@ Proof.
     destr_in P. subst.
     exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto. unfold Mem.valid_block; xomega.
     eapply H2 in P; eauto.
+    simpl. repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
     intros (m2' & RSB & INJ').
     econstructor; split.
     eapply exec_function_internal; eauto.
@@ -1237,8 +1236,6 @@ Proof.
 - (* return *)
   inv STACKS.
   exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto. eauto.
-  apply Z.eq_le_incl.
-  apply stack_equiv_fsize, stack_equiv_tail. auto.
   intros (m2' & USB & INJ & T).
   econstructor; split.
   eapply exec_return. eauto.
@@ -1596,6 +1593,7 @@ Proof.
     eapply Mem.valid_block_inject_2 in FB; eauto. eapply Mem.fresh_block_alloc in FB; eauto. easy.
   - reflexivity.
   - congruence.
+  - simpl. repeat rewrite_stack_blocks. simpl. erewrite ! Genv.init_mem_stack_adt; eauto. omega.
   - exists (Callstate nil f nil (Mem.push_new_stage m2') (fn_stack_requirements (prog_main tp))); split.
     econstructor; eauto.
     + fold tge. erewrite match_prog_main by eauto. auto.

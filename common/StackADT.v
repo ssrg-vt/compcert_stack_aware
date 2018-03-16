@@ -831,8 +831,8 @@ Section INJ.
         forall i j (G: g i = Some j), i < length s1 /\ j < length s2;
       stack_inject_pack:
         forall i j (G: g i = Some j), j <= i;
-      stack_inject_sizes:
-        (size_stack s2 <= size_stack s1)%Z;
+      (* stack_inject_sizes: *)
+      (*   (size_stack s2 <= size_stack s1)%Z; *)
         (* forall i1 i2 f1 f2 *)
         (*   (FAP1: f1 @ s1 : i1) *)
         (*   (FAP2: f2 @ s2 : i2) *)
@@ -1435,7 +1435,6 @@ Section INJ.
       intros i j CINJ; destr_in CINJ.
       eapply stack_inject_pack0 in Heqo.
       eapply stack_inject_pack1 in CINJ. omega.
-    - omega.
     - unfold compose_frameinj.
       red. intros j LT.
       edestruct (stack_inject_surjective1 _ LT) as (i3 & G3).
@@ -1982,7 +1981,6 @@ Qed.
     - easy.
     - congruence.
     - congruence.
-    - reflexivity.
     - red. simpl. intros; omega.
   Qed.
 
@@ -2388,27 +2386,6 @@ Qed.
   Qed.
         
   
-  Lemma size_stack_stack_inject:
-    forall j g P s1 s2,
-      stack_inject j g P s1 s2 ->
-      (size_stack s2 <= size_stack s1)%Z.
-  Proof.
-    inversion 1; auto.
-  Qed.
-
-  (* Lemma stack_inject_g0_0: *)
-  (*   forall j g p s1 s2, *)
-  (*     stack_inject j g p s1 s2 -> *)
-  (*     (0 < length s1 -> *)
-  (*      0 < length s2 -> *)
-  (*      g 0 = Some 0)%nat. *)
-  (* Proof. *)
-  (*   intros j g p s1 s2 SI LT1 LT2. *)
-  (*   inv SI. *)
-  (*   destruct (stack_inject_exists_l0 _ LT1). rewrite H. apply stack_inject_pack0 in H.  *)
-  (*   f_equal; omega. *)
-  (* Qed. *)
-
   Lemma stack_inject_id:
     forall p s,
       wf_stack p inject_id s ->
@@ -2427,7 +2404,6 @@ Qed.
     - intros i j H; destr_in H; inv H.
     (* - intros. exists i; destr. *)
     - intros i j H; destr_in H; inv H. omega.
-    - reflexivity.
     - intros i LT. exists i; destr. 
   Qed.
 
@@ -2849,8 +2825,7 @@ Lemma stack_inject_unrecord_parallel:
     fr2 l2
     (STK2 : s2 = fr2 :: l2)
     fr1 l1
-    (STK1 : s1 = fr1 :: l1)
-    (SZ: (size_stack l2 <= size_stack l1)%Z),
+    (STK1 : s1 = fr1 :: l1),
     stack_inject j (fun n : nat => option_map Init.Nat.pred (g (S n))) m1 l1 l2.
 Proof.
   intros. subst.
@@ -2910,8 +2885,7 @@ Lemma stack_inject_unrecord_parallel_frameinj_flat_on:
     fr2 l2
     (STK2 : s2 = fr2 :: l2)
     fr1 l1
-    (STK1 : s1 = fr1 :: l1)
-    (SZ: (size_stack l2 <= size_stack l1)%Z),
+    (STK1 : s1 = fr1 :: l1),
     stack_inject j (flat_frameinj (length l2)) m1 l1 l2.
 Proof.
   intros. subst.

@@ -2248,9 +2248,6 @@ Proof.
   intros [f' [vres' [tm' [EC [VINJ [MINJ' [UNMAPPED [OUTOFREACH [INCR SEPARATED]]]]]]]]].
   exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto.
   repeat rewrite_stack_blocks. simpl; eauto.
-  repeat rewrite_stack_blocks. simpl.
-  apply Z.eq_le_incl.
-  apply stack_equiv_fsize. auto.
   intros (tm'' & USB & INJ' & T).
   left; econstructor; split.
   apply plus_one. econstructor. eauto.
@@ -2469,6 +2466,9 @@ Proof.
   red in H7; red; intros. intro P; eapply H7; eauto.
   eapply Mem.perm_alloc_4; eauto. intro; subst.
   exploit Mem.in_frames_valid. rewrite <- H4. rewrite in_stack_cons; left. eauto. eapply Mem.fresh_block_alloc; eauto. simpl.
+  repeat rewrite_stack_blocks.
+  erewrite (alloc_variables_stack_adt _ _ _ _ _ H2).
+  apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   intros (m2' & RSB & INJ3).
   left; econstructor; split.
   apply plus_one. econstructor; simpl; eauto.
@@ -2509,8 +2509,6 @@ Proof.
 (* return *)
   inv MK. simpl.
   exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto. eauto.
-  apply Z.eq_le_incl.
-  apply stack_equiv_tail, stack_equiv_fsize in STRUCT. auto.
   intros (tm'' & USB & INJ' & T).
   left; econstructor; split.
   apply plus_one. econstructor; eauto.
@@ -2617,6 +2615,7 @@ Proof.
      intros b1 b0 delta. rewrite EXT. unfold Mem.flat_inj.
      intro FI; repeat destr_in FI.
   -- congruence.
+  -- omega.
   -- assert (m2 = m2'') by congruence. subst.
      assert (Ple (Mem.nextblock m0) (Mem.nextblock m2'')).
        {

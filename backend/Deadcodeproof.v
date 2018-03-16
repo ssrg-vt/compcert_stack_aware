@@ -50,7 +50,6 @@ Local Notation magree_storebytes_left := Mem.magree_storebytes_left.
 Local Notation mextends_agree := Mem.mextends_agree.
 Local Notation magree_push := Mem.magree_push.
 Local Notation magree_unrecord := Mem.magree_unrecord.
-Local Notation magree_stack_size := Mem.magree_stack_size.
 
 
 Lemma magree_store_parallel:
@@ -793,12 +792,6 @@ Proof.
   exploit transf_volatile_store; eauto. apply magree_push. apply D2.
   intros (EQ & tm' & P & Q). subst vres.
   edestruct magree_unrecord as (m2' & USB & MAG). apply Q. eauto.
-  replace (Mem.stack_adt tm') with (Mem.stack_adt (Mem.push_new_stage tm)).
-  replace (Mem.stack_adt m') with (Mem.stack_adt (Mem.push_new_stage m)).
-  repeat rewrite_stack_blocks. simpl.
-  eapply magree_stack_size; eauto.
-  inv H1. inv H8; rewrite_stack_blocks; auto.
-  inv P. inv H8; rewrite_stack_blocks; auto. 
   econstructor; split.
   eapply exec_Ibuiltin. eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
@@ -839,13 +832,7 @@ Proof.
   eauto.
   intros (tm' & A & B).
   edestruct magree_unrecord as (m2' & USB & MAG). apply B. eauto.
-  replace (Mem.stack_adt tm') with (Mem.stack_adt (Mem.push_new_stage tm)).
-  replace (Mem.stack_adt m') with (Mem.stack_adt (Mem.push_new_stage m)).
-  repeat rewrite_stack_blocks. simpl.
-  eapply magree_stack_size; eauto.
-  rewrite <- (Mem.storebytes_stack_blocks _ _ _ _ _ H13); repeat rewrite_stack_blocks; auto.
-  rewrite <- (Mem.storebytes_stack_blocks _ _ _ _ _ A); repeat rewrite_stack_blocks; auto.
-  
+    
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
@@ -931,8 +918,6 @@ Proof.
   apply Mem.extends_push. eapply magree_extends; eauto. intros. apply nlive_all.
   intros (v' & tm' & P & Q & R & ST).
   exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_fsize in SEI. simpl in SEI.
-  repeat rewrite_stack_blocks. simpl. omega.
   intros (m2' & USB & EXT).
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
@@ -993,6 +978,7 @@ Proof.
     exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
     eapply Mem.fresh_block_alloc; eauto.
     eapply H2 in P; eauto.
+  + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   + intros (m2' & USB & EXT).
     econstructor; split.
     econstructor; simpl; eauto.
@@ -1012,8 +998,6 @@ Proof.
 - (* return *)
   inv STACKS. inv H2.
   exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in SEI. simpl in SEI.
-  repeat rewrite_stack_blocks. omega.
   intros (m2' & USB & EXT).
   econstructor; split.
   constructor. eauto.

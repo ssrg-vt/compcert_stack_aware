@@ -551,7 +551,6 @@ Opaque builtin_strength_reduction.
   apply Mem.extends_push; eauto.
   intros [v' [m2' [A [B [C D]]]]].
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB & EXT'); eauto.
-  repeat rewrite_stack_blocks. simpl. eapply Mem.extends_stack_size; eauto.
   left; econstructor; econstructor; split.
   eapply exec_Ibuiltin; eauto.
   eapply eval_builtin_args_preserved. eexact symbols_preserved.
@@ -626,6 +625,7 @@ Opaque builtin_strength_reduction.
     exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
     eapply Mem.fresh_block_alloc; eauto.
     eapply H2 in P; eauto.
+  + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   + intros (m2'' & C & D).
     simpl. unfold transf_function.
     left; exists O; econstructor; split.
@@ -650,7 +650,6 @@ Opaque builtin_strength_reduction.
 - (* return *)
   inv H5. inv H2.
   exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in SE. repeat rewrite_stack_blocks. omega.
   intros (m2'' & C & D).
   left; exists O; econstructor; split.
   eapply exec_return; eauto.

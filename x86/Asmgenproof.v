@@ -1326,8 +1326,6 @@ Opaque loadind.
   apply Mem.extends_push; eauto.
   intros [vres' [m2' [A [B [C D]]]]].
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB & EXT'); eauto.
-  repeat rewrite_stack_blocks. simpl.
-  eapply Mem.extends_stack_size; eauto.
   left. econstructor; split.
   + apply plus_one.
     eapply exec_step_builtin. eauto. eauto.
@@ -1478,7 +1476,6 @@ Transparent destroyed_by_jumptable.
   edestruct (Mem.unrecord_stack_block_succeeds m') as (m2 & USB & STKEQ). rewrite_stack_blocks.
   rewrite <- H11. reflexivity.
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB' & EXT'). 2: apply USB. eauto. subst.
-  repeat rewrite_stack_blocks. rewrite SAMEADT. omega.
   rewrite FIND in FIND0; inv FIND0.
   left; econstructor; split.
   + eapply plus_left. eapply exec_step_internal. eauto.
@@ -1562,6 +1559,7 @@ Transparent destroyed_by_jumptable.
   revert PP. repeat rewrite_perms. destr; eauto. subst.
   exploit Mem.in_frames_valid. rewrite <- H4. rewrite in_stack_cons; left; eauto. intro VB; eapply Mem.fresh_block_alloc in VB; eauto. destruct VB.
   rewrite SAMEPERM. auto. eapply in_frames_in_stack. rewrite <- H4; left; eauto. eauto.
+  repeat rewrite_stack_blocks. rewrite SAMEADT. omega.
   intros (m1'' & CC & DD).
   (* exploit Mem.alloc_record_push_frame. 3-5: eauto. reflexivity. rewrite X. eauto. *)
   (* rewrite X; eauto. *)
@@ -1599,7 +1597,6 @@ Transparent destroyed_at_function_entry.
   repeat rewrite_stack_blocks.
   revert EQ0 EQ3. repeat rewrite_stack_blocks. rewrite SAMEADT.
   intros EQ5 EQ6; rewrite EQ5 in EQ6; inv EQ6. auto.
-
 - (* external function *)
   exploit functions_translated; eauto.
   intros [tf [A B]]. simpl in B. inv B.
@@ -1610,7 +1607,6 @@ Transparent destroyed_at_function_entry.
   inv CSC. inv TTNP.
   edestruct (Mem.unrecord_stack_block_succeeds m') as (m2 & USB & STKEQ). rewrite_stack_blocks. eauto.
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB' & EXT'). 2: apply USB. eauto. subst.
-  repeat rewrite_stack_blocks. rewrite SAMEADT. omega.
   left; econstructor; split.
   apply plus_one. eapply exec_step_external; eauto.
   

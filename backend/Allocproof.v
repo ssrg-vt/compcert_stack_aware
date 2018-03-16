@@ -2181,8 +2181,6 @@ Proof.
   rewrite <- eval_builtin_args_push. eauto.
   intros (C & vargs' & vres' & m2' & D & E & F & G).
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB & EXT'). 2: eauto. eauto.
-  repeat rewrite_stack_blocks. simpl.
-  eapply Mem.extends_stack_size; eauto.
   assert (WTRS': wt_regset env (regmap_setres res vres rs)) by (eapply wt_exec_Ibuiltin; eauto).
   set (ls2 := Locmap.setres res' vres' (undef_regs (destroyed_by_builtin ef) ls1)).
   assert (satisf (regmap_setres res vres rs) ls2 e0).
@@ -2293,6 +2291,7 @@ Proof.
     eapply Mem.fresh_block_alloc; eauto.
     eapply H12 in P; eauto.
   }
+  repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   intros (tm'' & W & X).
   assert (WTRS: wt_regset env (init_regs args (fn_params f))).
   { apply wt_init_regs. inv H1. rewrite wt_params. rewrite H10. auto. }
@@ -2354,8 +2353,6 @@ Proof.
 (* return *)
 - inv STACKS.
   exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in STRUCT; auto.
-  repeat rewrite_stack_blocks; eauto. omega.
   intros (tm'' & RR & S).
   exploit STEPS; eauto. rewrite WTRES0; auto. intros [ls2 [A B]].
   econstructor; split.

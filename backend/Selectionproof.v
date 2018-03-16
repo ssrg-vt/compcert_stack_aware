@@ -1099,8 +1099,6 @@ Proof.
   exploit external_call_mem_extends; eauto. apply Mem.extends_push; eauto.
   intros [vres' [m2 [A [B [C D]]]]].
   exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_fsize in STRUCT; auto.
-  repeat rewrite_stack_blocks; eauto. simpl. omega.
   intros (m2'' & E & F).
   left; econstructor; split.
   econstructor. eauto.
@@ -1199,6 +1197,7 @@ Proof.
     eapply Mem.fresh_block_alloc; eauto.
     eapply H2 in P; eauto.
   }
+  repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   intros (m2'' & C & D).
   left; econstructor; split.
   econstructor; simpl; eauto.
@@ -1230,8 +1229,6 @@ Proof.
   {
     intros.
     exploit Mem.unrecord_stack_block_extends; eauto.
-    apply stack_equiv_fsize in STRUCT; auto.
-    repeat rewrite_stack_blocks; eauto. simpl. omega.
     rewrite USB. intros (? & EQ & EXT'); inv EQ; auto.
   }
   repeat rewrite_stack_blocks; eauto.
@@ -1239,8 +1236,6 @@ Proof.
   apply match_call_cont_cont in MC. destruct MC as (cunit0 & hf0 & MC). 
   inv MC.
   exploit Mem.unrecord_stack_block_extends; eauto.
-  apply stack_equiv_tail, stack_equiv_fsize in STRUCT; auto.
-  repeat rewrite_stack_blocks; eauto. omega.
   intros (m2'' & C & D).
   left; econstructor; split.
   econstructor. eauto.

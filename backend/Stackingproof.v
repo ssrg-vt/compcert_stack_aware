@@ -1293,6 +1293,7 @@ Lemma function_prologue_correct:
   Mem.record_stack_blocks m2' (make_singleton_frame_adt sp (Linear.fn_stacksize f) (frame_size (frame_of_frame_env b))) = Some m2 ->
   Val.has_type parent Tptr -> Val.has_type ra Tptr ->
   Mem.top_tframe_no_perm (Mem.perm m1') (Mem.stack_adt m1') ->
+  stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m1') ->
   m1' |= minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** globalenv_inject ge j ** P ->
   exists j' rs' m2' sp' m3' m4' m5',
     Mem.alloc m1' 0 (frame_size (fn_frame tf)) = (m2', sp')
@@ -1317,7 +1318,7 @@ Lemma function_prologue_correct:
     /\ (Mem.stack_adt m5' = Mem.stack_adt m4' /\ Mem.stack_adt m3' = Mem.stack_adt m1')
     /\ (forall b, get_frame_info (Mem.stack_adt m5') b = get_frame_info (Mem.stack_adt m4') b).
 Proof.
-  intros until P; intros STACK AGREGS AGCS WTREGS LS1 RS1 ALLOC RECORD TYPAR TYRA TTNP SEP.
+  intros until P; intros STACK AGREGS AGCS WTREGS LS1 RS1 ALLOC RECORD TYPAR TYRA TTNP SEQ SEP.
   rewrite unfold_transf_function.
   unfold fn_frame, fn_stacksize, fn_retaddr_ofs.
   (* Stack layout info *)
@@ -1380,7 +1381,6 @@ Proof.
     erewrite Mem.alloc_stack_blocks in INF; eauto.
     eapply Mem.in_frames_valid in INF. eapply Mem.fresh_block_alloc in INF; eauto.
   }
-  instantiate (4 := true); simpl.
   eauto.
   {
     intros. eapply Mem.perm_implies. eapply Mem.perm_alloc_2; eauto.
@@ -1430,6 +1430,8 @@ Proof.
     eapply Mem.fresh_block_alloc; eauto.
     eapply H0 in PP; eauto.
   }
+  repeat rewrite_stack_blocks. rewrite (store_stack_stack_blocks _ _ _ _ _ _ STORE_RETADDR).
+  repeat rewrite_stack_blocks. eauto.
   intros (m5' & RSB & SEP2).
   (* Saving callee-save registers *)
   assert (SEP3 : m5'
@@ -3414,7 +3416,6 @@ Proof.
   rewrite frame_contents_invar_stack, stack_contents_invar_stack; reflexivity.
   unfold up, flat_frameinj. simpl; intros. destr_in H3. destr_in H3. simpl in H3. inv H3. omega. inv H3.
   reflexivity.
-  repeat rewrite_stack_blocks. simpl. eapply stack_equiv_fsize in SE; eauto. omega.
   intros (m2' & USB & SEP').
   econstructor; split.
   + apply plus_one. econstructor; eauto.
@@ -3605,7 +3606,7 @@ Proof.
   rewrite <- sep_assoc, sep_comm in SEP.
   rewrite <- sep_assoc, sep_comm in SEP.
   exploit function_prologue_correct.
-  13: eapply mconj_proj1; eassumption.
+  14: eapply mconj_proj1; eassumption.
   eassumption.
   apply stack_contents_invar_stack.
   eassumption.
@@ -3624,7 +3625,7 @@ Proof.
   eapply match_stacks_type_sp; eauto.
   eapply match_stacks_type_retaddr; eauto.
 
-  eauto.
+  eauto. auto.
   rename SEP into SEP_init;
     intros (j' & rs' & m2' & sp' & m3' & m4' & m5' & A1 & B & C & D & E & F & SEP & J & K & KSEP & KV & KV' & PERMS & UNCH & IST & GFI).
   econstructor; split.
@@ -3735,7 +3736,6 @@ Proof.
   simpl. unfold flat_frameinj. intros. destr_in H0.
   inv CSC. inv CallStackConsistency. inv SE. rewrite <- H4 in H3. simpl in H3; congruence.
   reflexivity.
-  eapply stack_equiv_tail, stack_equiv_fsize in SE; eauto. omega.
   intros (m2' & USB & SEP').
   econstructor; split.
   apply plus_one. apply exec_return. eauto.
@@ -3768,7 +3768,6 @@ Proof.
   repeat rewrite_stack_blocks.
   eapply stack_equiv_tail; eauto.
 Qed.
-
 
 Inductive match_states_inv (s : Linear.state) (s': Mach.state): Prop :=
 | msi_intro
@@ -3901,6 +3900,7 @@ Proof.
            intros b1 b0 delta. rewrite H. unfold j, Mem.flat_inj.
            intro FI; repeat destr_in FI.
         -- repeat rewrite_stack_blocks. constructor. red; easy.
+        -- reflexivity.
         -- assert (m2 = m2'') by congruence. subst.
            eapply Mem.inject_ext.
            eapply Mem.mem_inject_ext.
