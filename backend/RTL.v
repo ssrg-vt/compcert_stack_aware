@@ -637,7 +637,8 @@ Section STACKINV.
                       (MSA1: match_stack_adt (map block_of_stackframe s)
                                              (tl (Mem.stack_adt m))),
       stack_inv (Callstate s fd args m sz)
-  | stack_inv_return: forall s res m 
+  | stack_inv_return: forall s res m
+                        (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
                         (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
       stack_inv (Returnstate s res m).
 
@@ -664,8 +665,23 @@ Section STACKINV.
       rewrite <- H6. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
       eapply Mem.perm_free_3 in P; eauto.
       rewrite SIZE; auto.
+    - erewrite <- Mem.free_stack_blocks by eauto.
+      eapply Mem.noperm_top.
+      rewrite_stack_blocks. inv MSA1.
+      intros b IFR o k p0 P.
+      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+      eapply Mem.perm_free_2 in P; eauto.
+      exploit Mem.agree_perms_mem.
+      rewrite <- H5. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+      eapply Mem.perm_free_3 in P; eauto.
+      rewrite SIZE; auto.
     - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
+    - inv TOPNOPERM; constructor.
+      red; intros. intro P.
+      eapply ec_perm_frames in H. 2: apply external_call_spec.
+      rewrite H in P. eapply H1; eauto.
+      rewrite <- H0. rewrite in_stack_cons; left. auto.
     - inv MSA1. repeat destr_in H1. econstructor.
       rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
   Qed.

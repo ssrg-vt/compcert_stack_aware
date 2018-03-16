@@ -1850,7 +1850,10 @@ Proof.
   econstructor; eauto.
   eapply Mem.unrecord_stack_block_inject_left. eauto. eauto.
   left; apply CFG. omega.
-  admit.                        (* top_no_perm *)
+  inv MSA. inv TOPNOPERM.
+  unfold is_stack_top, get_stack_top_blocks.
+  intros b GFB o k p. eapply H1. unfold inject_id; congruence.
+  eauto.
   rewrite_stack_blocks. admit.  (* would not be needed with an injection separated from the notion of sizes. *)
   rewrite Regmap.gss. auto.
   eapply compat_frameinj_rec_pop_left. destruct CFG as (A & B).
