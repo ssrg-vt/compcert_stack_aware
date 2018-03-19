@@ -68,6 +68,7 @@ Record t: Type := mkgenv {
   genv_smap: section_map;               (**r mapping from section ids to their addresses *)
   genv_instrs_map: ZTree.t I;           (**r mapping offset -> instructions *)
   genv_is_instr_internal : ptrofs -> bool;       (**r checking if pc points to an internal instruction *)
+  genv_stack_start : Z;
 }.
 
 (** ** Lookup functions *)

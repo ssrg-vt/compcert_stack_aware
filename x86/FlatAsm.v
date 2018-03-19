@@ -9,7 +9,7 @@ Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Smallstep.
 Require Import Locations Stacklayout Conventions EraseArgs.
 Require Import Sect FlatAsmGlobenv FlatAsmBuiltin FlatAsmGlobdef.
-Require Asm.
+Require Asm RawAsmgen.
 Require Globalenvs.
 
 
@@ -447,9 +447,15 @@ Definition compare_longs := Asm.compare_longs.
 Definition compare_floats := Asm.compare_floats.
 Definition compare_floats32 := Asm.compare_floats32.
 
-Definition alloc_stack_frame (sp: val) fi :=
-  let sz := (align (Z.max 0 (frame_size fi)) 8) in
-  Val.offset_ptr sp (Ptrofs.repr (- sz)).
+(* Definition alloc_stack_frame (sp: val) fi := *)
+(*   let sz := (align (Z.max 0 (frame_size fi)) 8) in *)
+(*   Val.offset_ptr sp (Ptrofs.repr (- sz)). *)
+
+Definition current_offset (ge:genv) (v: val) :=
+  match v with
+    Vptr stk ofs => Ptrofs.unsigned ofs
+  | _ => Genv.genv_stack_start ge + Mem.stack_limit
+  end.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge: genv) (ii: instr_with_info) (rs: regset) (m: mem) : outcome :=
   let (i,blk) := ii in
@@ -795,7 +801,9 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Plabel lbl =>
       Next (nextinstr rs sz) m
   | Pallocframe fi ofs_ra ofs_link =>
-    let sp := alloc_stack_frame (rs RSP) fi in
+    let curofs := current_offset ge (rs RSP) in
+    let sp := flatptr (Ptrofs.repr (RawAsmgen.offset_after_alloc curofs fi)) in
+    (* let sp := alloc_stack_frame (rs RSP) fi in *)
     match Mem.storev Mptr m (Val.offset_ptr sp ofs_link) rs#RSP with
     | None => Stuck
     | Some m2 =>
@@ -928,7 +936,8 @@ Definition add_global (ge:genv) (idg: ident * option gdef * sect_block) : genv :
          (ZTree.set (Ptrofs.unsigned ofs) f (Genv.genv_defs ge))
          (Genv.genv_smap ge)
          (Genv.genv_instrs_map ge)
-         (Genv.genv_is_instr_internal ge))
+         (Genv.genv_is_instr_internal ge)
+         (Genv.genv_stack_start ge))
     end
   end.
 
@@ -972,14 +981,21 @@ Definition gen_is_instr_internal (p:program) : ptrofs -> bool:=
 
 Definition empty_genv (smap: section_map)
                       (instrs_map: ZTree.t instr_with_info)
-                      (is_instr_internal: ptrofs -> bool) : genv :=
-  Genv.mkgenv (ZTree.empty _) smap instrs_map is_instr_internal.
+                      (is_instr_internal: ptrofs -> bool)
+                      (stack_start: Z): genv :=
+  Genv.mkgenv (ZTree.empty _) smap instrs_map is_instr_internal stack_start.
 
 
 Definition globalenv (p: program) : genv :=
+  let stack_start := 
+      match (get_section_range (sects_map p) (stack_sect p)) with
+      | None => -1
+      | Some rng => Ptrofs.unsigned (fst rng)
+      end
+  in
   let imap := gen_instrs_map p in
   let f := gen_is_instr_internal p in
-    add_globals (empty_genv (sects_map p) imap f) p.(prog_defs).
+    add_globals (empty_genv (sects_map p) imap f stack_start) p.(prog_defs).
 
 (** Initialization of the memory *)
 Definition mem_block_size : Z :=
@@ -1079,15 +1095,14 @@ Definition get_main_fun_offset (p:program) : option ptrofs :=
   end.
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall m0 start_ofs rng,
+  | initial_state_intro: forall m0 start_ofs,
       init_mem p = Some m0 ->
       get_main_fun_offset p = Some start_ofs ->
-      (get_section_range (sects_map p) (stack_sect p) = Some rng) ->
       let rs0 :=
         (Asm.Pregmap.init Vundef)
         # PC <- (Vptr mem_block start_ofs)
         # RA <- Vnullptr
-        # RSP <- (flatptr (snd rng)) in
+        # RSP <- Vnullptr in
       initial_state p (State rs0 m0).
 
 Inductive final_state: state -> int -> Prop :=
@@ -1152,7 +1167,7 @@ Ltac Equalities :=
   eapply external_call_trace_length; eauto.
 - (* initial states *)
   inv H; inv H0. assert (start_ofs = start_ofs0) by congruence. subst.
-  assert (rng = rng0) by congruence. subst. f_equal. congruence.
+  subst. f_equal. congruence.
 - (* final no step *)
   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
   { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. }

@@ -201,6 +201,25 @@ Proof.
   auto.
 Qed.
 
+Lemma store_mapped_inject' : 
+  forall (f : meminj) (chunk : memory_chunk) 
+    (m1 : mem) (b1 : block) (ofs : Z) (v1 : val) 
+    (n1 m2 : mem) (b2 : block) (delta : Z) (v2 : val),
+    Mem.inject f (def_frame_inj m1) m1 m2 ->
+    Mem.store chunk m1 b1 ofs v1 = Some n1 ->
+    f b1 = Some (b2, delta) ->
+    Val.inject f v1 v2 ->
+    exists n2 : mem,
+      Mem.store chunk m2 b2 (ofs + delta) v2 = Some n2 /\
+      Mem.inject f (def_frame_inj n1) n1 n2.
+Proof.
+  intros. exploit Mem.store_mapped_inject; eauto. 
+  intros (n2 & STORE & MINJ).
+  exploit (Mem.mem_inject_ext f (def_frame_inj m1) (def_frame_inj n1)); eauto.
+  eapply store_pres_def_frame_inj; eauto.
+Qed.
+
+
 Lemma storev_pres_def_frame_inj : forall chunk m1 a r m1',
     Mem.storev chunk m1 a r = Some m1' -> 
     forall n, def_frame_inj m1 n = def_frame_inj m1' n.
@@ -1724,6 +1743,15 @@ Proof.
   eapply Val.inject_ptr; eauto.
 Qed.
 
+Definition null_or_valid_ptr (v:val) : Prop :=
+  v = Vnullptr \/ exists (b : block) (ofs : ptrofs), v = Vptr b ofs.
+
+Definition stack_block_inject (j:meminj) : Prop :=
+  j (Genv.genv_next ge) = Some (mem_block, Genv.genv_stack_start tge).
+
+Definition agree_ge_rsp_ptr (rs:regset): Prop :=
+  forall b ofs, (rs RSP) = Vptr b ofs -> b = Genv.genv_next ge.
+
 Lemma goto_tbl_label_inject : forall gm lm id tbl tbl' l b f j rs1 rs2 m1 m2 rs1' m1' i ofs
                                 (MATCHSMINJ: match_sminj gm lm j)
                                 (RINJ: regset_inject j rs1 rs2)
@@ -1909,15 +1937,124 @@ Proof.
     apply Val.offset_ptr_inject. eauto.
 
   - (* Pallocframe *)
-    (* destruct (Mem.store Mptr m1 (Genv.genv_next ge) *)
-    (*                     (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_link))  *)
-    (*                     (rs1 Asm.RSP)) eqn:EQLINK; try inv H6. *)
-    (* destruct (Mem.store Mptr m (Genv.genv_next ge)  *)
-    (*                     (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_ra)) *)
-    (*                     (rs1 Asm.RA)) eqn:EQRA; try inv H4. *)
-    (* eexists; eexists. split. simpl. *)
-    (* exploit (fun g => Mem.store_mapped_inject j g Mptr m1); eauto. *)
-    admit.
+    generalize (RSINJ RSP). intros RSPINJ.
+    assert (null_or_valid_ptr (rs1 RSP)) as RSPVALID. admit.
+
+    Lemma Vundef_null_ptr_eq_absurd :
+      ~ Vundef = Vnullptr.
+    Proof.
+      unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
+    Qed.
+
+    Lemma Vundef_null_or_valid_ptr_absurd :
+      ~null_or_valid_ptr Vundef.
+    Proof.
+      unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
+      - apply Vundef_null_ptr_eq_absurd. auto.
+      - destruct H as (b & ofs & EQ). congruence.
+    Qed.
+      
+    assert (agree_ge_rsp_ptr rs1) as GERSP. admit.
+    assert (stack_block_inject j) as SBINJ. admit.
+    unfold stack_block_inject in *.
+    (* assert (rs1 RSP = Vnullptr \/ exists b ofs, rs1 RSP = Vptr b ofs /\ j b = Some (mem_block, Genv.genv_stack_limit tge -  Mem.stack_limit)). *)
+    (* admit. *)
+    (* assert (forall b ofs, rs1 RSP = Vptr b ofs -> b = Genv.genv_next ge). admit. *)
+    unfold RSP in *. 
+    destruct (Mem.store Mptr m1 (Genv.genv_next ge)
+                        (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_link))
+                        (rs1 Asm.RSP)) eqn:STORELINK; try inv H6.
+    generalize (RSINJ Asm.RSP). intros.
+    exploit (fun ofs delta => 
+               store_mapped_inject' j Mptr m1 (Genv.genv_next ge) ofs (rs1 Asm.RSP) m m2 mem_block delta (rs2 Asm.RSP)); eauto.
+    intros (m' & STORELINK' & MINJ1).
+    destruct (Mem.store Mptr m (Genv.genv_next ge)
+                        (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_ra))
+                        (rs1 Asm.RA)) eqn:STORERA; try inv H4.
+    generalize (RSINJ Asm.RA). intros.
+    exploit (fun ofs delta => 
+               store_mapped_inject' j Mptr m (Genv.genv_next ge) ofs (rs1 Asm.RA) m1' m' mem_block delta (rs2 Asm.RA)); eauto.
+    intros (m2' & STORERA' & MINJ2).
+    destruct (rs1 Asm.RSP) eqn:RSP1; simpl in *.
+    + generalize Vundef_null_or_valid_ptr_absurd. congruence.
+    + inv H3. eexists; eexists; split.
+      (* Find the resulting state *)
+      setoid_rewrite <- H7. simpl.
+      setoid_rewrite <- H7 in STORELINK'.
+      assert (Mem.store Mptr m2 mem_block (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_link)) (Vint i) = Some m'). admit.
+      rewrite H3. setoid_rewrite <- H7. simpl. 
+      assert (Mem.store Mptr m' mem_block (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_ra)) (rs2 RA) = Some m2'). admit.
+      rewrite H5.
+      auto.
+      (* Solve the match state *)
+      eapply match_states_intro; eauto.
+      setoid_rewrite <- H7. unfold RSP, RAX. apply nextinstr_pres_inject.
+      repeat apply regset_inject_expand; eauto.
+      unfold flatptr. simpl. eapply Val.inject_ptr; eauto.
+      admit.
+      eapply store_pres_glob_block_valid; eauto.
+      eapply store_pres_glob_block_valid; eauto.
+    + admit.
+    + 
+
+    Lemma Vfloat_null_ptr_eq_absurd : forall f,
+      ~ Vfloat f = Vnullptr.
+    Proof.
+      unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
+    Qed.
+
+    Lemma Vfloat_null_or_valid_ptr_absurd : forall f,
+      ~null_or_valid_ptr (Vfloat f).
+    Proof.
+      unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
+      - eapply Vfloat_null_ptr_eq_absurd. eauto.
+      - destruct H as (b & ofs & EQ). congruence.
+    Qed.
+
+    exploit Vfloat_null_or_valid_ptr_absurd; eauto. intros. contradiction.
+
+    + 
+
+    Lemma Vsingle_null_ptr_eq_absurd : forall f,
+      ~ Vsingle f = Vnullptr.
+    Proof.
+      unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
+    Qed.
+
+    Lemma Vsingle_null_or_valid_ptr_absurd : forall f,
+      ~null_or_valid_ptr (Vsingle f).
+    Proof.
+      unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
+      - eapply Vsingle_null_ptr_eq_absurd. eauto.
+      - destruct H as (b & ofs & EQ). congruence.
+    Qed.
+
+    exploit Vsingle_null_or_valid_ptr_absurd; eauto. intros. contradiction.
+
+    + inv H3. unfold agree_ge_rsp_ptr in *. exploit GERSP; eauto. intros. subst.
+      rewrite SBINJ in *. inv H8.
+      eexists; eexists; split.
+      (* Find the resulting state *)
+      setoid_rewrite <- H7. simpl. setoid_rewrite <- H7 in STORELINK'.
+      assert (Mem.store Mptr m2 mem_block
+                        (Ptrofs.unsigned
+                           (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr (Genv.genv_stack_start tge)))) frame)) ofs_link))
+                        (Vptr mem_block (Ptrofs.add i (Ptrofs.repr (Genv.genv_stack_start tge)))) = Some m'). admit.
+      rewrite H3. setoid_rewrite <- H7. simpl.
+      assert (Mem.store Mptr m' mem_block
+                        (Ptrofs.unsigned
+                           (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr (Genv.genv_stack_start tge)))) frame)) ofs_ra)) 
+                        (rs2 RA) = Some m2'). admit.
+      rewrite H5. auto.
+      (* Solve match states *)
+      eapply match_states_intro; eauto.
+      eapply nextinstr_pres_inject; eauto. 
+      repeat eapply regset_inject_expand; eauto.
+      setoid_rewrite <- H7. simpl. 
+      eapply Val.inject_ptr; eauto.
+      admit.
+      eapply store_pres_glob_block_valid; eauto.
+      eapply store_pres_glob_block_valid; eauto.
 
   - (* Pfreeframe *)
     generalize (RSINJ Asm.RSP). intros.
