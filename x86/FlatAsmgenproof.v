@@ -1981,11 +1981,35 @@ Proof.
       (* Find the resulting state *)
       setoid_rewrite <- H7. simpl.
       setoid_rewrite <- H7 in STORELINK'.
-      assert (Mem.store Mptr m2 mem_block (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_link)) (Vint i) = Some m'). admit.
-      rewrite H3. setoid_rewrite <- H7. simpl. 
-      assert (Mem.store Mptr m' mem_block (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_ra)) (rs2 RA) = Some m2'). admit.
-      rewrite H5.
-      auto.
+      assert (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc Mem.stack_limit frame)) ofs_link) + Genv.genv_stack_start tge =
+              Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_link)) 
+        as LINKADDREQ.
+      { 
+        unfold offset_after_alloc. 
+        set (fsz := align (Z.max 0 (frame_size frame)) 8) in *.
+        set (slim := Mem.stack_limit) in *.
+        set (sstart := Genv.genv_stack_start tge) in *.
+        rewrite Ptrofs.add_unsigned. 
+        
+        rewrite (Ptrofs.unsigned_repr (slim - fsz)).
+        rewrite (Ptrofs.unsigned_repr (slim - fsz + Ptrofs.unsigned ofs_link)).
+        rewrite Ptrofs.add_unsigned. 
+        rewrite (Ptrofs.unsigned_repr (sstart + slim - fsz)).
+        rewrite Ptrofs.unsigned_repr. omega.
+        
+        
+        
+        
+        
+      
+      
+      admit.
+      rewrite <- LINKADDREQ. rewrite STORELINK'.
+      setoid_rewrite <- H7. simpl. 
+      assert ((Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc Mem.stack_limit frame)) ofs_ra) + Genv.genv_stack_start tge) = 
+              (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_ra)))
+        as RAADDREQ. admit.
+      rewrite <- RAADDREQ. setoid_rewrite STORERA'. auto.
       (* Solve the match state *)
       eapply match_states_intro; eauto.
       setoid_rewrite <- H7. unfold RSP, RAX. apply nextinstr_pres_inject.
