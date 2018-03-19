@@ -1036,142 +1036,6 @@ Qed.
 
 (** ** Relating states *)
 
-(* Fixpoint compat_frameinj_rec (g: frameinj) (l: list nat) n j := *)
-(*   match l with *)
-(*     nil => forall m, (n <= m)%nat -> g m = None *)
-(*   | a::r => *)
-(*     (forall i, (n <= i < n + a)%nat -> g i = Some j) /\ *)
-(*     compat_frameinj_rec g r (n + a)%nat (S j) *)
-(*   end. *)
-
-(* Variable linit : list nat. *)
-
-(* Definition compat_frameinj g l := compat_frameinj_rec g (l ++ linit) 0 0. *)
-
-(* Lemma compat_frameinj_rec_spec: *)
-(*   forall g l o j, *)
-(*     compat_frameinj_rec g l o j -> *)
-(*     (forall i, o <= i -> forall j2, g i = Some j2 -> j <= j2)%nat. *)
-(* Proof. *)
-(*   induction l; simpl; intros. *)
-(*   - rewrite H in H1; auto. congruence. *)
-(*   - destruct H. *)
-(*     destruct (lt_dec i (o+a)%nat). *)
-(*     + rewrite H in H1 by omega. inv H1. omega. *)
-(*     + eapply IHl in H2. 3: eauto. omega. omega. *)
-(* Qed. *)
-
-(* Lemma compat_framinj_rec_pop_left: *)
-(*   forall g l o j n, *)
-(*     compat_frameinj_rec g (S n :: l) o j -> *)
-(*     compat_frameinj_rec (fun n => g (S n)) (n :: l) o j. *)
-(* Proof. *)
-(*   simpl. intros g l o j n (A & B). *)
-(*   split. *)
-(*   intros; rewrite A. auto. omega. *)
-(*   clear A. revert  o j n B. *)
-(*   induction l; simpl; intros; eauto. apply B; omega. *)
-(*   destruct B. split; intros. apply H. omega. *)
-(*   specialize (IHl o (S j) (n + a)%nat). *)
-(*   rewrite <- plus_assoc in H0. rewrite plus_Sn_m in H0. *)
-(*   apply IHl in H0. *)
-(*   rewrite <- plus_assoc. auto. *)
-(* Qed. *)
-
-(* Lemma compat_framinj_rec_push_left: *)
-(*   forall g l o n, *)
-(*     compat_frameinj_rec g (n :: l) o 0 -> *)
-(*     compat_frameinj_rec (fun n => if Nat.eq_dec n o then Some O else g (pred n)) (S n :: l) o O. *)
-(* Proof. *)
-(*   simpl. intros g l o n (A & B). *)
-(*   split. *)
-(*   intros; destr. *)
-(*   rewrite A. auto. omega. *)
-(*   clear A. revert B. generalize 1%nat as j. revert o n.  *)
-(*   induction l; simpl; intros; eauto. destr. subst. omega. apply B; omega. *)
-(*   destruct B. split; intros. destr. omega. apply H. omega. *)
-(*   specialize (IHl o (n + a)%nat (S j)). *)
-(*   rewrite <- plus_assoc in H0 |- *. rewrite plus_Sn_m.  *)
-(*   apply IHl in H0. auto. *)
-(* Qed. *)
-
-(* Lemma compat_framinj_rec_pop: *)
-(*   forall g l o j, *)
-(*     compat_frameinj_rec g (1%nat :: l) o j -> *)
-(*     compat_frameinj_rec (fun n => option_map pred (g (S n))) l o j. *)
-(* Proof. *)
-(*   simpl. intros g l o j (A & B). *)
-(*   clear A. revert o j B. *)
-(*   induction l; simpl; intros; eauto. rewrite B. reflexivity. omega. *)
-(*   destruct B. split; intros. rewrite H. reflexivity. omega.  *)
-(*   specialize (IHl (o+a)%nat (S j)). *)
-(*   apply IHl. replace (o + a + 1)%nat with (o + 1 + a)%nat by omega; auto. *)
-(* Qed. *)
-
-(* Lemma compat_frameinj_rec_ext: *)
-(*   forall g1 g2 l o j, *)
-(*     (forall i, (o <= i)%nat -> g1 i = g2 i) -> *)
-(*     compat_frameinj_rec g1 l o j -> *)
-(*     compat_frameinj_rec g2 l o j. *)
-(* Proof. *)
-(*   induction l; simpl; intros; eauto. *)
-(*   rewrite <- H; auto. *)
-(*   destruct H0; split; eauto. *)
-(*   - intros; rewrite <- H; eauto. omega. *)
-(*   - apply IHl; auto. intros; apply H. omega. *)
-(* Qed. *)
-
-(* Lemma compat_framinj_rec_push: *)
-(*   forall g l o j, *)
-(*     compat_frameinj_rec g l o j -> *)
-(*     compat_frameinj_rec (fun n => if Nat.eq_dec n o then Some j else option_map S (g (pred n))) (1%nat::l) o j. *)
-(* Proof. *)
-(*   simpl; intros. *)
-(*   split. intros; destr; try omega. *)
-(*   apply compat_frameinj_rec_ext with (g1:= fun n => option_map S (g (pred n))). *)
-(*   { *)
-(*     intros. destr. omega. *)
-(*   } *)
-(*   revert o j H. *)
-(*   induction l; simpl; intros; eauto. *)
-(*   - rewrite H; auto; omega. *)
-(*   - destruct H. apply IHl in H0. *)
-(*     split; simpl; intros. rewrite H; auto.  omega.  *)
-(*     replace (o + a + 1)%nat with (o + 1 + a)%nat in H0 by omega; auto. *)
-(* Qed. *)
-
-(* Lemma compat_framinj_rec_push': *)
-(*   forall g l o n, *)
-(*     compat_frameinj_rec g (n::l) o O -> *)
-(*     compat_frameinj_rec (fun n => if Nat.eq_dec n o then Some O else option_map S (g (pred n))) (S n::l) o O. *)
-(* Proof. *)
-(*   simpl; intros. *)
-(*   destruct H. *)
-(*   split. intros; destr; try omega. *)
-  
-(*   apply compat_frameinj_rec_ext with (g1:= fun n => option_map S (g (pred n))). *)
-(*   { *)
-(*     intros. destr. omega. *)
-(*   } *)
-(*   revert o j H. *)
-(*   induction l; simpl; intros; eauto. *)
-(*   - rewrite H; auto; omega. *)
-(*   - destruct H. apply IHl in H0. *)
-(*     split; simpl; intros. rewrite H; auto.  omega.  *)
-(*     replace (o + a + 1)%nat with (o + 1 + a)%nat in H0 by omega; auto. *)
-(* Qed. *)
-
-
-(* Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop := *)
-(* | match_nil s: match_stack_adt nil s *)
-(* | match_cons: *)
-(*     forall sfl s sp fr fi sz *)
-(*            (MSArec: match_stack_adt sfl s) *)
-(*            (MSAblocks: frame_adt_blocks fr = (sp,fi)::nil) *)
-(*            (MSApub: frame_perm fi = fun o => Public) *)
-(*            (MSAsize: frame_size fi = sz), *)
-(*       match_stack_adt  (Some (sp,sz) :: sfl) (fr::s). *)
-
 Definition blocks_of_stackframe stk :=
   match stk with
     Stackframe _ f (Vptr sp _) _ _ => Some (sp, fn_stacksize f)
@@ -1181,6 +1045,57 @@ Definition blocks_of_stackframe stk :=
 Definition stack_injects j m :=
   forall b : block, in_stack (Mem.stack_adt m) b -> exists (b' : block) (delta : Z), j b = Some (b', delta).
 
+Axiom inline_sizes: frameinj -> stack_adt -> stack_adt -> Prop.
+Axiom inline_sizes_up:
+  forall g s1 s2,
+    inline_sizes g s1 s2 ->
+    inline_sizes (up g) (nil::s1) (nil::s2).
+Axiom inline_sizes_upstar:
+  forall g s1 s2,
+    inline_sizes g s1 s2 ->
+    inline_sizes (upstar g) (nil::s1) s2.
+
+Axiom inline_sizes_upright:
+  forall g s1 s2,
+    inline_sizes g s1 s2 ->
+    g O = Some O ->
+    g 1%nat = Some O ->
+    inline_sizes (fun n => if Nat.eq_dec n O then Some O else option_map S (g n)) s1 (nil::s2).
+Axiom inline_sizes_ext:
+  forall g1 g2 s1 s2,
+    inline_sizes g1 s1 s2 ->
+    (forall x, g1 x = g2 x) ->
+    inline_sizes g2 s1 s2.
+Axiom inline_sizes_le:
+  forall g s1 s2 l,
+    inline_sizes g s1 s2 ->
+    compat_frameinj (1%nat :: l) g ->
+    size_stack (tl s2) <= size_stack (tl s1).
+Axiom inline_sizes_record:
+  forall g f1 r1 f2 r2 fr1 fr2,
+    inline_sizes g (f1::r1) (f2::r2) ->
+    frame_adt_size fr1 = frame_adt_size fr2 ->
+    inline_sizes g ((fr1::f1)::r1) ((fr2::f2)::r2).
+Axiom inline_sizes_record_left:
+  forall g f1 r1 s2 fr1,
+    inline_sizes g (f1 :: r1) s2 ->
+    inline_sizes g ((fr1 :: f1) :: r1) s2.
+
+Axiom inline_sizes_down:
+  forall g s1 s2,
+    inline_sizes g s1 s2 ->
+    forall
+      (Gno0 : (forall i j : nat, g i = Some j -> (0 < i)%nat -> (0 < j)%nat))
+      (G0 : (g 0%nat = Some 0%nat)),
+      inline_sizes (down g) (tl s1) (tl s2).
+
+Axiom inline_sizes_downstar:
+  forall g s1 s2 n l,
+    inline_sizes g s1 s2 ->
+    compat_frameinj (S n :: l) (downstar g) ->
+    inline_sizes (downstar g) (tl s1) s2.
+
+    
 Inductive match_states: RTL.state -> RTL.state -> Prop :=
 | match_regular_states: forall stk f sp pc rs m stk' f' sp' rs' m' F g fenv ctx n l
         (MS: match_stacks_inside F m m' n l stk stk' f' ctx sp' rs')
@@ -1195,9 +1110,8 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (SSZ1: 0 <= f'.(fn_stacksize) < Ptrofs.max_unsigned)
         (SSZ2: forall ofs, Mem.perm m' sp' ofs Max Nonempty -> 0 <= ofs < f'.(fn_stacksize))
         (SSZ3: forall ofs, Mem.perm m sp ofs Max Nonempty -> 0 <= ofs < f.(fn_stacksize))
-        (* (MS1: match_stack_adt (Some (sp, fn_stacksize f) :: map blocks_of_stackframe stk) (Mem.stack_adt m)) *)
-        (* (MS1: match_stack_adt (Some (sp', fn_stacksize f') :: map blocks_of_stackframe stk') (Mem.stack_adt m')) *)
-        (CFINJ: compat_frameinj (S n::l) g),
+        (CFINJ: compat_frameinj (S n::l) g)
+        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states (State stk f (Vptr sp Ptrofs.zero) pc rs m)
                    (State stk' f' (Vptr sp' Ptrofs.zero) (spc ctx pc) rs' m')
 | match_call_states: forall stk fd args m stk' fd' args' m' cunit F g l sz
@@ -1207,11 +1121,9 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (VINJ: Val.inject_list F args args')
         (MINJ: Mem.inject F g m m')
         (SI: stack_injects F m)
-        (* (MS1: match_stack_adt (map blocks_of_stackframe stk) (Mem.stack_adt m)) *)
-        (* (MS1: match_stack_adt (map blocks_of_stackframe stk') (Mem.stack_adt m')) *)
-        (* (CFINJ: compat_frameinj l (down g)) *)
         (CFINJ': compat_frameinj (1%nat::l) g)
-        (G0: g O = Some O),
+        (G0: g O = Some O)
+        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states (Callstate stk fd args m sz)
                    (Callstate stk' fd' args' m' sz)
 | match_call_regular_states: forall stk f vargs m stk' f' sp' rs' m' F g fenv ctx ctx' pc' pc1' rargs n l sz
@@ -1228,10 +1140,9 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (PRIV: range_private F m m' sp' ctx.(dstk) f'.(fn_stacksize))
         (SSZ1: 0 <= f'.(fn_stacksize) < Ptrofs.max_unsigned)
         (SSZ2: forall ofs, Mem.perm m' sp' ofs Max Nonempty -> 0 <= ofs < f'.(fn_stacksize))
-        (* (MS1: match_stack_adt (map blocks_of_stackframe stk) (Mem.stack_adt m)) *)
-        (* (MS1: match_stack_adt (Some (sp', fn_stacksize f')::map blocks_of_stackframe stk') (Mem.stack_adt m')) *)
         (CFINJ: compat_frameinj (n::l) (downstar g))
-        (G0: g O = Some O),
+        (G0: g O = Some O)
+        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states (Callstate stk (Internal f) vargs m sz)
                    (State stk' f' (Vptr sp' Ptrofs.zero) pc' rs' m')
 | match_return_states: forall stk v m stk' v' m' F g l
@@ -1242,8 +1153,7 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (CFINJ: compat_frameinj l (down g))
         (Gno0: forall i j : nat, g i = Some j -> (0 < i)%nat -> (0 < j)%nat)
         (G0: g 0%nat = Some O)
-        (* (MS1: match_stack_adt (map blocks_of_stackframe stk) (Mem.stack_adt m)) *)
-        (* (MS1: match_stack_adt (map blocks_of_stackframe stk') (Mem.stack_adt m')) *),
+        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states (Returnstate stk v m)
                    (Returnstate stk' v' m')
 | match_return_regular_states: forall stk v m stk' f' sp' rs' m' F g ctx pc' or rinfo n l
@@ -1258,27 +1168,9 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (SSZ1: 0 <= f'.(fn_stacksize) < Ptrofs.max_unsigned)
         (SSZ2: forall ofs, Mem.perm m' sp' ofs Max Nonempty -> 0 <= ofs < f'.(fn_stacksize))
         (CFINJ: compat_frameinj (n::l) (downstar g))
-        (* (MS1: match_stack_adt (map blocks_of_stackframe stk) (Mem.stack_adt m)) *)
-        (* (MS1: match_stack_adt (Some (sp', fn_stacksize f')::map blocks_of_stackframe stk') (Mem.stack_adt m')) *),
+        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states (Returnstate stk v m)
-                   (State stk' f' (Vptr sp' Ptrofs.zero) pc' rs' m')
-(* | match_states_interm: *)
-(*       forall s f0 rs rs' args m tm stk' f' sp' ctx pc id, *)
-(*         forall pc1 ctx' fenv, *)
-(*           (fn_code f') ! (spc ctx pc) = Some (Inop pc1) -> *)
-(*           tr_moves (fn_code f') pc1 (sregs ctx args) (sregs ctx' (fn_params f0)) (spc ctx' (fn_entrypoint f0)) -> *)
-(*           tr_funbody fenv (fn_stacksize f') ctx' f0 (fn_code f') -> *)
-(*             retinfo ctx' = retinfo ctx -> *)
-(*             context_below ctx ctx' -> *)
-(*             context_stack_tailcall ctx f0 ctx' -> *)
-(*             (forall s', *)
-(*                 step fn_stack_requirements ge (Callstate s (Internal f0) (rs ## args) m (fn_stack_requirements id)) E0 s' -> *)
-(*                 exists s2', *)
-(*                   plus (step fn_stack_requirements) tge (State stk' f' (Vptr sp' Ptrofs.zero) (spc ctx pc) rs' tm) E0 s2' /\ *)
-(*                   match_states s' s2') -> *)
-(*             match_states *)
-(*               (Callstate s (Internal f0) (rs ## args) m (fn_stack_requirements id)) *)
-(*               (State stk' f' (Vptr sp' Ptrofs.zero) (spc ctx pc) rs' tm) *).
+                   (State stk' f' (Vptr sp' Ptrofs.zero) pc' rs' m').
 
 (** ** Forward simulation *)
 
@@ -1496,6 +1388,50 @@ Proof.
   eapply compat_frameinj_rec_pop_left. eauto.
 Qed.
 
+
+Lemma compat_frameinj_rec_push_right:
+  forall l g g' ns nt,
+    compat_frameinj_rec l g ns nt ->
+    (forall n, ns <= n -> g' n = option_map S (g n))%nat  ->
+    compat_frameinj_rec l g' ns (S nt).
+Proof.
+  induction l; simpl; intros; eauto.
+  rewrite H0 in Gi. destruct (g i) eqn:?; simpl in *; try congruence. inv Gi.
+  apply H in Heqo. omega. omega. omega.
+  destruct H as (A & B). split.
+  intros. rewrite H0 by omega. rewrite A by omega. reflexivity.
+  eapply IHl; eauto. intros; apply H0; omega.
+Qed.
+
+Lemma in_stack'_norepet:
+  forall m b bi1 bi2,
+    in_stack' (Mem.stack_adt m) (b, bi1) ->
+    in_stack' (Mem.stack_adt m) (b, bi2) ->
+    bi1 = bi2.
+Proof.
+  intros.
+  rewrite in_stack'_rew in H, H0.
+  destruct H as (tf1 & IFR1 & ITF1).
+  destruct H0 as (tf2 & IFR2 & ITF2).
+  rewrite in_frames'_rew in IFR1, IFR2.
+  destruct IFR1 as (fr1 & IF1 & IFR1).
+  destruct IFR2 as (fr2 & IF2 & IFR2).
+  assert (tf1 = tf2).
+  {
+    exploit nodup_nodup'. apply Mem.stack_norepet. apply ITF1. apply ITF2.
+    eapply in_frame_in_frames; eauto. eapply in_frame'_in_frame; eauto.
+    eapply in_frame_in_frames; eauto. eapply in_frame'_in_frame; eauto. auto.
+  }
+  subst.
+  exploit Mem.stack_norepet'. intro ND; rewrite Forall_forall in ND.
+  assert (fr1 = fr2).
+  {
+    eapply in_frame_norepet; eauto. eapply in_frame'_in_frame. eauto.
+  }
+  subst.
+  eapply in_frame'_norepet; eauto.
+Qed.
+
 Theorem step_simulation:
   forall S1 t S2,
   step fn_stack_requirements ge S1 t S2 ->
@@ -1570,6 +1506,7 @@ Proof.
   intros; eapply Mem.perm_store_1; eauto.
   intros. eapply SSZ2. eapply Mem.perm_store_2; eauto.
   intros; eapply SSZ3; eauto. eapply Mem.perm_store_2; eauto.
+  repeat rewrite_stack_blocks; eauto.
   
 - (* call *)
   exploit match_stacks_inside_globalenvs; eauto. intros [bound G].
@@ -1593,6 +1530,9 @@ Proof.
   split. intros. destr. omega.
   eapply compat_frameinj_rec_push_parallel. eauto. intros. destr. omega.
 
+  repeat rewrite_stack_blocks.
+  apply inline_sizes_up. auto.
+  
 + (* inlined *)
   assert (EQ: fd = Internal f0) by (eapply find_inlined_function; eauto).
   subst fd.
@@ -1608,7 +1548,7 @@ Proof.
   inv SI'. inv MSA1. congruence.
   red. rewrite_stack_blocks. setoid_rewrite in_stack_cons. intros b [[]|]; eauto.
   red; intros. apply loc_private_push_l. apply PRIV. destruct H16. omega.
-
+  repeat rewrite_stack_blocks. apply inline_sizes_upstar; auto.
 
 - (* tailcall *)
   exploit match_stacks_inside_globalenvs; eauto. intros [bound G].
@@ -1653,7 +1593,8 @@ Proof.
   }
   (* eapply compat_frameinj_rec_pop_parallel. destruct CFINJ. apply H3. *)
   apply CFINJ. omega.
-  
+  repeat rewrite_stack_blocks; eauto.
+
 + (* turned into a call *)
   exploit Mem.free_left_inject. eauto. eauto. intro INJFREE.
   assert (O < n)%nat. {
@@ -1684,8 +1625,6 @@ Proof.
   erewrite (Mem.nextblock_free _ _ _ _ _ H2); eauto. xomega. eauto. eauto.
   eapply agree_val_regs; eauto.
   eapply Mem.inject_push_new_stage_right. eauto. inv SI.
-  
-  
   apply Mem.noperm_top. rewrite_stack_blocks. inv MSA1.
   unfold in_frame, get_frame_blocks. rewrite BLOCKS. intros b [EQ|[]] o k p P. simpl in EQ; subst.
   exploit Mem.agree_perms_mem. rewrite <- H7.
@@ -1700,28 +1639,13 @@ Proof.
     eapply SI0; eauto.
   }
 
-  (* apply compat_frameinj_rec_ext with (g:=downstar g). *)
-  (* unfold down, downstar. simpl. intros. destruct (g (S i)); auto. *)
-  (* apply compat_frameinj_pop_left. auto. *)
-
   split. intros. destr. omega.
   destruct CFINJ as (AA & BB). split. simpl.  intros. destr. omega.
   rewrite AA. reflexivity. omega. simpl in *.
-
-  Lemma compat_frameinj_rec_push_right:
-    forall l g g' ns nt,
-      compat_frameinj_rec l g ns nt ->
-      (forall n, ns <= n -> g' n = option_map S (g n))%nat  ->
-      compat_frameinj_rec l g' ns (S nt).
-  Proof.
-    induction l; simpl; intros; eauto.
-    rewrite H0 in Gi. destruct (g i) eqn:?; simpl in *; try congruence. inv Gi.
-    apply H in Heqo. omega. omega. omega.
-    destruct H as (A & B). split.
-    intros. rewrite H0 by omega. rewrite A by omega. reflexivity.
-    eapply IHl; eauto. intros; apply H0; omega.
-  Qed.
   eapply compat_frameinj_rec_push_right. eauto. intros. destr. omega. reflexivity.
+
+  repeat rewrite_stack_blocks.
+  apply inline_sizes_upright. auto. apply CFINJ. omega. apply CFINJ. omega.
 
 + (* inlined *)
   assert (EQ: fd = Internal f0) by (eapply find_inlined_function; eauto).
@@ -1751,6 +1675,7 @@ Proof.
   tauto.
   apply compat_frameinj_pop_left. auto.
   apply CFINJ. omega.
+  rewrite_stack_blocks. auto.
   
 - (* builtin *)
   exploit tr_funbody_inv; eauto. intros TR; inv TR.
@@ -1816,6 +1741,8 @@ Proof.
   simpl.
   eapply compat_frameinj_rec_ext; eauto. unfold option_map; intros.
   destruct (g i); auto.
+  repeat rewrite_stack_blocks. simpl.
+  eapply inline_sizes_ext; eauto. intros; destruct (g x); auto.
   
 - (* cond *)
   exploit tr_funbody_inv; eauto. intros TR; inv TR.
@@ -1879,7 +1806,8 @@ Proof.
   intros. destruct CFINJ as (AA & BB).
   eapply compat_frameinj_rec_above in H1; eauto.
   apply CFINJ. omega.
-
+  repeat rewrite_stack_blocks; auto.
+  
 + (* inlined *)
   right. split. simpl. omega. split. auto.
   exploit Mem.free_left_inject; eauto. intros FRINJ.
@@ -1900,7 +1828,8 @@ Proof.
     inv FB. rewrite <- H6; eauto.
     intros; split; auto. tauto.
   * eapply compat_frameinj_pop_left. eauto.
-      
+  * repeat rewrite_stack_blocks; auto.
+
 - (* internal function, not inlined *)
   assert (A: exists f', tr_function cunit f f' /\ fd' = Internal f').
   { Errors.monadInv FD. exists x. split; auto. eapply transf_function_spec; eauto. }
@@ -1941,7 +1870,8 @@ Proof.
     rewrite <- H9. rewrite in_stack_cons; left; auto. destruct 1.
     eapply H10; eauto.
   + auto.
-  + repeat rewrite_stack_blocks. admit.
+  + repeat rewrite_stack_blocks.
+    eapply inline_sizes_le; eauto.
   + intros (m2' & P & Q).
     left; econstructor; split.
     * eapply plus_one. eapply exec_function_internal; eauto.
@@ -2007,8 +1937,12 @@ Proof.
       -- intros.
          eapply Mem.record_stack_block_perm in H9; eauto.
          exploit Mem.perm_alloc_inv. 2: eauto. eauto. rewrite dec_eq_true. omega.
-      -- auto.         
-
+      -- auto.
+      -- repeat rewrite_stack_blocks. revert EQ1 EQ0.
+         repeat rewrite_stack_blocks. intros. revert SIZES.
+         rewrite EQ0, EQ1.
+         intros; eapply inline_sizes_record; eauto.
+         
 - (* internal function, inlined *)
   inversion FB; subst.
   exploit Mem.alloc_left_mapped_inject.
@@ -2034,34 +1968,6 @@ Proof.
     intros. red.
     inv SI'. inv MSA1.
 
-    Lemma in_stack'_norepet:
-      forall m b bi1 bi2,
-        in_stack' (Mem.stack_adt m) (b, bi1) ->
-        in_stack' (Mem.stack_adt m) (b, bi2) ->
-        bi1 = bi2.
-    Proof.
-      intros.
-      rewrite in_stack'_rew in H, H0.
-      destruct H as (tf1 & IFR1 & ITF1).
-      destruct H0 as (tf2 & IFR2 & ITF2).
-      rewrite in_frames'_rew in IFR1, IFR2.
-      destruct IFR1 as (fr1 & IF1 & IFR1).
-      destruct IFR2 as (fr2 & IF2 & IFR2).
-      assert (tf1 = tf2).
-      {
-        exploit nodup_nodup'. apply Mem.stack_norepet. apply ITF1. apply ITF2.
-        eapply in_frame_in_frames; eauto. eapply in_frame'_in_frame; eauto.
-        eapply in_frame_in_frames; eauto. eapply in_frame'_in_frame; eauto. auto.
-      }
-      subst.
-      exploit Mem.stack_norepet'. intro ND; rewrite Forall_forall in ND.
-      assert (fr1 = fr2).
-      {
-        eapply in_frame_norepet; eauto. eapply in_frame'_in_frame. eauto.
-      }
-      subst.
-      eapply in_frame'_norepet; eauto.
-    Qed.
     assert (bi = fi). eapply in_stack'_norepet; eauto. rewrite <- H14. left. left.
     red. rewrite BLOCKS. left; auto. subst. eauto. 
     intros [F' [A [B [C D]]]].
@@ -2126,7 +2032,10 @@ Proof.
     eapply compat_frameinj_rec_ext.
     2: eapply compat_frameinj_pop_right. 2: eauto.
     unfold upstar, downstar. simpl. intros. destr. rewrite Nat.succ_pred by omega. auto.
-
+  + repeat rewrite_stack_blocks. revert EQ1; rewrite_stack_blocks. intro.
+    rewrite EQ1 in SIZES.
+    eapply inline_sizes_record_left; eauto.
+    
 - (* external function *)
   exploit match_stacks_globalenvs; eauto. intros [bound MG].
   exploit external_call_mem_inject; eauto.
@@ -2154,6 +2063,7 @@ Proof.
     destruct CFINJ' as (AA & BB).
     intros i j Gi AB; eapply compat_frameinj_rec_above in Gi; eauto.
     apply CFINJ'; omega.
+    repeat rewrite_stack_blocks; eauto.
 
 - (* return fron noninlined function *)
   inv MS0.
@@ -2174,7 +2084,9 @@ Proof.
     intro ofs; rewrite_perms. auto.
   * intro; rewrite_perms; auto.
   * intro; rewrite_perms; auto.
-
+  * repeat rewrite_stack_blocks.
+    eapply inline_sizes_down; eauto.
+    
 + (* untailcall case *)
   inv MS; try congruence.
   rewrite RET in RET0; inv RET0.
@@ -2199,6 +2111,8 @@ Proof.
     intro; rewrite_perms. auto.
   * intro; rewrite_perms; auto.
   * intro; rewrite_perms; auto.
+  * repeat rewrite_stack_blocks.
+    eapply inline_sizes_down; eauto.
     
 - (* return from inlined function *)
   inv MS0; try congruence. rewrite RET0 in RET; inv RET.
@@ -2222,7 +2136,9 @@ Proof.
   * eapply range_private_invariant. apply PRIV'.
     intros b delta ofs. repeat rewrite_perms. intuition. auto.
   * intro; rewrite_perms; auto.
-
+  * repeat rewrite_stack_blocks.
+    eapply inline_sizes_downstar; eauto.
+    
 + (* without a result *)
   left; econstructor; split.
   eapply plus_one. eapply exec_Inop; eauto.
@@ -2236,7 +2152,8 @@ Proof.
   * eapply range_private_invariant. apply PRIV'.
     intros b delta ofs. repeat rewrite_perms. intuition. auto.
   * intro; rewrite_perms; auto.
-Admitted.
+  * repeat rewrite_stack_blocks. eapply inline_sizes_downstar; eauto.
+Qed.
 
 End WITHMEMINIT.
 
