@@ -1129,7 +1129,13 @@ Section INLINE_SIZES.
     red; intros.
     destruct i1.
     - rewrite (proj1 CFG) in Gi by omega.
-      inv Gi. apply frame_at_pos_last in FAP1. apply frame_at_pos_last in FAP2. subst. simpl. rewrite EQ. omega.
+      inv Gi. apply frame_at_pos_last in FAP1. apply frame_at_pos_last in FAP2. subst.
+      rewrite ! size_frames_cons. rewrite EQ.
+      specialize (SIZES O O f1 f2). trim SIZES. constructor; reflexivity.
+      trim SIZES. constructor; reflexivity.
+      trim SIZES. apply CFG; omega.
+      trim SIZES. intros; eauto.
+      apply Z.max_le_compat_l; auto.
     - apply frame_at_pos_cons_inv in FAP1. 2: omega.
       destruct i2.
       eapply compat_frameinj_rec_above in Gi. 2: apply (proj2 CFG). 2: omega. omega.
@@ -1149,35 +1155,107 @@ Section INLINE_SIZES.
     red; intros.
     destruct i1.
     - rewrite G0 in Gi.
-      inv Gi. apply frame_at_pos_last in FAP1. subst. simpl.
-      cut (n <> O). intro.
-      specialize (LARGEST 1%nat). trim LARGEST.
-      destruct CFINJ. unfold downstar in H0. rewrite H0. auto. omega. omega.
-      admit.
+      inv Gi. apply frame_at_pos_last in FAP1. subst. rewrite size_frames_cons.
+      specialize (SIZES O O f1 f2). trim SIZES. constructor; reflexivity.
+      trim SIZES. auto.
+      trim SIZES. auto.
+      trim SIZES. intros; eauto.
+      apply Zmax_bound_r. auto.
     - apply frame_at_pos_cons_inv in FAP1. 2: omega.
       simpl in *.
-      eapply SIZES. apply frame_at_pos_cons. eauto. eauto. auto. auto.
-  Admitted.
+      eapply (SIZES (S i1) i2 f0 f2); eauto.
+      apply frame_at_pos_cons. auto.
+  Qed.
 
-  Axiom inline_sizes_down:
+  Lemma inline_sizes_down:
     forall g s1 s2,
       inline_sizes g s1 s2 ->
       forall
         (Gno0 : (forall i j : nat, g i = Some j -> (0 < i)%nat -> (0 < j)%nat))
         (G0 : (g 0%nat = Some 0%nat)),
         inline_sizes (down g) (tl s1) (tl s2).
+  Proof.
+    red; intros.
+    apply frame_at_pos_tl in FAP1.
+    apply frame_at_pos_tl in FAP2.
+    unfold down, downstar, option_map in Gi. repeat destr_in Gi.
+    assert (n <> O).
+    intro; subst. apply Gno0 in Heqo. omega. omega.
+    eapply H; eauto. rewrite Nat.succ_pred; auto.
+    intros.
+    unfold down, downstar, option_map in LARGEST.
+    destruct i. congruence. specialize (LARGEST i). rewrite H1 in LARGEST.
+    trim LARGEST. simpl. auto. omega.
+  Qed.
 
-  Axiom inline_sizes_downstar:
+  Lemma inline_sizes_downstar:
     forall g s1 s2 n l,
       inline_sizes g s1 s2 ->
       compat_frameinj (S n :: l) (downstar g) ->
       inline_sizes (downstar g) (tl s1) s2.
+  Proof.
+    red; intros.
+    apply frame_at_pos_tl in FAP1.
+    unfold downstar, option_map in Gi.
+    eapply H; eauto.
+    intros.
+    unfold downstar, option_map in LARGEST.
+    destruct i. omega. apply LARGEST in H1. omega.
+  Qed.
 
-Axiom inline_sizes_le:
-  forall g s1 s2 l,
-    inline_sizes g s1 s2 ->
-    compat_frameinj (1%nat :: l) g ->
-    size_stack (tl s2) <= size_stack (tl s1).
+  Lemma inline_sizes_size_stack:
+    forall g s1 s2
+      (SIZES: inline_sizes g s1 s2)
+      (SURJ: frameinj_surjective g (length s2))
+      (RNG: forall i j, (g i = Some j -> i < length s1 /\ j < length s2)%nat),
+      size_stack s2 <= size_stack s1.
+  Proof.
+    intros.
+    edestruct (frames_at_permut_concat s2) as (f2 & FAT2 & PERM2). rewrite map_concat. reflexivity.
+    rewrite <- (size_stack_permut _ _ PERM2).
+    edestruct (sublist_inj g (list_nats (length s1)) (list_nats (length s2))) as (l1' & SUB & PERM).
+    apply lnr_list_nats.
+    apply lnr_list_nats.
+    destruct (frames_at_permut_ex s1) as (f & FAT1 & PERM1).
+    destruct (frames_at_permut _ _ _ PERM _ FAT1) as (f3 & FAT3 & PERM3).
+    destruct (sublist_frames_at s1 _ _ SUB _ FAT3) as (f4 & FAT4 & SUB2).
+    rewrite <- (size_stack_permut _ _ PERM1).
+    rewrite (size_stack_permut _ _ PERM3).
+    etransitivity.
+    2: apply (size_stack_sublist _ _ SUB2).
+    rewrite <- opt_concat_concat in FAT4.
+    eapply opt_concat_sizes. 2-3: eauto.
+    rewrite ! map_map.
+    apply lf2_list_ints_map.
+    clear - SIZES SURJ RNG.
+    simpl.
+    setoid_rewrite in_list_nats.
+    intros j LT.
+    rewrite <- nth_error_Some in LT.
+    destruct nth_error eqn:?; try congruence.
+    edestruct (frames_at_succeeds s1) as (f & EQ).
+    2: rewrite EQ.
+    rewrite Forall_forall; intros x IN. rewrite filter_In in IN.
+    rewrite in_list_nats in IN. apply IN.
+    red in SIZES.
+    simpl.
+    destruct (SIZES _ _ (frame_at_pos_intro _ _ _ Heqo)) as (i1 & f1 & Gi & FAP1 & LE).
+    etransitivity. apply LE.
+    eapply frames_at_in in FAP1; eauto.
+    destruct (in_split _ _ FAP1) as (l1 & l2 & EQl12).
+    subst.
+    rewrite size_stack_app. simpl.
+    generalize (size_stack_pos l1) (size_stack_pos l2). omega.
+    rewrite filter_In. rewrite in_list_nats.
+    split. eapply frame_at_pos_lt; eauto.
+    rewrite Gi. destruct option_eq; auto.
+  Qed.
+  
+  Axiom inline_sizes_le:
+    forall g s1 s2 l,
+      inline_sizes g s1 s2 ->
+      compat_frameinj (1%nat :: l) g ->
+      size_stack (tl s2) <= size_stack (tl s1).
 
 End INLINE_SIZES.
 
@@ -2120,7 +2198,7 @@ Proof.
     2: eapply compat_frameinj_pop_right. 2: eauto.
     unfold upstar, downstar. simpl. intros. destr. rewrite Nat.succ_pred by omega. auto.
   + repeat rewrite_stack_blocks. revert EQ1; rewrite_stack_blocks. intro.
-    rewrite EQ1 in SIZES. inv MS0.
+    rewrite EQ1 in SIZES.
     eapply inline_sizes_record_left; eauto.
     
 - (* external function *)
@@ -2338,6 +2416,15 @@ Proof.
         -- erewrite Genv.init_mem_stack_adt; eauto.
            simpl. red. simpl.
            split; intros. destr. omega. destr_in Gi. repeat destr_in Gi. omega.
+        --
+          red; intros.
+          assert (i1 = i2).
+          apply frame_at_pos_lt in FAP1.
+          apply frame_at_pos_lt in FAP2. revert FAP1 FAP2 Gi.
+          repeat rewrite_stack_blocks. simpl. erewrite Genv.init_mem_stack_adt; eauto. simpl. clear.
+          unfold option_map. repeat destr. destr_in Heqo. inv Heqo. inversion 3. subst. omega.
+          subst.
+          exploit frame_at_same_pos. apply FAP1. apply FAP2. intro; subst; reflexivity.
 Qed.
 
 Lemma transf_final_states:

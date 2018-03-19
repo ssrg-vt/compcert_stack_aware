@@ -598,12 +598,6 @@ Proof.
     xomega.
 Qed.
 
-Lemma size_frames_cons:
-  forall a b,
-    size_frames ( a :: b ) = Z.max (align (frame_adt_size a) 8) (size_frames b).
-Proof.
-  reflexivity.
-Qed.
 
 Lemma tl_iter_commut:
   forall {A} (l: list A) n,

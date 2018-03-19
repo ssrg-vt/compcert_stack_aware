@@ -2223,6 +2223,12 @@ Qed.
 Definition size_frames (l: tframe_adt) : Z :=
   fold_right Z.max Z0 (map (fun fr => align (frame_adt_size fr) 8) l).
 
+Lemma size_frames_cons:
+  forall a b,
+    size_frames ( a :: b ) = Z.max (align (frame_adt_size a) 8) (size_frames b).
+Proof.
+  reflexivity.
+Qed.
 
   (* match l with *)
   (*   nil => 0 *)
