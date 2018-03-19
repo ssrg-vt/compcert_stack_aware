@@ -34,12 +34,12 @@ Qed.
 Open Scope Z_scope.
 
 Definition sizes g s1 s2 :=
-  forall i1 i2 f1 f2
-    (FAP1: f1 @ s1 : i1)
-    (FAP2: f2 @ s2 : i2)
-    (G: g i1 = Some i2)
-    (SMALLEST: (forall i, g i = Some i2 -> i1 <= i)%nat),
-    size_frames f2 <= size_frames f1.
+  forall i2 f2
+    (FAP2: f2 @ s2 : i2),
+    exists i1 f1,
+      g i1 = Some i2 /\
+      (f1 @ s1 : i1) /\
+      size_frames f2 <= size_frames f1.
 
 Lemma compat_sizes_tl:
   forall l g m1 m2,
@@ -48,26 +48,14 @@ Lemma compat_sizes_tl:
     sizes (down g) (tl m1) (tl m2).
 Proof.
   unfold sizes; simpl; intros.
-  destruct m1. simpl in *. inv FAP1. rewrite nth_error_nil in H1; inv H1. simpl in *.
   destruct m2. simpl in *. inv FAP2. rewrite nth_error_nil in H1; inv H1. simpl in *.
-  specialize (H0 (S i1) (S i2) f1 f2).
+  specialize (H0 (S i2) f2).
   trim H0. apply frame_at_pos_cons; auto.
-  trim H0. apply frame_at_pos_cons; auto.
-  unfold down, downstar in G.
-  destruct (g (S i1)) eqn:GS; simpl in *; try congruence. inv G.
-  trim H0. f_equal. rewrite Nat.succ_pred. auto.
-  eapply compat_frameinj_rec_above in GS. 2: destruct H; eauto. 2: omega. omega.
-  trim H0.
-  intros.
-  rewrite Nat.succ_pred in H0.
-  unfold down, downstar in SMALLEST.
-  destruct i.
-  rewrite (proj1 H) in H0 by omega. inv H0.
-  eapply compat_frameinj_rec_above in GS. 2: destruct H; eauto. 2: omega. omega.
-  specialize (SMALLEST i). rewrite H0 in SMALLEST. simpl in SMALLEST.
-  trim SMALLEST. auto. omega.
-  eapply compat_frameinj_rec_above in GS. 2: destruct H; eauto. 2: omega. omega.
-  auto.
+  destruct H0 as (i1 & f1 & Gi & FAP1 & LE).
+  destruct i1. rewrite (proj1 H) in Gi by omega. inv Gi.
+  exists i1, f1; split; [|split].
+  unfold down, downstar. rewrite Gi. reflexivity. destruct m1. inv FAP1. rewrite nth_error_nil in H0. inv H0. simpl.
+  apply frame_at_pos_cons_inv in FAP1. simpl in *; auto. omega. auto.
 Qed.
 
 Lemma compat_frameinj_rec_pop_left:
@@ -628,31 +616,18 @@ Proof.
   rewrite Forall_forall; intros x IN. rewrite filter_In in IN.
   rewrite in_list_nats in IN. apply IN.
   red in SZ.
-  destruct (SURJ j) as (i & G). apply nth_error_Some. congruence.
-  assert (INF: In i (filter (fun i0 => option_eq Nat.eq_dec (g i0) (Some j)) (list_nats (length s1)))).
-  rewrite filter_In. rewrite G. split; auto.
-  2: destruct option_eq; auto; try congruence.
-  rewrite in_list_nats; eauto. eapply RNG. eauto.
-  destruct (min_exists _ _ INF) as (mi & MIN).
-  apply min_in in MIN. destruct MIN as (IN & MIN).
-  generalize IN; intro MIN'.
-  setoid_rewrite filter_In in MIN.
-  setoid_rewrite in_list_nats in MIN.
-  setoid_rewrite filter_In in IN.
-  setoid_rewrite in_list_nats in IN.
-  destruct IN as (LTmi & Gmi).
-  destruct option_eq; simpl in *; try congruence.
-  destruct (frame_at_pos_ex mi s1) as (f1 & FAP1). eauto.
-  specialize (SZ _ _ _ _ FAP1 (frame_at_pos_intro _ _ _ Heqo) e).
-  transitivity (size_frames f1). apply SZ.
-  intros.
-  specialize (MIN i0). trim MIN. split. eapply RNG; eauto. rewrite H. destruct option_eq; auto.
-  auto.
+  simpl.
+
+  destruct (SZ _ _ (frame_at_pos_intro _ _ _ Heqo)) as (i1 & f1 & Gi & FAP1 & LE).
+  etransitivity. apply LE.
   eapply frames_at_in in FAP1; eauto.
   destruct (in_split _ _ FAP1) as (l1 & l2 & EQl12).
   subst.
   rewrite size_stack_app. simpl.
   generalize (size_stack_pos l1) (size_stack_pos l2). omega.
+  rewrite filter_In. rewrite in_list_nats.
+  split. eapply frame_at_pos_lt; eauto.
+  rewrite Gi. destruct option_eq; auto.
 Qed.
 
 Lemma sizes_tl_left:
@@ -663,16 +638,11 @@ Lemma sizes_tl_left:
     sizes (downstar g) (tl s1) s2.
 Proof.
   unfold downstar. red; intros.
-  specialize (SZ (S i1) i2 f1 f2).
+  destruct (SZ i2 f2) as (i1 & f1 & Gi1 & FAP1 & LE). auto.
+  destruct i1. congruence.
   destruct s1. inv FAP1. rewrite nth_error_nil in H. inv H.
-  simpl in *.
-  trim SZ. apply frame_at_pos_cons. auto.
-  trim SZ; auto.
-  trim SZ; auto.
-  trim SZ; auto.
-  intros.
-  destruct i. congruence.
-  apply SMALLEST in H. omega.
+  exists i1, f1; split; eauto.
+  split. simpl. apply frame_at_pos_cons_inv in FAP1. simpl in *; auto. omega. auto.
 Qed.
 
 Lemma sizes_ext:
@@ -682,8 +652,7 @@ Lemma sizes_ext:
     sizes g' m1 m2.
 Proof.
   red; intros; eauto.
-  eapply H; eauto. rewrite H0; auto.
-  intros; apply SMALLEST. rewrite <- H0; auto.
+  setoid_rewrite <- H0. eauto.
 Qed.
 
 Lemma down_upstar_is_pred:
@@ -692,19 +661,19 @@ Lemma down_upstar_is_pred:
 Proof.
   unfold down, downstar, upstar, option_map. auto.
 Qed.
-  
 
-Lemma sizes_no_0:
-  forall g s1 s2,
-    sizes g s1 s2 ->
-    sizes (fun n => if option_eq Nat.eq_dec (g n) (Some O) then None else g n) s1 s2.
-Proof.
-  red; intros.
-  destr_in G.
-  eapply H; eauto.
-  intros.
-  eapply SMALLEST. destr.
-Qed.
+(* Lemma sizes_no_0: *)
+(*   forall g s1 s2, *)
+(*     sizes g s1 s2 -> *)
+(*     sizes (fun n => if option_eq Nat.eq_dec (g n) (Some O) then None else g n) s1 s2. *)
+(* Proof. *)
+(*   red; intros. *)
+(*   edestruct H as (i1 & f1 & Gi1 & FAP1 & LE). eauto. *)
+(*   destr_in G. *)
+(*   eapply H; eauto. *)
+(*   intros. *)
+(*   eapply SMALLEST. destr. *)
+(* Qed. *)
 
 Lemma compat_frameinj_rec_ext:
   forall l g g' ns nt (EXT: forall i, g i = g' i)
@@ -714,6 +683,18 @@ Proof.
   induction l; simpl; intros; eauto. rewrite <- EXT in Gi; eauto.
   destruct CFR as (LE & CFR); split; eauto.
   intros; rewrite <- EXT; eauto.
+Qed.
+
+Lemma frame_at_pos_tl:
+  forall f s i,
+    f @ s : S i <-> f @ tl s : i.
+Proof.
+  split. destruct s. inversion 1. rewrite nth_error_nil in H0; inv H0.
+  intros.
+  apply frame_at_pos_cons_inv in H; auto. omega.
+  destruct s; simpl in *; intros. 
+  inv H; rewrite nth_error_nil in H0. inv H0.
+  apply frame_at_pos_cons. auto.
 Qed.
 
 Lemma compat_sizes_tl':
@@ -728,26 +709,14 @@ Lemma compat_sizes_tl':
     sizes (down g') (tl m1) (tl m2).
 Proof.
   unfold sizes; simpl; intros.
-  destruct m1. simpl in *. inv FAP1. rewrite nth_error_nil in H; inv H. simpl in *.
   destruct m2. simpl in *. inv FAP2. rewrite nth_error_nil in H; inv H. simpl in *.
-  specialize (SZ (S i1) (S i2) f1 f2).
-  trim SZ. apply frame_at_pos_cons; auto.
-  trim SZ. apply frame_at_pos_cons; auto.
-  unfold down, downstar in G.
-  destruct (g' (S i1)) eqn:GS; simpl in *; try congruence. inv G.
-  trim SZ. f_equal. rewrite Nat.succ_pred. auto.
-  rewrite EXT in GS. repeat destr_in GS.
-  trim SZ.
-  intros.
-  rewrite Nat.succ_pred in H.
-  unfold down, downstar in SMALLEST.
-  destruct i.
-  rewrite EXT in H. 
-  rewrite (proj1 CFG) in H by omega. destr_in H.
-  specialize (SMALLEST i). rewrite H in SMALLEST. simpl in SMALLEST.
-  trim SMALLEST. auto. omega.
-  rewrite EXT in GS. repeat destr_in GS.
-  auto.
+  destruct (SZ (S i2) f2) as (i1 & f1 & Gi1 & FAP1 & LE). apply frame_at_pos_cons; auto.
+  rewrite EXT in Gi1. destr_in Gi1. destr_in Gi1. inv Gi1.
+  unfold down, downstar.
+  destruct i1. rewrite (proj1 CFG) in Heqo by omega. inv Heqo.
+  exists i1, f1; split. rewrite EXT, Heqo. destr.
+  split; auto.
+  apply frame_at_pos_tl. auto.
 Qed.
 
 Lemma compat_sizes_tl'':
@@ -762,79 +731,62 @@ Lemma compat_sizes_tl'':
     sizes (down g) (tl m1) (tl m2).
 Proof.
   unfold sizes; simpl; intros.
-  destruct m1. simpl in *. inv FAP1. rewrite nth_error_nil in H; inv H. simpl in *.
   destruct m2. simpl in *. inv FAP2. rewrite nth_error_nil in H; inv H. simpl in *.
-  specialize (SZ (S i1) (S i2) f1 f2).
-  trim SZ. apply frame_at_pos_cons; auto.
-  trim SZ. apply frame_at_pos_cons; auto.
-  unfold down, downstar, option_map in G. destr_in G. inv G.
-  trim SZ.
-  assert (n <> O). destruct CFG. eapply compat_frameinj_rec_above in Heqo; eauto; omega.
-  rewrite Nat.succ_pred; auto. rewrite EXT. rewrite Heqo. destr.
-  trim SZ.
-  intros.
-  assert (n <> O). destruct CFG. eapply compat_frameinj_rec_above in Heqo; eauto; omega.
-  rewrite Nat.succ_pred in H; auto.
-  unfold down, downstar, option_map in SMALLEST.
-  destruct i.
-  rewrite EXT in H. 
-  rewrite (proj1 CFG) in H by omega. destr_in H.
-  specialize (SMALLEST i).
-  rewrite EXT in H. destr_in H. destr_in H. inv H.
-  trim SMALLEST. auto. omega.
-  auto.
+  destruct (SZ (S i2) f2) as (i1 & f1 & Gi & FAP1 & LE). apply frame_at_pos_cons; auto.
+  destruct m1. simpl in *. inv FAP1. rewrite nth_error_nil in H; inv H. simpl in *.
+  unfold down, downstar.
+  rewrite EXT in Gi. repeat destr_in Gi.
+  destruct i1. rewrite (proj1 CFG) in Heqo. inv Heqo. omega.
+  exists i1. rewrite Heqo. eexists; split; eauto.
+  split; eauto. apply frame_at_pos_cons_inv in FAP1. auto. omega.
 Qed.
 
-Lemma frame_at_pos_tl:
-  forall f s i,
-    f @ (tl s) : i -> f @ s : S i.
+Lemma compat_sizes_tl''_other:
+  forall l g m1 m2
+    (CFG: compat_frameinj (1%nat::l) g)
+    (SZ: sizes g m1 m2),
+    sizes (down g) (tl m1) (tl m2).
 Proof.
-  destruct s; simpl in *; intros. 
-  inv H; rewrite nth_error_nil in H0. inv H0.
-  apply frame_at_pos_cons. auto.
+  unfold sizes; simpl; intros.
+  destruct m2. simpl in *. inv FAP2. rewrite nth_error_nil in H; inv H. simpl in *.
+  destruct (SZ (S i2) f2) as (i1 & f1 & Gi & FAP1 & LE). apply frame_at_pos_cons; auto.
+  destruct m1. simpl in *. inv FAP1. rewrite nth_error_nil in H; inv H. simpl in *.
+  unfold down, downstar.
+  destruct i1. rewrite (proj1 CFG) in Gi. inv Gi. omega.
+  exists i1. rewrite Gi. eexists; split; eauto.
+  split; eauto. apply frame_at_pos_cons_inv in FAP1. auto. omega.
 Qed.
+
 
 Lemma frame_at_pos_tl_iter:
   forall f n s i,
-    f @ (Nat.iter n (@tl _) s) : i -> f @ s : (n + i)%nat.
+    f @ (Nat.iter n (@tl _) s) : i <-> f @ s : (n + i)%nat.
 Proof.
-  induction n; simpl; intros. auto.
+  induction n; simpl; intros. tauto.
+  split. intro H.
   apply frame_at_pos_tl in H.
   apply IHn in H. rewrite plus_n_Sm. auto.
+  intros.
+  apply frame_at_pos_tl. apply IHn.
+  replace (n + S i)%nat with (S (n + i))%nat. auto. omega.
 Qed.
 
 Lemma compat_sizes_tl''':
   forall l n g m1 m2
     (CFG: compat_frameinj (S n::l) g)
-    g'
-    (EXT: forall i, g' i = match g i with
-                      | Some j => if Nat.eq_dec j O then None else Some j
-                      | None => None
-                      end)
-    (SZ: sizes g' m1 m2),
+    (SZ: sizes g m1 m2),
     sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) m1) (tl m2).
 Proof.
   unfold sizes; intros.
-  apply frame_at_pos_tl_iter in FAP1.
   apply frame_at_pos_tl in FAP2.
-  specialize (SZ _ _ _ _ FAP1 FAP2).
-  unfold down, downstar, option_map in G. destr_in G. inv G.
-  trim SZ.
-  assert (n0 <> O). destruct CFG. eapply compat_frameinj_rec_above in Heqo; eauto. omega. omega.
-  rewrite Nat.succ_pred; auto. rewrite EXT. rewrite Heqo. destr.
-  trim SZ.
-  intros.
-  assert (n0 <> O). destruct CFG. eapply compat_frameinj_rec_above in Heqo; eauto. omega. omega.
-  rewrite Nat.succ_pred in H; auto.
-  unfold down, downstar, option_map in SMALLEST.
-  destruct CFG as (A & B).
-  destruct (lt_dec i (S n)).
-  rewrite EXT, A in H. destr_in H. omega.
-  rewrite EXT in H. destr_in H. destr_in H. inv H.
-  specialize (SMALLEST (i - S n)%nat).
-  replace (S n + (i - S n))%nat with i in SMALLEST by omega.
-  rewrite Heqo0 in SMALLEST. trim SMALLEST. auto. omega.
-  auto.
+  specialize (SZ _ _ FAP2).
+  destruct SZ as (i1 & f1 & Gi & FAP1 & LE).
+  setoid_rewrite frame_at_pos_tl_iter.
+  destruct (lt_dec i1 (S n)).
+  rewrite (proj1 CFG) in Gi by omega. inv Gi.
+  exists (i1 - S n)%nat, f1.
+  replace (S n + (i1 - S n))%nat with i1 by omega.
+  rewrite Gi. simpl. auto.
 Qed.
 
 Lemma size_stack_iter_tl:
