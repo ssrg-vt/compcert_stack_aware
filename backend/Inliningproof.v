@@ -1203,6 +1203,37 @@ Section INLINE_SIZES.
     destruct i. omega. apply LARGEST in H1. omega.
   Qed.
 
+  Fixpoint maxl (l: list nat) : option nat :=
+    match l with
+    | nil => None
+    | a::r => match maxl r with
+               Some b => Some (Nat.max a b)
+             | None => Some a
+             end
+    end.
+
+  Lemma max_exists:
+    forall l i, In i l -> exists mi, maxl l = Some mi.
+  Proof.
+    destruct l; simpl. easy. intros. destr; eauto.
+  Qed.
+
+  Lemma max_in:
+    forall l m,
+      maxl l = Some m ->
+      In m l /\ forall x, In x l -> (x <= m)%nat.
+  Proof.
+    induction l; simpl; intros; eauto. easy.
+    repeat destr_in H.
+    - specialize (IHl _ eq_refl). destruct IHl as (IN & MAX).
+      split. destruct (le_dec n a). rewrite Nat.max_l; auto.
+      rewrite Nat.max_r by omega. auto.
+      intros. destruct H. subst. apply Nat.le_max_l.
+      apply Nat.max_le_iff. apply MAX in H. auto.
+    - destruct l. simpl. split; auto. intros x [|[]]; subst; omega.
+      simpl in Heqo. destr_in Heqo.
+  Qed.
+
   Lemma inline_sizes_size_stack:
     forall g s1 s2
       (SIZES: inline_sizes g s1 s2)
@@ -1239,23 +1270,53 @@ Section INLINE_SIZES.
     rewrite in_list_nats in IN. apply IN.
     red in SIZES.
     simpl.
-    destruct (SIZES _ _ (frame_at_pos_intro _ _ _ Heqo)) as (i1 & f1 & Gi & FAP1 & LE).
-    etransitivity. apply LE.
+    destruct (SURJ j) as (i & G). apply nth_error_Some. congruence.
+    assert (INF: In i (filter (fun i0 => option_eq Nat.eq_dec (g i0) (Some j)) (list_nats (length s1)))).
+    rewrite filter_In. rewrite G. split; auto.
+    2: destruct option_eq; auto; try congruence.
+    rewrite in_list_nats; eauto. eapply RNG. eauto.
+    destruct (max_exists _ _ INF) as (mi & MAX).
+    apply max_in in MAX. destruct MAX as (IN & MAX).
+    generalize IN; intro MAX'.
+    setoid_rewrite filter_In in MAX.
+    setoid_rewrite in_list_nats in MAX.
+    setoid_rewrite filter_In in IN.
+    setoid_rewrite in_list_nats in IN.
+    destruct IN as (LTmi & Gmi).
+    destruct option_eq; simpl in *; try congruence.
+    destruct (frame_at_pos_ex mi s1) as (f1 & FAP1). eauto.
+    specialize (SIZES _ _ _ _ FAP1 (frame_at_pos_intro _ _ _ Heqo) e).
+    transitivity (size_frames f1). apply SIZES.
+    intros.
+    specialize (MAX i0). trim MAX. split. eapply RNG; eauto. rewrite H. destruct option_eq; auto.
+    auto.
     eapply frames_at_in in FAP1; eauto.
     destruct (in_split _ _ FAP1) as (l1 & l2 & EQl12).
     subst.
     rewrite size_stack_app. simpl.
     generalize (size_stack_pos l1) (size_stack_pos l2). omega.
-    rewrite filter_In. rewrite in_list_nats.
-    split. eapply frame_at_pos_lt; eauto.
-    rewrite Gi. destruct option_eq; auto.
   Qed.
   
-  Axiom inline_sizes_le:
+  Lemma inline_sizes_le:
     forall g s1 s2 l,
       inline_sizes g s1 s2 ->
       compat_frameinj (1%nat :: l) g ->
+      frameinj_surjective (down g) (length (tl s2)) ->
+      (forall i j : nat, g i = Some j -> (i < length s1)%nat /\ (j < length s2)%nat) ->
       size_stack (tl s2) <= size_stack (tl s1).
+  Proof.
+    intros g s1 s2 l SZ CFI SURJ RNG.
+    eapply inline_sizes_size_stack.
+    apply inline_sizes_down. eauto.
+    intros. destruct CFI. eapply compat_frameinj_rec_above in H; eauto.
+    apply CFI; omega.
+    auto.
+    unfold down, downstar, option_map.
+    intros. destr_in H. inv H.
+    exploit RNG. apply Heqo. intros (A & B). rewrite ! length_tl.
+    split. omega.
+    destruct CFI as (AA & BB). eapply compat_frameinj_rec_above in Heqo; eauto. omega. omega.
+  Qed.
 
 End INLINE_SIZES.
 
@@ -2037,6 +2098,16 @@ Proof.
   + auto.
   + repeat rewrite_stack_blocks.
     eapply inline_sizes_le; eauto.
+
+    exploit Mem.inject_stack_adt. apply MINJ. destruct 1.
+    intros i2 LT.
+    destruct (stack_inject_surjective (S i2)). rewrite length_tl in LT. omega.
+    exists (pred x). unfold down, downstar, option_map. rewrite Nat.succ_pred. rewrite H9. reflexivity.
+    intro; subst.
+    rewrite (proj1 CFINJ') in H9. inv H9. omega.
+    exploit Mem.inject_stack_adt. apply MINJ. destruct 1.
+    auto.
+
   + intros (m2' & P & Q).
     left; econstructor; split.
     * eapply plus_one. eapply exec_function_internal; eauto.
