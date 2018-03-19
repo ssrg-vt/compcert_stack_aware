@@ -37,6 +37,11 @@ Require Import StackADT.
 Definition store_spec_of_ofs_spec b (l: list (memory_chunk * ptrofs * val)) : list (memory_chunk * val * val) :=
   (map (fun cov => let '(ch, o, v) := cov in (ch, Vptr b o, v)) l).
 
+Definition can_record f s thr :=
+  forall m,
+    maxl (map frame_adt_size (f :: hd nil s)) = Some m ->
+    (size_stack (tl s) + m < thr)%Z.
+
 Module Mem.
 
 Definition locset := block -> Z -> Prop.

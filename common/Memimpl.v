@@ -1186,6 +1186,9 @@ Proof.
     intros f0 [IN|IN]; subst. eauto.
     eapply stack_inv_perms0; eauto. left; auto.
     intros; eapply stack_inv_perms0; eauto. right; auto.
+  - simpl.
+    unfold size_frames in *; simpl.
+    rewrite Zmax_spec. destr.
 Qed.
 
 Definition frame_agree_perms_forall (P: block -> Z -> perm_kind -> permission -> Prop) f :=

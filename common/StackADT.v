@@ -704,38 +704,6 @@ Definition wf_tframe (m: perm_type) (j: meminj) (f: tframe_adt) : Prop :=
 Definition wf_stack (m: perm_type) j (s: stack_adt) : Prop :=
   Forall (wf_tframe m j) s.
 
-Definition size_frames (l: tframe_adt) : Z :=
-  (* fold_right Z.add Z0 (map (fun fr => align (frame_adt_size fr) 8) l). *)
-  match l with
-    nil => 0
-  | fr::_ => align (frame_adt_size fr) 8
-  end.
-
-
-Fixpoint size_stack (l: stack_adt) : Z :=
-  match l with
-    nil => 0
-  | fr::r => size_stack r + size_frames fr
-  end.
-
-Lemma size_frames_pos:
-  forall s,
-    (0 <= size_frames s)%Z.
-Proof.
-  unfold size_frames. 
-  induction s; simpl; intros; auto. omega.
-  (* apply Z.add_nonneg_nonneg; auto. *)
-  etransitivity.
-  2: apply align_le. apply frame_adt_size_pos. omega.
-Qed.
-
-Lemma size_stack_pos:
-  forall s,
-    (0 <= size_stack s)%Z.
-Proof.
-  induction s; simpl; intros; eauto. omega.
-  generalize (size_frames_pos a); omega.
-Qed.
 
 Fixpoint opt_last {A: Type} (l: list A): option A :=
   match l with
@@ -1913,14 +1881,6 @@ Proof.
   intros; rewrite in_frames_cons; auto.
 Qed.
 
-Lemma size_stack_tl:
-  forall l,
-    (size_stack (tl l) <= size_stack l)%Z.
-Proof.
-  induction l; simpl; intros. omega.
-  generalize (size_frames_pos a); omega.
-Qed.
-
 Lemma Forall_tl:
   forall {A} P (l: list A),
     Forall P l ->
@@ -2220,6 +2180,92 @@ Qed.
     | a::r => (i,a)::(pairi r (S i))
     end.
 
+
+
+Definition maxl (l: list Z) : option Z :=
+  match l with nil => None | _ => Some (fold_right Z.max Z0 l) end.
+
+Lemma maxl_is_max:
+  forall l m,
+    maxl l = Some m ->
+    Forall (fun n => (n <= m)%Z) l.
+Proof.
+  destruct l. constructor.
+  intros. unfold maxl in H.
+  revert H. generalize (z :: l). inversion 1; subst.
+  clear.
+  induction l0; simpl; intros. constructor.
+  constructor; auto.
+  apply Z.le_max_l.
+  eapply Forall_impl. 2: eauto. intros.
+  simpl in H0.
+  apply Zmax_bound_r. auto.
+Qed.
+
+Lemma maxl_in:
+  forall l (F: Forall (fun n => 0 <= n)%Z l) m,
+    maxl l = Some m ->
+    In m l.
+Proof.
+  destruct l. inversion 2. unfold maxl. simpl. inversion 2; subst. clear H.
+  revert z F.
+  induction l; simpl; intros; eauto. inv F. rewrite Z.max_l; auto.
+  rewrite Z.max_assoc.
+  specialize (IHl (Z.max z a)). trim IHl.
+  inv F. inv H2.
+  constructor. apply Z.max_le_iff. auto.
+  auto.
+  destruct IHl. rewrite <- H.
+  rewrite Zmax_spec. destr.
+  auto.
+Qed.
+
+Definition size_frames (l: tframe_adt) : Z :=
+  fold_right Z.max Z0 (map (fun fr => align (frame_adt_size fr) 8) l).
+
+
+  (* match l with *)
+  (*   nil => 0 *)
+  (* | fr::_ => align (frame_adt_size fr) 8 *)
+  (* end. *)
+
+
+Fixpoint size_stack (l: stack_adt) : Z :=
+  match l with
+    nil => 0
+  | fr::r => size_stack r + size_frames fr
+  end.
+
+Lemma size_frames_pos:
+  forall s,
+    (0 <= size_frames s)%Z.
+Proof.
+  unfold size_frames. 
+  induction s; simpl; intros; auto. omega.
+  apply Z.max_le_iff.
+  (* apply Z.add_nonneg_nonneg; auto. *)
+  left.
+  etransitivity.
+  2: apply align_le. apply frame_adt_size_pos. omega.
+Qed.
+
+Lemma size_stack_pos:
+  forall s,
+    (0 <= size_stack s)%Z.
+Proof.
+  induction s; simpl; intros; eauto. omega.
+  generalize (size_frames_pos a); omega.
+Qed.
+
+Lemma size_stack_tl:
+  forall l,
+    (size_stack (tl l) <= size_stack l)%Z.
+Proof.
+  induction l; simpl; intros. omega.
+  generalize (size_frames_pos a); omega.
+Qed.
+
+  
   Lemma size_stack_filteri:
     forall s1 n f,
       (size_stack (filteri f (pairi s1 n)) <= size_stack s1)%Z.
@@ -3170,8 +3216,8 @@ Lemma same_size_frames:
     (LF2 : list_forall2 (fun f1 f2 : frame_adt => frame_adt_size f1 = frame_adt_size f2) tf1 tf2),
     size_frames tf2 = size_frames tf1.
 Proof.
-  induction 1; simpl; intros; eauto.
-  unfold size_frames. rewrite H. reflexivity.
+  induction 1; simpl; intros; eauto. 
+  unfold size_frames. simpl. rewrite H. setoid_rewrite IHLF2. auto.
 Qed.
 
 Inductive stack_equiv (R: frame_adt -> frame_adt -> Prop) : stack_adt -> stack_adt -> Prop :=
