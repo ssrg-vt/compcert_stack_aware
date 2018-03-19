@@ -1899,7 +1899,7 @@ Inductive match_states: state -> state -> Prop :=
         (FUNTY: type_of_fundef fd = Tfunction targs tres cconv)
         (ANORM: val_casted_list vargs targs)
         (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
-        (TOPNPERM: Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)),
+        (TOPNPERM: top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)),
       match_states (Callstate fd vargs k m sz)
                    (Callstate tfd tvargs tk tm sz)
   | match_return_state:
@@ -2563,8 +2563,6 @@ Proof.
       eexists. split. 2: apply inject_frame_info_id.
       eapply in_map with (f := fun x => let '(b,_,hi) := block_of_binding ge x in (b, {|frame_size := hi; frame_perm := fun _ => Public |})) in TENV.
 
-      eapply in_lnr_get_assoc. auto.
-      
       unfold blocks_with_info, blocks_of_env. rewrite map_map. simpl in TENV.
       erewrite list_map_exten. apply TENV.
       simpl. intros.

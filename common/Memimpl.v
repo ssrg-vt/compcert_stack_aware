@@ -6222,11 +6222,6 @@ Proof.
     eapply stack_inv_norepet, mem_stack_inv; eauto.
     eapply stack_inv_norepet', mem_stack_inv; eauto.
     eapply stack_inv_norepet', mem_stack_inv; eauto.
-    edestruct (mem_stack_inv m2).
-    apply Forall_forall. intros. apply Forall_forall.
-    intros.
-    red in stack_inv_perms0.
-    eapply stack_inv_perms0; eauto. 
 Qed.
 
 Theorem inject_compose:
@@ -7023,14 +7018,13 @@ Lemma unrecord_stack_block_mem_inj_parallel:
 Proof.
   intros.
   unfold_unrecord.
-  edestruct (stack_inject_frame_inject) as (f2 & FAP2 & FI).
-  inv MINJ; eauto. eauto. rewrite H. constructor; simpl; eauto.
-  destruct (stack_adt m2) eqn: STK2. inv FAP2. rewrite nth_error_nil in H0. congruence.
+  edestruct stack_inject_range. inv MINJ; eauto. eauto.
+  destruct (stack_adt m2) eqn: STK2. simpl in H1. omega. 
   unfold unrecord_stack_block.
   setoid_rewrite STK2. eexists; split; eauto.
   inv MINJ; constructor; simpl; intros; eauto.
   {
-    change (perm m1 b1 ofs k p) in H1.
+    change (perm m1 b1 ofs k p) in H3.
     change (perm m2 b2 (ofs + delta) k p). eauto.
   }
   eapply stack_inject_invariant_strong.
@@ -7061,10 +7055,9 @@ Lemma unrecord_stack_block_magree:
 Proof.
   intros.
   unfold_unrecord.
-  edestruct (stack_inject_frame_inject) as (f2 & FAP2 & FI).
-  inv H; eauto. rewrite H1. instantiate (2:=O). simpl. reflexivity.
-  rewrite H1. constructor. reflexivity.
-  destruct (stack_adt m2) eqn: STK2. inv FAP2. rewrite nth_error_nil in H0. congruence.
+  edestruct stack_inject_range. inv H; eauto. rewrite H1. simpl.
+  instantiate (2 := O). reflexivity.
+  destruct (stack_adt m2) eqn: STK2. simpl in H2. omega. 
   unfold unrecord_stack_block.
   setoid_rewrite STK2. eexists; split; eauto.
   inv H; constructor; simpl; intros; eauto.
@@ -7080,7 +7073,6 @@ Proof.
     destr. omega.
   - rewrite H1, STK2 in *; simpl in *; omega.
 Qed.
-
 
 Lemma loadbytes_push:
   forall m b o n,
@@ -7380,15 +7372,15 @@ Proof.
     apply frame_at_pos_cons. simpl in FAP; eauto.
   - intros.
     destruct (Nat.eq_dec i1 O); subst. rewrite G0 in G1; inv G1.
-    + apply frame_at_pos_last in FAP1.  subst.
-      exists (f2::t0); split. constructor; simpl; auto.
-      intros ff1 [IN|IN].
-      * subst.
-        exists f2; split; simpl; auto. 
-      * edestruct (stack_inject_frame_inject _ t _ G0) as (ff2 & FAP2 & TFI). constructor; reflexivity.
-        apply frame_at_pos_last in FAP2; subst.
-        edestruct TFI as (ff2 & F2 & FFI); eauto.
-        exists ff2; simpl; split; auto.
+    + apply frame_at_pos_last in FAP1. subst.
+      exists (f2::t0); split. constructor; reflexivity.
+      inv NP.
+      intros ff1 INf1 (b & o & k & p0 & FSOME & INFR1 & PERM & IPC).
+      destruct INf1 as [EQf1 | INf1].
+      subst.
+      repeat eexists. left; reflexivity. auto.
+      eapply H0 in PERM; eauto. easy. unfold inject_id; congruence.
+      eapply in_frame_in_frames; eauto.
     + apply frame_at_pos_cons_inv in FAP1.
       edestruct stack_inject_frame_inject as (f3 & FAP2 & FI12); eauto. 3: omega.
       destruct i1. omega.
@@ -7397,9 +7389,9 @@ Proof.
       * apply frame_at_pos_last in FAP2; subst.
         eexists; split.
         constructor; reflexivity.
-        intros ff1 IN1.
-        edestruct (FI12 _ IN1) as (ff1' & INF1 & FI1); eauto.
-        eexists; split; simpl; eauto.
+        intros ff1 INf1 HP.
+        specialize (FI12 _ INf1 HP).
+        destruct FI12 as (ff2 & INff2 & FI12); repeat eexists; eauto. right; auto.
       * apply frame_at_pos_cons_inv in FAP2. 2: omega.
         simpl in *.
         exists f3; split. destruct i2. omega. apply frame_at_pos_cons. auto.
@@ -7538,6 +7530,30 @@ Proof.
   eapply stack_inject_push_new_stage_left; eauto.
 Qed.
 
+Lemma mem_inj_push_new_stage_right:
+  forall j g m1 m2,
+    mem_inj j g m1 m2 ->
+    top_tframe_no_perm (perm m1) (stack_adt m1) ->
+    g 1%nat = Some O ->
+    mem_inj j (fun n => if Nat.eq_dec n O then Some O else option_map S (g n)) m1 (push_new_stage m2).
+Proof.
+  intros j g m1 m2 MI; inv MI; constructor; eauto.
+  eapply stack_inject_push_new_stage_right; eauto.
+Qed.
+
+Lemma inject_push_new_stage_right:
+  forall j g m1 m2,
+    inject j g m1 m2 ->
+    top_tframe_no_perm (perm m1) (stack_adt m1) ->
+    g 1%nat = Some O ->
+    inject j (fun n => if Nat.eq_dec n O then Some O else option_map S (g n)) m1 (push_new_stage m2).
+Proof.
+  destruct 1; intros TTNP G1.
+  constructor; simpl; intros; eauto.
+  eapply mem_inj_push_new_stage_right; eauto.
+  red; simpl. eapply mi_mappedblocks0; eauto.
+Qed.
+
 Lemma inject_push_new_stage:
   forall j g m1 m2,
     inject j g m1 m2 ->
@@ -7649,7 +7665,7 @@ Lemma record_stack_inject_left:
     f1 f2
     (FAP: frame_at_pos s2 O f2)
     (WTF: wf_tframe m1 j f1)
-    (FI : tframe_inject j f1 f2),
+    (FI : tframe_inject j m1 f1 f2),
     stack_inject j (upstar g) m1 (f1 :: s1) s2.
 Proof.
   intros j g m1 s1 s2 SI f1 f2 FAP WTF FI.
@@ -7691,7 +7707,7 @@ Lemma record_stack_blocks_mem_inj_left:
       record_stack_blocks (push_new_stage m1) f1 = Some m1' ->
       frame_at_pos (stack_adt m2) O f2 ->
       (* nth_error f2 O = Some vf2 -> *)
-      tframe_inject j (f1::nil) f2 ->
+      tframe_inject j (perm m1) (f1::nil) f2 ->
       mem_inj j (upstar g) m1' m2.
 Proof.
   intros j g m1 m2 f1 f2 m1' INJ ADT  FAP FI; autospe.
@@ -7706,14 +7722,13 @@ Proof.
   red; intros. simpl in H1. easy.
 Qed.
 
-
 Lemma record_stack_inject_left':
   forall j g m1 s1 s2
     (SI : stack_inject j g m1 s1 s2)
     f1 f2
     (FAP: frame_at_pos s2 O f2)
     (WTF: top_tframe_no_perm m1 s1)
-    (FI : tframe_inject j (f1::nil) f2)
+    (FI : tframe_inject j m1 (f1::nil) f2)
     s1' 
     (PREP: prepend_to_current_stage f1 s1 = Some s1')
     (G0: g 0 = Some 0),
@@ -7734,12 +7749,12 @@ Proof.
     destruct i1.
     inv FAP1. simpl in H. inv H.
     + exists f2; split; auto. congruence.
-      red; intros ? [EQ|IN]; eauto.
+      red; intros ? [EQ|IN] HP; eauto.
       subst. destruct (FI _ (or_introl eq_refl)); eauto.
       edestruct (stack_inject_frame_inject) as (ff2 & FAP2 & TFI); eauto. constructor; reflexivity.
       assert (i2 = 0) by congruence. subst.
       assert (f2 = ff2) by (eapply frame_at_same_pos; eauto). subst.
-      destruct (TFI _ IN); eauto.
+      eauto.
     + apply frame_at_pos_cons_inv in FAP1. 2: omega.
       edestruct stack_inject_frame_inject as (f7 & FAP' & FI'); eauto.
       apply frame_at_pos_cons; auto.
@@ -7753,7 +7768,7 @@ Lemma record_stack_blocks_mem_inj_left':
       mem_inj j g m1 m2 ->
       record_stack_blocks m1 f1 = Some m1' ->
       frame_at_pos (stack_adt m2) O f2 ->
-      tframe_inject j (f1::nil) f2 ->
+      tframe_inject j (perm m1) (f1::nil) f2 ->
       g 0 = Some 0 ->
       mem_inj j g m1' m2.
 Proof.
@@ -7958,7 +7973,7 @@ Lemma record_stack_block_inject_left:
      (FAP: frame_at_pos (stack_adt m2) 0 f2)
      (* vf2 *)
      (* (VF2: nth_error f2 O = Some vf2 ) *)
-     (FI: tframe_inject j (f1::nil) f2)
+     (FI: tframe_inject j (perm m1) (f1::nil) f2)
      (RSB: record_stack_blocks (push_new_stage m1) f1 = Some m1'),
      inject j (upstar g) m1' m2.
 Proof.
@@ -7983,7 +7998,7 @@ Lemma record_stack_block_inject_left':
      (INJ: inject j g m1 m2)
      (FAP: frame_at_pos (stack_adt m2) 0 f2)
      (G0: g O = Some O)
-     (FI: tframe_inject j (f1::nil) f2)
+     (FI: tframe_inject j (perm m1) (f1::nil) f2)
      (RSB: record_stack_blocks m1 f1 = Some m1'),
      inject j g m1' m2.
 Proof.
@@ -8046,8 +8061,7 @@ Lemma inject_frame_flat a thr:
 Proof.
   destruct a; try (econstructor; inversion 1; tauto).
   apply Forall_forall. unfold flat_inj; intros. destr_in H0. 
-  simpl in *. inv H0. destruct x. simpl in *.
-  erewrite in_lnr_get_assoc; eauto. 
+  simpl in *. inv H0. destruct x. simpl in *. eauto.
 Qed.
 
 Lemma record_stack_blocks_sep:
@@ -8125,7 +8139,7 @@ Qed.
 Lemma record_stack_inject_left_zero:
   forall j g m1 s1 s2 f1 f2
     (FAP: frame_at_pos s2 0 f2)
-    (FI: tframe_inject j f1 f2)
+    (FI: tframe_inject j m1 f1 f2)
     (SI: stack_inject j g m1 s1 s2)
     (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z s2)
     (WTF: wf_tframe m1 j f1)
@@ -9204,6 +9218,7 @@ Proof.
   exfalso; apply n. destruct v as (v1 & v2 & v3); repeat split; eauto. inversion 1.
   intros; eapply inject_push_new_stage; eauto.
   intros; eapply inject_push_new_stage_left; eauto.
+  intros; eapply inject_push_new_stage_right; eauto.
   reflexivity.
   reflexivity. reflexivity.
 

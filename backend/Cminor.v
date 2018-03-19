@@ -574,7 +574,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
                          (MSA1: match_stack_adt (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack_adt m)),
       stack_inv (State f s k (Vptr sp o) e m)
   | stack_inv_call: forall k fd args m sz
-                      (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
+                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
                       (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
       stack_inv (Callstate fd args k m sz)
   | stack_inv_return: forall k res m 

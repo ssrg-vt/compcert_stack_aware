@@ -633,12 +633,12 @@ Section STACKINV.
                          (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
       stack_inv (State s f (Vptr sp o) pc rs m)
   | stack_inv_call: forall s fd args m sz
-                      (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
+                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
                       (MSA1: match_stack_adt (map block_of_stackframe s)
                                              (tl (Mem.stack_adt m))),
       stack_inv (Callstate s fd args m sz)
   | stack_inv_return: forall s res m
-                        (TOPNOPERM: Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
+                        (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
                         (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
       stack_inv (Returnstate s res m).
 

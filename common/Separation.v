@@ -1075,7 +1075,7 @@ Lemma record_stack_block_parallel_rule:
                frame_adt_size_pos:= Z.le_max_l _ _
 
             |} ->
-      (Mem.top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2)) ->
+      (top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2)) ->
       stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
     exists m2',
       Mem.record_stack_blocks m2 fa' = Some m2' /\
@@ -1088,7 +1088,7 @@ Proof.
   - setoid_rewrite Forall_forall.  intros. destruct x.  simpl in *.
     rewrite fablocks in H. simpl in H. destruct H; try easy. inv H.
     simpl in *. rewrite FB in H0; inv H0.
-    rewrite peq_true. eexists; split; eauto.
+    eexists; split; eauto.
     constructor.
     + intros.
       erewrite PERM1; eauto.
@@ -1133,7 +1133,7 @@ Lemma record_stack_block_parallel_rule_2:
     (forall (ofs : Z) (k : perm_kind) (p : permission),
         Mem.perm m2 b' ofs k p -> 0 <= ofs < frame_size fi) ->
     (forall bb delta0, j bb = Some (b', delta0) -> bb = b) ->
-    (Mem.top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2 )) ->
+    (top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2 )) ->
     stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
     exists m2',
       Mem.record_stack_blocks m2 (make_singleton_frame_adt' b' fi n) = Some m2' /\

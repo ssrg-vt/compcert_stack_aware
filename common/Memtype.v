@@ -286,20 +286,6 @@ Definition mem_unchanged (T: mem -> mem -> Prop) :=
            /\ (forall P, strong_unchanged_on P m1 m2)
            /\ (forall b o chunk, load chunk m2 b o = load chunk m1 b o).
 
-Definition wf_tframe_strong (m: perm_type) (j: meminj) (f: tframe_adt) : Prop :=
-  forall b,
-    j b <> None ->
-    in_frames f b ->
-    forall o k p, ~ m b o k p.
-
-Inductive top_tframe_prop (P: tframe_adt -> Prop) : StackADT.stack_adt -> Prop :=
-| top_tframe_prop_intro tf r:
-    P tf ->
-    top_tframe_prop P (tf::r).
-
-Definition top_tframe_no_perm (m: perm_type) (s: StackADT.stack_adt) : Prop :=
-  top_tframe_prop (wf_tframe_strong m inject_id) s.
-
 End WITHMEMORYMODELOPS.
 
 Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem} 
@@ -1665,7 +1651,7 @@ for [unchanged_on]. *)
    forall m1 m1' m2 j g f1 f2
      (INJ: inject j g m1 m2)
      (FAP2: frame_at_pos (stack_adt m2) 0 f2)
-     (FI: tframe_inject j (f1::nil) f2)
+     (FI: tframe_inject j (perm m1) (f1::nil) f2)
      (RSB: record_stack_blocks (push_new_stage m1) f1 = Some m1'),
      inject j (fun n : nat => if Nat.eq_dec n 0 then Some O else g (Init.Nat.pred n)) m1' m2;
 
@@ -1674,7 +1660,7 @@ for [unchanged_on]. *)
      (INJ: inject j g m1 m2)
      (FAP2: frame_at_pos (stack_adt m2) 0 f2)
      (G0: g O = Some O)
-     (FI: tframe_inject j (f1::nil) f2)
+     (FI: tframe_inject j (perm m1) (f1::nil) f2)
      (RSB: record_stack_blocks m1 f1 = Some m1'),
      inject j g m1' m2;
 
@@ -1853,7 +1839,8 @@ for [unchanged_on]. *)
     forall m1 m1' m2 j g f1 f2
       (INJ: inject j g m1 m2)
       (FAP2: frame_at_pos (stack_adt m2) O f2)
-      (FI: tframe_inject j (f1::nil) f2)
+      (FI: tframe_inject j (perm m1) (f1::nil) f2)
+      (HP: has_perm_frame (perm m1) j f1)
       (SZ2: Forall (fun f => Forall (fun f =>0 = frame_adt_size f) f)%Z (stack_adt m2)) 
       (RSB: record_stack_blocks (push_new_stage m1) f1 = Some m1'),
       inject j (fun n : nat => if Nat.eq_dec n O then Some O else g (pred n)) m1' m2;
@@ -2014,6 +2001,13 @@ push_new_stage_nextblock: forall m, nextblock (push_new_stage m) = nextblock m;
      stack_adt m2 <> nil ->
      inject j (upstar g) (push_new_stage m1) m2;
 
+ inject_push_new_stage_right {injperm: InjectPerm}:
+   forall j g m1 m2,
+     inject j g m1 m2 ->
+     top_tframe_no_perm (perm m1) (stack_adt m1) ->
+     g 1%nat = Some O ->
+     inject j (fun n => if Nat.eq_dec n O then Some O else option_map S (g n)) m1 (push_new_stage m2);
+
 
  push_new_stage_length_stack:
       forall m,
@@ -2049,7 +2043,7 @@ wf_stack_mem:
  record_stack_blocks_top_tframe_no_perm:
    forall m1 f m2,
      Mem.record_stack_blocks m1 f = Some m2 ->
-     Mem.top_tframe_no_perm (Mem.perm m1) (Mem.stack_adt m1);
+    top_tframe_no_perm (Mem.perm m1) (Mem.stack_adt m1);
 
  extends_push {injperm: InjectPerm}:
    forall m1 m2,
@@ -2628,12 +2622,9 @@ Proof.
   red; intros thr f PLT.
   eapply Forall_impl. 2: eauto. simpl; intros a IN PLTa b2 delta FI.
   unfold flat_inj in FI. destr_in FI. inv FI.
-  erewrite in_lnr_get_assoc.
-  instantiate (1 := snd a). eexists; split; eauto.
-  destruct f; auto.
+  eexists; split; eauto.
   rewrite <- surjective_pairing. auto.
 Qed.
-
 
 Lemma noperm_top:
   forall m,
@@ -2641,7 +2632,7 @@ Lemma noperm_top:
       (f::_)::_ => forall b, in_frame f b -> forall o k p, ~ Mem.perm m b o k p
     | _ => False
     end ->
-    Mem.top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m).
+    top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m).
 Proof.
   intros.
   repeat destr_in H.
@@ -2663,7 +2654,7 @@ Lemma record_push_inject:
     (tc: bool)
     m1'
     (RSB: Mem.record_stack_blocks (if tc then m1 else Mem.push_new_stage m1) fi1 = Some m1')
-    (TTNP: tc = true -> Mem.top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
+    (TTNP: tc = true -> top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
     newframeinj
     (NFI: forall b, newframeinj b = (if tc then g else up g) b)
     (NFI0: newframeinj O = Some O)
@@ -2716,7 +2707,7 @@ Lemma record_push_inject_flat:
     (tc: bool)
     m1'
     (RSB: Mem.record_stack_blocks (if tc then m1 else Mem.push_new_stage m1) fi1 = Some m1')
-    (TTNP: tc = true -> Mem.top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
+    (TTNP: tc = true -> top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
     (SZ: size_stack (tl (stack_adt (if tc then m2 else Mem.push_new_stage m2))) <= size_stack (tl (stack_adt (if tc then m1 else Mem.push_new_stage m1)))),
   exists m2', Mem.record_stack_blocks (if tc then m2 else Mem.push_new_stage m2) fi2 = Some m2' /\
          Mem.inject j (flat_frameinj (length (Mem.stack_adt m1'))) m1' m2'.

@@ -1177,7 +1177,6 @@ Proof.
       red. red. simpl. constructor; auto.
       simpl.
       rewrite F. inversion 1; subst.
-      rewrite peq_true.
       eexists; split. eauto.
       apply inject_frame_info_id.
     }
@@ -1576,7 +1575,6 @@ Proof.
   instantiate (1 := make_singleton_frame_adt b' 0 0).
   - red; red. rewrite Forall_forall. simpl. intros (bb & fi) [AA|[]] b2 delta FB; inv AA; simpl in *.
     rewrite FNEW in FB; inv FB.
-    rewrite peq_true.
     eexists; split; eauto.
   - erewrite Mem.alloc_stack_blocks; eauto.
     erewrite Genv.init_mem_stack_adt; eauto.

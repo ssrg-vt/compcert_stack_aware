@@ -2425,8 +2425,7 @@ Proof.
     exploit me_vars. eauto. rewrite EID.  intro A; inv A. inv H7.
     intros b2 delta0 FB. simpl in *. rewrite FB in H11. inv H11.
     eexists; split. 
-    rewrite peq_true. eauto.
-    split; simpl; intros; auto.
+    auto. split; simpl; intros; auto.
     eapply Mem.perm_alloc_3.
     eauto.
     eapply Mem.perm_inject. apply FB. eauto.

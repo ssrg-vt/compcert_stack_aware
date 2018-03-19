@@ -480,7 +480,7 @@ Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_call:
     forall cs' fb rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
-      (TTNP: Mem.top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m'))
+      (TTNP: top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m'))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:

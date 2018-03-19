@@ -1292,7 +1292,7 @@ Lemma function_prologue_correct:
   Mem.alloc m1 0 f.(Linear.fn_stacksize) = (m2', sp) ->
   Mem.record_stack_blocks m2' (make_singleton_frame_adt sp (Linear.fn_stacksize f) (frame_size (frame_of_frame_env b))) = Some m2 ->
   Val.has_type parent Tptr -> Val.has_type ra Tptr ->
-  Mem.top_tframe_no_perm (Mem.perm m1') (Mem.stack_adt m1') ->
+  top_tframe_no_perm (Mem.perm m1') (Mem.stack_adt m1') ->
   stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m1') ->
   m1' |= minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** globalenv_inject ge j ** P ->
   exists j' rs' m2' sp' m3' m4' m5',
@@ -2414,7 +2414,7 @@ Inductive match_states: Linear.state -> Mach.state -> Prop :=
                  ** (mconj (minjection j (flat_frameinj (length (Mem.stack_adt m))) m) (minit_args_mach j sg_))
                  ** globalenv_inject ge j)
         (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
-        (TTNP: Mem.top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m')),
+        (TTNP: top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m')),
       match_states (Linear.Callstate cs f ls m sz) (Mach.Callstate cs' fb rs m')
   | match_states_return:
       forall sg_ cs ls m cs' rs m' j sg

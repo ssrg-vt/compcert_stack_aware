@@ -2118,6 +2118,101 @@ Proof.
   intros; apply eval_builtin_arg_push.
 Qed.
 
+
+  Lemma store_perm:
+    forall chunk m b' o' v m',
+      Mem.store chunk m b' o' v = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    split; intros.
+    eapply Mem.perm_store_2; eauto.
+    eapply Mem.perm_store_1; eauto.
+  Qed.
+
+
+  Lemma storev_perm:
+    forall chunk m addr v m',
+      Mem.storev chunk m addr v = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    intros. destruct addr; simpl in *; try congruence.
+    eapply store_perm; eauto.
+  Qed.
+
+  Lemma free_perm:
+    forall m b lo hi m',
+      Mem.free m b lo hi = Some m' ->
+      forall b' o k p,
+        Mem.perm m' b' o k p <-> if peq b b' && zle lo o && zlt o hi then False else Mem.perm m b' o k p.
+  Proof.
+    intros.
+    destr.
+    - rewrite ! andb_true_iff in Heqb0. intuition.
+      destruct zlt; simpl in *; try congruence.
+      destruct zle; simpl in *; try congruence.
+      destruct peq; simpl in *; try congruence.
+      subst.
+      eapply Mem.perm_free_2; eauto.
+    - rewrite ! andb_false_iff in Heqb0.
+      split; intros.
+      + eapply Mem.perm_free_3; eauto.
+      + eapply Mem.perm_free_1; eauto.
+        destruct Heqb0. destruct H1. destruct peq; simpl in *; try congruence. auto.
+        destruct zle; simpl in *; try congruence. right. left. omega.
+        destruct zlt; simpl in *; try congruence. right. right. omega.
+  Qed.
+
+  Lemma alloc_perm:
+    forall m lo hi m' b,
+      Mem.alloc m lo hi = (m',b) ->
+      forall b' o k p,
+        Mem.perm m' b' o k p <-> if peq b b' then lo <= o < hi else Mem.perm m b' o k p.
+  Proof.
+    split; intros.
+    eapply Mem.perm_alloc_inv in H0; eauto. destr_in H0; subst; destr.
+    destr_in H0. subst.
+    eapply Mem.perm_implies. eapply Mem.perm_alloc_2; eauto. constructor.
+    eapply Mem.perm_alloc_1; eauto.
+  Qed.
+
+  Lemma record_perm:
+    forall m fi m',
+      Mem.record_stack_blocks m fi = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    split; intros.
+    eapply Mem.record_stack_block_perm; eauto.
+    eapply Mem.record_stack_block_perm'; eauto.
+  Qed.
+
+
+  Lemma unrecord_perm:
+    forall m m',
+      Mem.unrecord_stack_block m = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    split; intros.
+    eapply Mem.unrecord_stack_block_perm; eauto.
+    eapply Mem.unrecord_stack_block_perm'; eauto.
+  Qed.
+
+  Lemma extcall_perm:
+    forall ef ge args m1 t res m2,
+      external_call ef ge args m1 t res m2 ->
+      forall b o k p,
+        in_stack (Mem.stack_adt m1) b ->
+        Mem.perm m2 b o k p <-> Mem.perm m1 b o k p.
+  Proof.
+    intros.
+    erewrite ec_perm_frames; eauto. 2: apply external_call_spec. tauto.
+  Qed.
+
+
+
 End WITHEXTERNALCALLS.
 
 Hint Constructors eval_builtin_arg: barg.
@@ -2177,3 +2272,55 @@ Ltac rewrite_perms_bw H :=
       apply (Mem.perm_store_2 _ _ _ _ _ _ H1) in H
     end
   end.
+
+Ltac rewnb :=
+  repeat
+    match goal with
+    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
+    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
+    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_free _ _ _ _ _ H)
+    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
+    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
+    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
+    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
+      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
+      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    end.
+
+
+
+Arguments store_perm {mem memory_model_ops _}.
+Arguments storev_perm {mem memory_model_ops _}.
+Arguments free_perm {mem memory_model_ops _}.
+Arguments alloc_perm {mem memory_model_ops _}.
+Arguments record_perm {mem memory_model_ops _}.
+Arguments unrecord_perm {mem memory_model_ops _}.
+Arguments extcall_perm {mem memory_model_ops external_calls_ops memory_model_prf symbols_inject_instance0 external_calls_props}.
+
+  Ltac rewrite_perms :=
+    match goal with
+    | H : Mem.store _ _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (store_perm _ _ _ _ _ _ H)
+    | H : Mem.storev _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (storev_perm _ _ _ _ _ H)
+    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (free_perm _ _ _ _ _ H)
+    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (alloc_perm _ _ _ _ _ H)
+    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (record_perm _ _ _ H)
+    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (unrecord_perm _ _ H)
+    | |- context [Mem.perm (Mem.push_new_stage _) _ _ _ _] =>
+      rewrite (Mem.push_new_stage_perm)
+    | H: external_call _ ?ge ?args ?m1 ?t ?res ?m2 |- context [Mem.perm ?m2 ?b _ _ _] =>
+      rewrite (extcall_perm _ _ _ _ _ _ _ H)
+    end.
