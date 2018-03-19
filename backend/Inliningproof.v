@@ -1045,57 +1045,143 @@ Definition blocks_of_stackframe stk :=
 Definition stack_injects j m :=
   forall b : block, in_stack (Mem.stack_adt m) b -> exists (b' : block) (delta : Z), j b = Some (b', delta).
 
-Axiom inline_sizes: frameinj -> stack_adt -> stack_adt -> Prop.
-Axiom inline_sizes_up:
-  forall g s1 s2,
-    inline_sizes g s1 s2 ->
-    inline_sizes (up g) (nil::s1) (nil::s2).
-Axiom inline_sizes_upstar:
-  forall g s1 s2,
-    inline_sizes g s1 s2 ->
-    inline_sizes (upstar g) (nil::s1) s2.
+Section INLINE_SIZES.
 
-Axiom inline_sizes_upright:
-  forall g s1 s2,
-    inline_sizes g s1 s2 ->
-    g O = Some O ->
-    g 1%nat = Some O ->
-    inline_sizes (fun n => if Nat.eq_dec n O then Some O else option_map S (g n)) s1 (nil::s2).
-Axiom inline_sizes_ext:
-  forall g1 g2 s1 s2,
-    inline_sizes g1 s1 s2 ->
-    (forall x, g1 x = g2 x) ->
-    inline_sizes g2 s1 s2.
+  Definition inline_sizes g s1 s2 :=
+    forall i1 i2 f1 f2
+      (FAP1: f1 @ s1 : i1)
+      (FAP2: f2 @ s2 : i2)
+      (Gi: g i1 = Some i2)
+      (LARGEST: forall i, g i = Some i2 -> (i <= i1)%nat),
+      size_frames f2 <= size_frames f1.
+
+  Lemma inline_sizes_up:
+    forall g s1 s2,
+      inline_sizes g s1 s2 ->
+      inline_sizes (up g) (nil::s1) (nil::s2).
+  Proof.
+    red; intros.
+    unfold up in Gi. destr_in Gi.
+    - inv Gi. apply frame_at_pos_last in FAP1.
+      apply frame_at_pos_last in FAP2. subst; reflexivity.
+    - unfold option_map in Gi. repeat destr_in Gi.
+      apply frame_at_pos_cons_inv in FAP1. 2: omega. 
+      apply frame_at_pos_cons_inv in FAP2. 2: omega. simpl in *.
+      eapply H; eauto.
+      intros. unfold up in LARGEST.
+      specialize (LARGEST (S i)). trim LARGEST.
+      destr. simpl. rewrite H0. reflexivity. omega.
+  Qed.
+
+  Lemma inline_sizes_upstar:
+    forall g s1 s2 n l,
+      inline_sizes g s1 s2 ->
+      compat_frameinj (S n :: l) g ->
+      inline_sizes (upstar g) (nil::s1) s2.
+  Proof.
+    red; intros.
+    unfold upstar in *.
+    repeat destr_in Gi.
+    specialize (LARGEST 1%nat). trim LARGEST. destr. simpl. apply H0. omega. omega.
+    apply frame_at_pos_cons_inv in FAP1. 2: omega.
+    eapply H; eauto.
+    intros.
+    specialize (LARGEST (S i)). trim LARGEST. destr. omega.
+  Qed.
+
+  Definition starup g :=
+    fun n => if Nat.eq_dec n O then Some O else option_map S (g n).
+  
+  Lemma inline_sizes_upright:
+    forall g s1 s2,
+      inline_sizes g s1 s2 ->
+      g O = Some O ->
+      g 1%nat = Some O ->
+      inline_sizes (starup g) s1 (nil::s2).
+  Proof.
+    unfold starup; red; intros.
+    repeat destr_in Gi.
+    - apply frame_at_pos_last in FAP2; subst. simpl. apply size_frames_pos.
+    - unfold option_map in H3; repeat destr_in H3.
+      apply frame_at_pos_cons_inv in FAP2. 2: omega. simpl in *.
+      eapply H; eauto.
+      intros.
+      destruct (Nat.eq_dec i O). subst. rewrite H0 in H2. inv H2. omega.
+      specialize (LARGEST i). trim LARGEST. destr. rewrite H2. reflexivity. omega.
+  Qed.
+
+  Lemma inline_sizes_ext:
+    forall g1 g2 s1 s2,
+      inline_sizes g1 s1 s2 ->
+      (forall x, g1 x = g2 x) ->
+      inline_sizes g2 s1 s2.
+  Proof.
+    red; intros. rewrite <- H0 in Gi; eapply H; eauto. setoid_rewrite H0; eauto.
+  Qed.
+  
+  Lemma inline_sizes_record:
+    forall g f1 r1 f2 r2 fr1 fr2 l
+      (SIZES: inline_sizes g (f1::r1) (f2::r2))
+      (EQ: frame_adt_size fr1 = frame_adt_size fr2)
+      (CFG: compat_frameinj (1%nat :: l) g),
+      inline_sizes g ((fr1::f1)::r1) ((fr2::f2)::r2).
+  Proof.
+    red; intros.
+    destruct i1.
+    - rewrite (proj1 CFG) in Gi by omega.
+      inv Gi. apply frame_at_pos_last in FAP1. apply frame_at_pos_last in FAP2. subst. simpl. rewrite EQ. omega.
+    - apply frame_at_pos_cons_inv in FAP1. 2: omega.
+      destruct i2.
+      eapply compat_frameinj_rec_above in Gi. 2: apply (proj2 CFG). 2: omega. omega.
+      apply frame_at_pos_cons_inv in FAP2. 2: omega. simpl in *.
+      eapply SIZES. apply frame_at_pos_cons. eauto.
+      apply frame_at_pos_cons. eauto. auto.
+      intros. auto.
+  Qed.
+  
+  Lemma inline_sizes_record_left:
+    forall g f1 r1 s2 fr1 n l
+      (SIZES: inline_sizes g (f1 :: r1) s2)
+      (CFINJ : compat_frameinj (n :: l) (downstar g))
+      (G0 : g 0%nat = Some 0%nat),
+      inline_sizes g ((fr1 :: f1) :: r1) s2.
+  Proof.
+    red; intros.
+    destruct i1.
+    - rewrite G0 in Gi.
+      inv Gi. apply frame_at_pos_last in FAP1. subst. simpl.
+      cut (n <> O). intro.
+      specialize (LARGEST 1%nat). trim LARGEST.
+      destruct CFINJ. unfold downstar in H0. rewrite H0. auto. omega. omega.
+      admit.
+    - apply frame_at_pos_cons_inv in FAP1. 2: omega.
+      simpl in *.
+      eapply SIZES. apply frame_at_pos_cons. eauto. eauto. auto. auto.
+  Admitted.
+
+  Axiom inline_sizes_down:
+    forall g s1 s2,
+      inline_sizes g s1 s2 ->
+      forall
+        (Gno0 : (forall i j : nat, g i = Some j -> (0 < i)%nat -> (0 < j)%nat))
+        (G0 : (g 0%nat = Some 0%nat)),
+        inline_sizes (down g) (tl s1) (tl s2).
+
+  Axiom inline_sizes_downstar:
+    forall g s1 s2 n l,
+      inline_sizes g s1 s2 ->
+      compat_frameinj (S n :: l) (downstar g) ->
+      inline_sizes (downstar g) (tl s1) s2.
+
 Axiom inline_sizes_le:
   forall g s1 s2 l,
     inline_sizes g s1 s2 ->
     compat_frameinj (1%nat :: l) g ->
     size_stack (tl s2) <= size_stack (tl s1).
-Axiom inline_sizes_record:
-  forall g f1 r1 f2 r2 fr1 fr2,
-    inline_sizes g (f1::r1) (f2::r2) ->
-    frame_adt_size fr1 = frame_adt_size fr2 ->
-    inline_sizes g ((fr1::f1)::r1) ((fr2::f2)::r2).
-Axiom inline_sizes_record_left:
-  forall g f1 r1 s2 fr1,
-    inline_sizes g (f1 :: r1) s2 ->
-    inline_sizes g ((fr1 :: f1) :: r1) s2.
 
-Axiom inline_sizes_down:
-  forall g s1 s2,
-    inline_sizes g s1 s2 ->
-    forall
-      (Gno0 : (forall i j : nat, g i = Some j -> (0 < i)%nat -> (0 < j)%nat))
-      (G0 : (g 0%nat = Some 0%nat)),
-      inline_sizes (down g) (tl s1) (tl s2).
+End INLINE_SIZES.
 
-Axiom inline_sizes_downstar:
-  forall g s1 s2 n l,
-    inline_sizes g s1 s2 ->
-    compat_frameinj (S n :: l) (downstar g) ->
-    inline_sizes (downstar g) (tl s1) s2.
 
-    
 Inductive match_states: RTL.state -> RTL.state -> Prop :=
 | match_regular_states: forall stk f sp pc rs m stk' f' sp' rs' m' F g fenv ctx n l
         (MS: match_stacks_inside F m m' n l stk stk' f' ctx sp' rs')
@@ -1548,7 +1634,8 @@ Proof.
   inv SI'. inv MSA1. congruence.
   red. rewrite_stack_blocks. setoid_rewrite in_stack_cons. intros b [[]|]; eauto.
   red; intros. apply loc_private_push_l. apply PRIV. destruct H16. omega.
-  repeat rewrite_stack_blocks. apply inline_sizes_upstar; auto.
+  repeat rewrite_stack_blocks.
+  eapply inline_sizes_upstar; eauto.
 
 - (* tailcall *)
   exploit match_stacks_inside_globalenvs; eauto. intros [bound G].
@@ -2033,7 +2120,7 @@ Proof.
     2: eapply compat_frameinj_pop_right. 2: eauto.
     unfold upstar, downstar. simpl. intros. destr. rewrite Nat.succ_pred by omega. auto.
   + repeat rewrite_stack_blocks. revert EQ1; rewrite_stack_blocks. intro.
-    rewrite EQ1 in SIZES.
+    rewrite EQ1 in SIZES. inv MS0.
     eapply inline_sizes_record_left; eauto.
     
 - (* external function *)
