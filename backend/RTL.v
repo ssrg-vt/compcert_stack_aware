@@ -628,6 +628,16 @@ Section STACKINV.
   Definition stack_equiv_inv s1 s2 :=
     stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt (mem_state s1)) (Mem.stack_adt (mem_state s2)).
 
+
+  Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
+  | match_stack_adt_nil s: match_stack_adt nil s
+  | match_stack_adt_cons lsp s f r sp bi z
+                         (REC: match_stack_adt lsp s)
+                         (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
+                         (PUB: forall o, frame_perm bi o = Public)
+                         (SIZE: frame_size bi = z):
+      match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
+
   Inductive stack_inv : state -> Prop :=
   | stack_inv_regular: forall s f sp pc rs m o
                          (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
