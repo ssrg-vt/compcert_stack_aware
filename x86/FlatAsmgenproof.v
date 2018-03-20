@@ -1747,7 +1747,7 @@ Definition null_or_valid_ptr (v:val) : Prop :=
   v = Vnullptr \/ exists (b : block) (ofs : ptrofs), v = Vptr b ofs.
 
 Definition stack_block_inject (j:meminj) : Prop :=
-  j (Genv.genv_next ge) = Some (mem_block, Genv.genv_stack_start tge).
+  j (Genv.genv_next ge) = Some (mem_block, 0).
 
 Definition agree_ge_rsp_ptr (rs:regset): Prop :=
   forall b ofs, (rs RSP) = Vptr b ofs -> b = Genv.genv_next ge.
@@ -1780,6 +1780,50 @@ Proof.
       intros (rs2' & l' & LNTH & GLBL & RSINJ' & MINJ').
       exists rs2', l'. split. simpl. erewrite zeq_false; auto. split; auto.
 Qed.
+
+
+Lemma Vundef_null_ptr_eq_absurd :
+  ~ Vundef = Vnullptr.
+Proof.
+  unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
+Qed.
+
+Lemma Vundef_null_or_valid_ptr_absurd :
+  ~null_or_valid_ptr Vundef.
+Proof.
+  unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
+  - apply Vundef_null_ptr_eq_absurd. auto.
+  - destruct H as (b & ofs & EQ). congruence.
+Qed.
+
+Lemma Vfloat_null_ptr_eq_absurd : forall f,
+    ~ Vfloat f = Vnullptr.
+Proof.
+  unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
+Qed.
+
+Lemma Vfloat_null_or_valid_ptr_absurd : forall f,
+    ~null_or_valid_ptr (Vfloat f).
+Proof.
+  unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
+  - eapply Vfloat_null_ptr_eq_absurd. eauto.
+  - destruct H as (b & ofs & EQ). congruence.
+Qed.
+
+Lemma Vsingle_null_ptr_eq_absurd : forall f,
+    ~ Vsingle f = Vnullptr.
+Proof.
+  unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
+Qed.
+
+Lemma Vsingle_null_or_valid_ptr_absurd : forall f,
+    ~null_or_valid_ptr (Vsingle f).
+Proof.
+  unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
+  - eapply Vsingle_null_ptr_eq_absurd. eauto.
+  - destruct H as (b & ofs & EQ). congruence.
+Qed.
+
 
 
 (** The internal step preserves the invariant *)
@@ -1938,22 +1982,7 @@ Proof.
 
   - (* Pallocframe *)
     generalize (RSINJ RSP). intros RSPINJ.
-    assert (null_or_valid_ptr (rs1 RSP)) as RSPVALID. admit.
-
-    Lemma Vundef_null_ptr_eq_absurd :
-      ~ Vundef = Vnullptr.
-    Proof.
-      unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
-    Qed.
-
-    Lemma Vundef_null_or_valid_ptr_absurd :
-      ~null_or_valid_ptr Vundef.
-    Proof.
-      unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
-      - apply Vundef_null_ptr_eq_absurd. auto.
-      - destruct H as (b & ofs & EQ). congruence.
-    Qed.
-      
+    assert (null_or_valid_ptr (rs1 RSP)) as RSPVALID. admit.      
     assert (agree_ge_rsp_ptr rs1) as GERSP. admit.
     assert (stack_block_inject j) as SBINJ. admit.
     unfold stack_block_inject in *.
@@ -1981,102 +2010,52 @@ Proof.
       (* Find the resulting state *)
       setoid_rewrite <- H7. simpl.
       setoid_rewrite <- H7 in STORELINK'.
-      assert (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc Mem.stack_limit frame)) ofs_link) + Genv.genv_stack_start tge =
-              Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_link)) 
-        as LINKADDREQ.
-      { 
-        unfold offset_after_alloc. 
-        set (fsz := align (Z.max 0 (frame_size frame)) 8) in *.
-        set (slim := Mem.stack_limit) in *.
-        set (sstart := Genv.genv_stack_start tge) in *.
-        rewrite Ptrofs.add_unsigned. 
-        
-        rewrite (Ptrofs.unsigned_repr (slim - fsz)).
-        rewrite (Ptrofs.unsigned_repr (slim - fsz + Ptrofs.unsigned ofs_link)).
-        rewrite Ptrofs.add_unsigned. 
-        rewrite (Ptrofs.unsigned_repr (sstart + slim - fsz)).
-        rewrite Ptrofs.unsigned_repr. omega.
-        
-        
-        
-        
-        
-      
-      
-      admit.
-      rewrite <- LINKADDREQ. rewrite STORELINK'.
-      setoid_rewrite <- H7. simpl. 
-      assert ((Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc Mem.stack_limit frame)) ofs_ra) + Genv.genv_stack_start tge) = 
-              (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Genv.genv_stack_start tge + Mem.stack_limit) frame)) ofs_ra)))
-        as RAADDREQ. admit.
-      rewrite <- RAADDREQ. setoid_rewrite STORERA'. auto.
+      rewrite <- Zplus_0_r_reverse in STORELINK', STORERA'.
+      rewrite STORELINK'.
+      setoid_rewrite <- H7. simpl.
+      setoid_rewrite STORERA'. auto.
       (* Solve the match state *)
       eapply match_states_intro; eauto.
       setoid_rewrite <- H7. unfold RSP, RAX. apply nextinstr_pres_inject.
       repeat apply regset_inject_expand; eauto.
       unfold flatptr. simpl. eapply Val.inject_ptr; eauto.
-      admit.
+      rewrite Ptrofs.add_zero. auto.
       eapply store_pres_glob_block_valid; eauto.
       eapply store_pres_glob_block_valid; eauto.
-    + admit.
-    + 
-
-    Lemma Vfloat_null_ptr_eq_absurd : forall f,
-      ~ Vfloat f = Vnullptr.
-    Proof.
-      unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
-    Qed.
-
-    Lemma Vfloat_null_or_valid_ptr_absurd : forall f,
-      ~null_or_valid_ptr (Vfloat f).
-    Proof.
-      unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
-      - eapply Vfloat_null_ptr_eq_absurd. eauto.
-      - destruct H as (b & ofs & EQ). congruence.
-    Qed.
-
-    exploit Vfloat_null_or_valid_ptr_absurd; eauto. intros. contradiction.
-
-    + 
-
-    Lemma Vsingle_null_ptr_eq_absurd : forall f,
-      ~ Vsingle f = Vnullptr.
-    Proof.
-      unfold not, Vnullptr. intros. destruct Archi.ptr64; congruence.
-    Qed.
-
-    Lemma Vsingle_null_or_valid_ptr_absurd : forall f,
-      ~null_or_valid_ptr (Vsingle f).
-    Proof.
-      unfold not. intros. unfold null_or_valid_ptr in *. destruct H.
-      - eapply Vsingle_null_ptr_eq_absurd. eauto.
-      - destruct H as (b & ofs & EQ). congruence.
-    Qed.
-
-    exploit Vsingle_null_or_valid_ptr_absurd; eauto. intros. contradiction.
-
+    + inv H3. eexists; eexists; split.
+      (* Find the resulting state *)
+      setoid_rewrite <- H7. simpl.
+      setoid_rewrite <- H7 in STORELINK'.
+      rewrite <- Zplus_0_r_reverse in STORELINK', STORERA'.
+      rewrite STORELINK'.
+      setoid_rewrite <- H7. simpl.
+      setoid_rewrite STORERA'. auto.
+      (* Solve the match state *)
+      eapply match_states_intro; eauto.
+      setoid_rewrite <- H7. unfold RSP, RAX. apply nextinstr_pres_inject.
+      repeat apply regset_inject_expand; eauto.
+      unfold flatptr. simpl. eapply Val.inject_ptr; eauto.
+      rewrite Ptrofs.add_zero. auto.
+      eapply store_pres_glob_block_valid; eauto.
+      eapply store_pres_glob_block_valid; eauto.
+    + exploit Vfloat_null_or_valid_ptr_absurd; eauto. intros. contradiction.
+    + exploit Vsingle_null_or_valid_ptr_absurd; eauto. intros. contradiction.
     + inv H3. unfold agree_ge_rsp_ptr in *. exploit GERSP; eauto. intros. subst.
       rewrite SBINJ in *. inv H8.
       eexists; eexists; split.
       (* Find the resulting state *)
+      rewrite <- Zplus_0_r_reverse in STORELINK', STORERA'.
       setoid_rewrite <- H7. simpl. setoid_rewrite <- H7 in STORELINK'.
-      assert (Mem.store Mptr m2 mem_block
-                        (Ptrofs.unsigned
-                           (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr (Genv.genv_stack_start tge)))) frame)) ofs_link))
-                        (Vptr mem_block (Ptrofs.add i (Ptrofs.repr (Genv.genv_stack_start tge)))) = Some m'). admit.
-      rewrite H3. setoid_rewrite <- H7. simpl.
-      assert (Mem.store Mptr m' mem_block
-                        (Ptrofs.unsigned
-                           (Ptrofs.add (Ptrofs.repr (offset_after_alloc (Ptrofs.unsigned (Ptrofs.add i (Ptrofs.repr (Genv.genv_stack_start tge)))) frame)) ofs_ra)) 
-                        (rs2 RA) = Some m2'). admit.
-      rewrite H5. auto.
+      rewrite Ptrofs.add_zero. rewrite Ptrofs.add_zero in STORELINK'. rewrite STORELINK'.
+      setoid_rewrite <- H7. simpl. rewrite Ptrofs.add_zero. setoid_rewrite STORERA'.
+      auto.
       (* Solve match states *)
       eapply match_states_intro; eauto.
       eapply nextinstr_pres_inject; eauto. 
       repeat eapply regset_inject_expand; eauto.
       setoid_rewrite <- H7. simpl. 
       eapply Val.inject_ptr; eauto.
-      admit.
+      repeat rewrite Ptrofs.add_zero. auto.
       eapply store_pres_glob_block_valid; eauto.
       eapply store_pres_glob_block_valid; eauto.
 

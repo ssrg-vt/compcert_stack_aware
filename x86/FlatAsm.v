@@ -454,7 +454,7 @@ Definition compare_floats32 := Asm.compare_floats32.
 Definition current_offset (ge:genv) (v: val) :=
   match v with
     Vptr stk ofs => Ptrofs.unsigned ofs
-  | _ => Genv.genv_stack_start ge + Mem.stack_limit
+  | _ => Mem.stack_limit
   end.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge: genv) (ii: instr_with_info) (rs: regset) (m: mem) : outcome :=
