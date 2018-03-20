@@ -1146,9 +1146,8 @@ Section INLINE_SIZES.
   Qed.
   
   Lemma inline_sizes_record_left:
-    forall g f1 r1 s2 fr1 n l
+    forall g f1 r1 s2 fr1
       (SIZES: inline_sizes g (f1 :: r1) s2)
-      (CFINJ : compat_frameinj (n :: l) (downstar g))
       (G0 : g 0%nat = Some 0%nat),
       inline_sizes g ((fr1 :: f1) :: r1) s2.
   Proof.
@@ -1189,9 +1188,8 @@ Section INLINE_SIZES.
   Qed.
 
   Lemma inline_sizes_downstar:
-    forall g s1 s2 n l,
+    forall g s1 s2,
       inline_sizes g s1 s2 ->
-      compat_frameinj (S n :: l) (downstar g) ->
       inline_sizes (downstar g) (tl s1) s2.
   Proof.
     red; intros.
@@ -1200,7 +1198,7 @@ Section INLINE_SIZES.
     eapply H; eauto.
     intros.
     unfold downstar, option_map in LARGEST.
-    destruct i. omega. apply LARGEST in H1. omega.
+    destruct i. omega. apply LARGEST in H0. omega.
   Qed.
 
   Fixpoint maxl (l: list nat) : option nat :=
