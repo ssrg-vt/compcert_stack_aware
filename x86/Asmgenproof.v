@@ -1360,7 +1360,7 @@ Transparent destroyed_by_jumptable.
   exploit Mem.free_parallel_extends; eauto. constructor. intros (m2' & E & F).
   monadInv H5.
   exploit code_tail_next_int; eauto. intro CT1.
-  inv CSC. inv CallStackConsistency.
+  inv CSC. inversion CallStackConsistency. subst.
   edestruct (Mem.unrecord_stack_block_succeeds m') as (m2 & USB & STKEQ). rewrite_stack_blocks.
   rewrite <- H11. reflexivity.
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB' & EXT'). 2: apply USB. eauto. subst.
@@ -1379,23 +1379,22 @@ Transparent destroyed_by_jumptable.
     rewrite if_forall_dec.
     unfold proj_sumbool.
     erewrite frame_size_correct; eauto.
-    rewrite zeq_true. rewrite USB'.
+    rewrite zeq_true. 
     unfold check_init_sp_in_stack. destr; eauto.
     destr_in Heqb.
     exfalso.
-    destruct (in_stack_dec (Mem.stack_adt m3') b); simpl in Heqb; try congruence.
+    destruct (in_stack_dec (Mem.stack_adt m2') b); simpl in Heqb; try congruence.
     apply n.
     eapply lp_has_init_sp.
-    repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H11. simpl. eauto. f_equal.
+    repeat rewrite_stack_blocks. rewrite <- SAMEADT. eauto. f_equal.
     eapply init_sp_ofs_zero; eauto.
     constructor; auto.
     red; split; auto.
     simpl. erewrite agree_sp in H9; eauto. inv H9; auto.
-
     apply star_one. eapply exec_step_internal.
     transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H2. simpl. eauto.
     eapply functions_transl; eauto. eapply find_instr_tail; eauto.
-    simpl. eauto. traceEq.
+    simpl. rewrite USB'. eauto. traceEq.
   +
     econstructor. auto. eauto. auto.
     apply agree_set_other; auto.
@@ -1404,10 +1403,7 @@ Transparent destroyed_by_jumptable.
     eapply agree_change_sp; eauto. eapply parent_sp_def; eauto. apply init_sp_not_vundef.
     eapply parent_sp_type; eauto. apply init_sp_type.
     econstructor; eauto.
-    rewrite <- SAMEADT. eauto. rewrite <- H11.
-    econstructor; eauto.
-    eauto.
-    eauto.
+    rewrite <- SAMEADT. eauto. auto. auto.
     repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
     destr; eauto.
     repeat rewrite_stack_blocks. congruence.

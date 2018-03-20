@@ -29,9 +29,10 @@ Section WITHMEMORYMODEL.
   Definition stack_invar (i: instruction) :=
     match i with
       Pallocframe _ _  
-    | Pfreeframe _ _ _
+    | Pfreeframe _ _
     | Pcall_s _ _
-    | Pcall_r _ _ => false
+    | Pcall_r _ _ 
+    | Pret => false
     | _ => true
     end.
 
@@ -588,6 +589,7 @@ Section WITHMEMORYMODEL.
       repeat destr_in H3.
       intuition subst;
         red; intros; simpl in *; solve_rs.
+      repeat destr_in H3. solve_rs.
       eapply H2; eauto.
   Qed.
 
@@ -646,7 +648,6 @@ Section WITHMEMORYMODEL.
                 | idtac ].
   Qed.
 
-
   Definition asm_instr_nb_fw i:=
     forall F V (ge: _ F V) f rs1 m1 rs2 m2 isp,
       Asm.exec_instr isp ge f i rs1 m1 = Next rs2 m2 ->
@@ -697,15 +698,14 @@ Section WITHMEMORYMODEL.
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
     - rewrite Mem.push_new_stage_nextblock; xomega.
     - rewrite Mem.push_new_stage_nextblock; xomega.
+    - repeat destr_in H1. rewnb. xomega.
     - repeat destr_in H1.
       apply Mem.record_stack_block_nextblock in Heqo0.
       apply Mem.nextblock_store in Heqo.
       apply Mem.nextblock_alloc in Heqp. 
       rewrite Heqo0, Heqo, Heqp. xomega.
     - repeat (destr_in H1; [idtac]). inv H1.
-      rewrite <- (Mem.nextblock_free _ _ _ _ _ Heqo0).
-      destr_in Heqo1.
-      erewrite <- Mem.unrecord_stack_block_nextblock by eauto. xomega. inv Heqo1. xomega.
+      rewrite <- (Mem.nextblock_free _ _ _ _ _ Heqo0). xomega.
     - repeat destr_in H1. apply Ple_refl.
   Qed.
 

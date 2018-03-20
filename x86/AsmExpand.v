@@ -23,7 +23,7 @@ Definition expand_instr (i: instruction) : list instruction :=
     [Psubl_ri RSP (Int.repr sz)(* ; *)
      (* Pleal RAX addr1; *)
      (* Pmovl_mr addr2 RAX *)]
-  | Pfreeframe sz ofs_ra (* ofs_link *) unrecord => 
+  | Pfreeframe sz ofs_ra (* ofs_link *) => 
     let sz := (sp_adjustment_32 sz) in
     [Paddl_ri RSP (Int.repr sz)]
   | _ => [i]
