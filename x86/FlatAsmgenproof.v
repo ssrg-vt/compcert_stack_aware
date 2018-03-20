@@ -239,6 +239,9 @@ Definition match_find_funct (j:meminj) :=
 Definition glob_block_valid (m:mem) := 
   forall b g, Genv.find_def ge b = Some g -> Mem.valid_block m b.
 
+Definition stack_block_inject (j:meminj) : Prop :=
+  j (Genv.genv_next ge) = Some (mem_block, 0).
+
 Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
 | match_states_intro: forall (j:meminj) (rs: regset) (m: mem) (rs': regset) (m':mem)
                         (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE)
@@ -250,7 +253,8 @@ Inductive match_states: Asm.state -> FlatAsm.state -> Prop :=
                         (MATCHFINDFUNCT: match_find_funct j)
                         (RSINJ: regset_inject j rs rs')
                         (GBVALID: glob_block_valid m)
-                        (GMUNDEF: gid_map_for_undef_syms gm),
+                        (GMUNDEF: gid_map_for_undef_syms gm)
+                        (SBINJ:stack_block_inject j),
     match_states (State rs m) (State rs' m').
 
 
@@ -890,7 +894,8 @@ Lemma exec_load_step: forall j rs1 rs2 m1 m2 rs1' m1' gm lm sz chunk rd a1 a2
                           (MATCHFINDFUNCT: match_find_funct j)
                           (RSINJ: regset_inject j rs1 rs2)
                           (GBVALID: glob_block_valid m1)
-                          (GMUNDEF: gid_map_for_undef_syms gm),
+                          (GMUNDEF: gid_map_for_undef_syms gm)
+                          (SBINJ:stack_block_inject j),
     Asm.exec_load ge chunk m1 a1 rs1 rd sz = Next rs1' m1' ->
     transl_addr_mode gm a1 = OK a2 ->
     exists rs2' m2',
@@ -931,7 +936,8 @@ Lemma exec_store_step: forall j rs1 rs2 m1 m2 rs1' m1' gm lm sz chunk r a1 a2 dr
                          (MATCHFINDFUNCT: match_find_funct j)
                          (RSINJ: regset_inject j rs1 rs2)
                          (GBVALID: glob_block_valid m1)
-                         (GMUNDEF: gid_map_for_undef_syms gm),
+                         (GMUNDEF: gid_map_for_undef_syms gm)
+                         (SBINJ:stack_block_inject j),
     Asm.exec_store ge chunk m1 a1 rs1 r dregs sz = Next rs1' m1' ->
     transl_addr_mode gm a1 = OK a2 ->
     exists rs2' m2',
@@ -1746,9 +1752,6 @@ Qed.
 Definition null_or_valid_ptr (v:val) : Prop :=
   v = Vnullptr \/ exists (b : block) (ofs : ptrofs), v = Vptr b ofs.
 
-Definition stack_block_inject (j:meminj) : Prop :=
-  j (Genv.genv_next ge) = Some (mem_block, 0).
-
 Definition agree_ge_rsp_ptr (rs:regset): Prop :=
   forall b ofs, (rs RSP) = Vptr b ofs -> b = Genv.genv_next ge.
 
@@ -1825,6 +1828,34 @@ Proof.
 Qed.
 
 
+Lemma exec_instr_pres_rsp : forall f i rs1 rs1' m1 m1',
+  asm_instr_no_rsp i ->
+  RawAsmgen.exec_instr ge f i rs1 m1 = Next rs1' m1' ->
+  null_or_valid_ptr (rs1 RSP) -> null_or_valid_ptr (rs1' RSP).
+Proof.
+  intros. destruct i. 
+  destruct i; simpl in *;
+    try (exploit H; eauto; intros; unfold RSP in *; congruence).
+  - destruct (Mem.store Mptr m1 (Genv.genv_next ge)
+                        (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_link)) (rs1 Asm.RSP)) 
+             eqn:MSTORELINK;
+      try inv H0.
+    destruct (Mem.store Mptr m (Genv.genv_next ge) (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (offset_after_alloc (current_offset (rs1 Asm.RSP)) frame)) ofs_ra))
+                        (rs1 Asm.RA))
+             eqn:MSTORERA;
+    try inv H3.
+    unfold null_or_valid_ptr. right. eexists; eexists.
+    erewrite nextinstr_rsp. rewrite Pregmap.gss. auto.
+  - destruct (Mem.loadv Mptr m1 (Val.offset_ptr (rs1 Asm.RSP) ofs_ra)) eqn:LOADRA;
+      try inv H0.
+    destruct (Mem.loadv Mptr m1 (Val.offset_ptr (rs1 Asm.RSP) ofs_link)) eqn:LOADRSP;
+      try inv H3.
+    unfold null_or_valid_ptr. right.
+    eexists; eexists. erewrite nextinstr_rsp. 
+    rewrite Pregmap.gso; try congruence. erewrite Pregmap.gss.
+    admit.
+Admitted.
+    
 
 (** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f b
@@ -1836,7 +1867,8 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f
                         (MATCHFINDFUNCT: match_find_funct j)
                         (RSINJ: regset_inject j rs1 rs2)
                         (GBVALID: glob_block_valid m1)
-                        (GMUNDEF: gid_map_for_undef_syms gm),
+                        (GMUNDEF: gid_map_for_undef_syms gm)
+                        (SBINJ:stack_block_inject j),
     rs1 PC = Vptr b ofs ->
     Genv.find_symbol ge id = Some b ->
     Genv.find_funct_ptr ge b = Some (Internal f) ->
@@ -1984,7 +2016,6 @@ Proof.
     generalize (RSINJ RSP). intros RSPINJ.
     assert (null_or_valid_ptr (rs1 RSP)) as RSPVALID. admit.      
     assert (agree_ge_rsp_ptr rs1) as GERSP. admit.
-    assert (stack_block_inject j) as SBINJ. admit.
     unfold stack_block_inject in *.
     (* assert (rs1 RSP = Vnullptr \/ exists b ofs, rs1 RSP = Vptr b ofs /\ j b = Some (mem_block, Genv.genv_stack_limit tge -  Mem.stack_limit)). *)
     (* admit. *)
