@@ -340,9 +340,6 @@ Section WITHMEMORYMODEL.
     apply IST in H. subst. intros PERM.
     eapply Mem.perm_free in PERM. 2: eauto. destruct PERM. apply H. split; eauto.
     auto.
-    red in NS. decompose [ex and] NS. clear NS. rewrite H. simpl.
-    unfold size_frames. simpl. rewrite <- H1.
-    change (align 0 8) with 0. apply size_stack_pos.
   Qed.
   
   Lemma ZEQ: forall a b,
@@ -855,12 +852,22 @@ Section WITHMEMORYMODEL.
   Qed.
  *)
 
+  Lemma size_frames_divides f:
+    (8 | size_frames f).
+  Proof.
+    unfold size_frames. induction f; simpl; eauto.
+    exists 0; omega.
+    rewrite Zmax_spec.
+    destr.
+    apply align_divides. omega.
+  Qed.
+
   Lemma size_stack_divides l:
     (8 | StackADT.size_stack l).
   Proof.
     induction l; simpl; intros; eauto.
     exists 0; omega.
-    apply Z.divide_add_r. auto. destruct a. simpl. exists 0; omega. apply align_divides. omega.
+    apply Z.divide_add_r. auto. apply size_frames_divides; auto.
   Qed.
 
   (* Lemma inject_stack_all_below: *)
@@ -914,10 +921,12 @@ Section WITHMEMORYMODEL.
         exists o,
           j b = Some (bstack, o).
   Proof.
-    induction 1; simpl; intros. easy.
-    rewrite in_stack_cons in H3. destruct H3.
-    
-    red in H3; rewrite H1 in H3; simpl in H3; destruct H3 as [|[]]; subst. eauto.
+    induction 1; simpl; intros b INS. easy.
+    rewrite in_stack_cons in INS. destruct INS as [INF|INS].
+    - edestruct in_frames_in_frame_ex as (fr & INTF & IFR). eauto.
+      destruct (H0 _ INTF) as (bb & fi & JB & BLOCKS & SIZE).
+      rewrite JB.
+      red in H3. ; rewrite H1 in H3; simpl in H3; destruct H3 as [|[]]; subst. eauto.
     eauto.
   Qed.
 
