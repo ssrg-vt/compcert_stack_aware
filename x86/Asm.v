@@ -728,6 +728,16 @@ Definition check_init_sp_in_stack (m: mem) :=
   | _ => true
   end.
 
+Definition top_is_new (m:mem) :=
+  top_tframe_prop (fun tf => tf = nil) (Mem.stack_adt m).
+
+Lemma check_top_is_new m : { top_is_new m } + { ~ top_is_new m }.
+Proof.
+  unfold top_is_new.
+  destruct (Mem.stack_adt m) eqn:STK. right; intro A; inv A.
+  destruct t. left; constructor. auto.
+  right; intro A; inv A. inv H0.
+Defined.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instruction) (rs: regset) (m: mem) : outcome :=
   match i with
@@ -1073,6 +1083,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (nextinstr rs) m
   | Pallocframe fi ofs_ra (* ofs_link *) =>
     check (check_alloc_frame fi) ;
+      check (check_top_is_new m) ;
       let (m1,b) := Mem.alloc m 0 (frame_size fi) in
       do m2 <- Mem.store Mptr m1 b (Ptrofs.unsigned ofs_ra) rs#RA;
       do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi (frame_size fi));
@@ -1083,12 +1094,13 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
         | Vptr stk ofs =>
           check (check_top_frame m (Some stk) sz);
             do m' <- Mem.free m stk 0 sz;
+            do m' <- Mem.unrecord_stack_block m';
             check (check_init_sp_in_stack m');
             Next (nextinstr (rs#RSP <-
                                (match parent_pointer m with
                                 | None => init_sp
                                 | Some (sp,_) => Vptr sp Ptrofs.zero
-                                end) #RA <- ra)) m'
+                                end) #RA <- ra)) (Mem.push_new_stage m')
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz =>

@@ -17,6 +17,8 @@ Require Import Mach2.
 
 Section WITHEXTCALLS.
   Context `{external_calls: ExternalCalls}.
+
+Section WITHINITSP.
   Variables init_sp init_ra: val.
   Variable return_address_offset: function -> code -> ptrofs -> Prop.
   Variable ge: genv.
@@ -234,14 +236,34 @@ Section WITHEXTCALLS.
     unfold extcall_arguments.
     induction 2. constructor. constructor; eauto using unchanged_on_extcall_arg_pair.
   Qed.
-  
+
+  Axiom unrecord_push:
+    forall m1 m2 m2',
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      Mem.unrecord_stack_block m2 = Some m2' ->
+      Mem.unchanged_on (fun _ _ => True) m1 (Mem.push_new_stage m2').
+
+  Lemma clear_stage_unchanged:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _  => True) m1 m2 ->
+      length (Mem.stack_adt m2) <> O ->
+      exists m2',
+        clear_stage m2 = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1 m2'.
+  Proof.
+    unfold clear_stage. intros.
+    destruct (Mem.stack_adt m2) eqn:?; simpl in *. omega. clear H0.
+    edestruct (Mem.unrecord_stack_block_succeeds m2) as (m3 & USB & EQSTK); eauto.
+    rewrite USB. subst. eexists; split; eauto.
+    eapply unrecord_push; eauto.
+  Qed.
+
   Lemma step_correct:
     forall S1 t S2 (STEP: Mach.step init_sp init_ra return_address_offset ge S1 t S2)
-      S1' (MS: match_states S1 S1'),
+      S1' (MS: match_states S1 S1') (CSC: call_stack_consistency init_sp ge S1'),
     exists S2',
       Mach2.step init_sp init_ra return_address_offset ge S1' t S2' /\ match_states S2 S2'.
   Proof.
-    destruct 1; intros S1' MS; inv MS.
+    destruct 1; intros S1' MS CSC; inv MS.
     - eexists; split. econstructor; eauto.
       constructor; auto.
     - eexists; split. econstructor; eauto. eapply loadstack_unchanged_on; simpl; eauto. simpl. auto.
@@ -266,11 +288,16 @@ Section WITHEXTCALLS.
       reflexivity.
       rewnb. auto.
     - edestruct unchanged_on_free as (m2' & FREE' & UNCH'); eauto.
+      inv CSC. rewrite FIND in H0; inv H0.
+      edestruct (clear_stage_unchanged _ _ UNCH') as (m3' & USB & UNCH'').
+      rewrite_stack_blocks. inv CallStackConsistency. simpl; omega.
       eexists; split; econstructor; eauto. eapply loadstack_unchanged_on; eauto. simpl; auto.
-      repeat rewrite_stack_blocks; auto. inv SH; simpl; auto. constructor.
-      repeat rewrite_stack_blocks. apply list_forall2_length in SH. simpl. setoid_rewrite SH.
-      reflexivity.
-      rewnb. auto.
+      unfold clear_stage in USB; repeat destr_in USB.
+      repeat rewrite_stack_blocks; auto. simpl. inv SH; simpl; auto. constructor.
+      unfold clear_stage in USB; repeat destr_in USB.
+      repeat rewrite_stack_blocks. simpl. apply list_forall2_length in SH. simpl. setoid_rewrite SH.
+      inv CallStackConsistency. simpl. auto.
+      unfold clear_stage in USB; repeat destr_in USB. rewnb. auto.
     - edestruct unchanged_on_extcall as (m2' & EXTCALL & UNCH' & NB').  3: eauto.
       apply push_new_stage_strong_unchanged_on. eauto.
       rewnb. auto.
@@ -287,11 +314,16 @@ Section WITHEXTCALLS.
       econstructor; eauto.
     - eexists; split; econstructor; eauto.
     - edestruct unchanged_on_free as (m2' & FREE' & UNCH'); eauto.
+      inv CSC. rewrite FIND in H; inv H.
+      edestruct (clear_stage_unchanged _ _ UNCH') as (m3' & USB & UNCH'').
+      rewrite_stack_blocks. inv CallStackConsistency. simpl; omega.
       eexists; split; econstructor; eauto. eapply loadstack_unchanged_on; eauto. simpl; auto.
-      repeat rewrite_stack_blocks; auto. inv SH; simpl; auto. constructor.
-      repeat rewrite_stack_blocks. apply list_forall2_length in SH. simpl. setoid_rewrite SH.
-      reflexivity.
-      rewnb. auto.
+      unfold clear_stage in USB; repeat destr_in USB.
+      repeat rewrite_stack_blocks; auto. simpl. inv SH; simpl; auto. constructor.
+      unfold clear_stage in USB; repeat destr_in USB.
+      repeat rewrite_stack_blocks. simpl. apply list_forall2_length in SH. simpl. setoid_rewrite SH.
+      inv CallStackConsistency. simpl. auto.
+      unfold clear_stage in USB; repeat destr_in USB. rewnb. auto.
     - destruct (Mem.alloc m' 0 (fn_stacksize f)) as (m1' & stk') eqn:ALLOC.
       assert (stk = stk').
       apply Mem.alloc_result in ALLOC.
@@ -307,31 +339,24 @@ Section WITHEXTCALLS.
       repeat rewrite_stack_blocks. right; intro; subst. inversion 1; subst.
       intro INS. subst. eapply Mem.fresh_block_alloc; eauto. eapply Mem.in_frames_valid; eauto.
 
-
-      Axiom unrecord_push:
-        forall m1 m2 m2',
-          Mem.unchanged_on (fun _ _ => True) m1 m2 ->
-          Mem.unrecord_stack_block m2 = Some m2' ->
-          Mem.unchanged_on (fun _ _ => True) m1 (Mem.push_new_stage m2').
-
+      edestruct (clear_stage_unchanged _ _ UNCH2) as (m4' & USB & UNCH3). 
+      unfold store_stack in *. repeat rewrite_stack_blocks.
       edestruct (Mem.record_stack_blocks_tailcall_original_stack _ _ _ H3) as (ff & r & EQSTK).
-      unfold store_stack in *.
       revert EQSTK; repeat rewrite_stack_blocks. intro.
-      destruct (Mem.stack_adt m') eqn:STK'. rewrite EQSTK in LEN. simpl in *. omega.
-
-      edestruct (Mem.unrecord_stack_block_succeeds m3') as (m4' & USB & EQSTK2).
-      unfold store_stack in STORE. repeat rewrite_stack_blocks. eauto. simpl in *. subst.
-
-      generalize (unrecord_push _ _ _ UNCH2 USB) as UNCH3. intro.
-
+      rewrite EQSTK in LEN. simpl in *. intro ISZERO; omega.
       edestruct (unchanged_on_record _ _ UNCH3 _ _ H3) as (m5' & RSB & UNCH4).
 
       eexists; split.
       econstructor; eauto.
       constructor; auto.
-      revert SH. rewrite EQSTK. simpl.
-      rewrite_stack_blocks. revert EQ1. repeat rewrite_stack_blocks. rewrite EQSTK. intro A; inv A.
+      unfold clear_stage in USB; repeat destr_in USB.
+      unfold store_stack in *. 
+      revert SH. repeat rewrite_stack_blocks.
+      revert EQ1; repeat rewrite_stack_blocks. intro A; rewrite A. simpl.
+      revert EQ; repeat rewrite_stack_blocks. intro B; rewrite B. simpl.
       constructor; auto.
+      unfold clear_stage in USB; repeat destr_in USB.
+      unfold store_stack in *.
       rewnb. congruence.
     - edestruct unchanged_on_extcall as (m2' & EXTCALL & UNCH' & NB').  3: eauto.
       eauto. auto.
@@ -344,3 +369,53 @@ Section WITHEXTCALLS.
       repeat rewrite_stack_blocks; eauto.
       rewnb; auto.
   Qed.
+
+End WITHINITSP.
+  Existing Instance inject_perm_all.
+
+  Lemma initial_transf:
+    forall p s, initial_state p s -> match_states s s.
+  Proof.
+    intros p s IS. inv IS.
+    constructor; try reflexivity.
+    - apply Mem.unchanged_on_refl.
+    - repeat rewrite_stack_blocks. erewrite Genv.init_mem_stack_adt. 2: eauto. simpl.
+      constructor; auto. constructor.
+  Qed.
+
+
+  Lemma final_transf:
+    forall s1 s2 i, match_states s1 s2 -> final_state s1 i -> final_state s2 i.
+  Proof.
+    intros s1 s2 i MS FS; inv FS; inv MS. econstructor; eauto.
+  Qed.
+
+  Lemma mach2_simulation:
+    forall rao p,
+      (forall (fb : block) (f : function),
+          Genv.find_funct_ptr (Genv.globalenv p) fb = Some (Internal f) ->
+          frame_size (fn_frame f) = fn_stacksize f) ->
+      forward_simulation (Mach.semantics rao p) (Mach2.semantics rao p).
+  Proof.
+    intros rao p SIZE.
+    set (ge := Genv.globalenv p).
+    eapply forward_simulation_step with (match_states := fun s1 s2 => match_states s1 s2 /\ call_stack_consistency (Vptr (Genv.genv_next ge) Ptrofs.zero) ge s2).
+    - reflexivity.
+    - simpl; intros s1 IS. eexists; split; eauto. split. eapply initial_transf; eauto.
+      inv IS. constructor. simpl. constructor. split. inversion 1. subst.
+      repeat rewrite_stack_blocks.  simpl. repeat eexists.
+      apply Mem.alloc_result in H1. subst. apply Genv.init_mem_genv_next in H. rewrite <- H.
+      fold ge. reflexivity.
+      intros (fsp & fr & r & EQ & GFB).
+      revert EQ. repeat rewrite_stack_blocks. simpl. inversion 1. subst. f_equal.
+      unfold ge. erewrite Genv.init_mem_genv_next; eauto.
+      symmetry. eapply Mem.alloc_result; eauto. inv GFB. eauto.
+      rewrite_stack_blocks. constructor; red; easy.
+      constructor.
+    - simpl. intros s1 s2 r (MS & CSC). eapply final_transf; eauto.
+    - simpl; intros s1 t s1' STEP s2 (MS & CSC).
+      edestruct step_correct as (s2' & STEP' & MS'); eauto.
+      eexists; split; eauto. split; auto. eapply csc_step; eauto.
+  Qed.
+
+End WITHEXTCALLS.

@@ -15,7 +15,7 @@
 Require Import Coqlib Errors.
 Require Import Integers Floats AST Linking.
 Require Import Values Memory Events Globalenvs Smallstep.
-Require Import Op Locations Mach Conventions Asm.
+Require Import Op Locations Mach Mach2 Conventions Asm.
 Require Import Asmgen Asmgenproof0 Asmgenproof1.
 Require AsmFacts.
 
@@ -926,7 +926,7 @@ Qed.
   Qed.
 
 Theorem step_simulation:
-  forall S1 t S2, Mach.step init_sp init_ra return_address_offset ge S1 t S2 ->
+  forall S1 t S2, Mach2.step init_sp init_ra return_address_offset ge S1 t S2 ->
   forall S1' (MS: match_states S1 S1') (CSC: call_stack_consistency init_sp ge S1),
   (exists S2', plus (step init_sp) tge S1' t S2' /\ match_states S2 S2')
   \/ (measure S2 < measure S1 /\ t = E0 /\ match_states S2 S1')%nat.
@@ -1106,14 +1106,27 @@ Opaque loadind.
   exploit (lessdef_parent_ra init_ra); eauto. intros. subst ra'. clear D.
   exploit Mem.free_parallel_extends; eauto. constructor. intros (m2_ & E & F).
 
-  destruct ros as [rf|fid]; simpl in H; monadInv H6.
+  Lemma clear_stage_extends:
+    forall m1 m2 (EXT: Mem.extends m1 m2) (SAMEADT: Mem.stack_adt m1 = Mem.stack_adt m2)
+      m1' (CS: clear_stage m1 = Some m1'),
+    exists m2', clear_stage m2 = Some m2' /\ Mem.extends m1' m2' /\ Mem.stack_adt m1' = Mem.stack_adt m2'.
+  Proof.
+    unfold clear_stage. intros. destr_in CS. inv CS.
+    edestruct Mem.unrecord_stack_block_extends as (m2' & USB & EXT'); eauto. rewrite USB.
+    eexists; split; eauto. split. apply Mem.extends_push. auto.
+    repeat rewrite_stack_blocks. rewrite EQ, EQ0. simpl. congruence.
+  Qed.
+
+  exploit clear_stage_extends; eauto. repeat rewrite_stack_blocks. auto. intros (m2' & CS & EXT' & EQ).
+
+  destruct ros as [rf|fid]; simpl in H; monadInv H7.
 + (* Indirect call *)
   assert (rs rf = Vptr f' Ptrofs.zero).
     destruct (rs rf); try discriminate.
     revert H; predSpec Ptrofs.eq Ptrofs.eq_spec i Ptrofs.zero; intros; congruence.
   assert (rs0 x0 = Vptr f' Ptrofs.zero).
-    exploit ireg_val; eauto. rewrite H6; intros LD; inv LD; auto.
-  generalize (code_tail_next_int _ _ _ _ NOOV H7). intro CT1.
+    exploit ireg_val; eauto. rewrite H7; intros LD; inv LD; auto.
+  generalize (code_tail_next_int _ _ _ _ NOOV H8). intro CT1.
   left; econstructor; split.
   eapply plus_left. eapply exec_step_internal. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
@@ -1127,7 +1140,7 @@ Opaque loadind.
   inv CSC. inv CallStackConsistency. rewrite FSIZE, BLOCKS.
   simpl.
   rewrite if_forall_dec.
-  unfold proj_sumbool. rewrite H4 in FIND0; inv FIND0.
+  unfold proj_sumbool. rewrite H5 in FIND0; inv FIND0.
   erewrite frame_size_correct; eauto.
   rewrite zeq_true.
   unfold check_init_sp_in_stack. destr; eauto.
@@ -1136,15 +1149,15 @@ Opaque loadind.
   destruct (in_stack_dec (Mem.stack_adt m2_) b); simpl in Heqb; try congruence.
   apply n.
   eapply lp_has_init_sp.
-  repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H14.
+  repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H15.
   econstructor 2. eauto. eauto. eauto.  f_equal. eapply init_sp_ofs_zero; eauto.
   constructor; auto.
   red; split; auto.
-  simpl. erewrite agree_sp in H12; eauto. inv H12; auto.
-  simpl. symmetry. rewrite H4 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+  simpl. erewrite agree_sp in H13; eauto. inv H13; auto.
+  simpl. symmetry. rewrite H5 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
 
   apply star_one. eapply exec_step_internal.
-  transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H3. simpl. eauto.
+  transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H4. simpl. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
   simpl. eauto. traceEq.
   econstructor; eauto.

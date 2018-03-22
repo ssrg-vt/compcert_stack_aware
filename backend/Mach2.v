@@ -41,6 +41,12 @@ Variable return_address_offset: function -> code -> ptrofs -> Prop.
 
 Variable ge: genv.
 
+Definition clear_stage (m: mem): option mem :=
+  match Mem.unrecord_stack_block m with
+  | Some m' => Some (Mem.push_new_stage m')
+  | None => None
+  end.
+
 Inductive step: state -> trace -> state -> Prop :=
   | exec_Mlabel:
       forall s f sp lbl c rs m,
@@ -94,14 +100,15 @@ Inductive step: state -> trace -> state -> Prop :=
         E0 (Callstate (Stackframe fb sp (Vptr fb ra) c :: s)
                        f' rs (Mem.push_new_stage m))
   | exec_Mtailcall:
-      forall s fb stk soff sig ros c rs m f f' m',
+      forall s fb stk soff sig ros c rs m f f' m' m'',
       find_function_ptr ge ros rs = Some f' ->
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       (* load_stack m (Vptr stk soff) Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra init_ra s) ->
       Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
+      clear_stage m' = Some m'' ->
       step (State s fb (Vptr stk soff) (Mtailcall sig ros :: c) rs m)
-        E0 (Callstate s f' rs m')
+        E0 (Callstate s f' rs m'')
   | exec_Mbuiltin:
       forall s f sp rs m ef args res b vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
@@ -141,12 +148,13 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State s fb sp (Mjumptable arg tbl :: c) rs m)
         E0 (State s fb sp c' rs' m)
   | exec_Mreturn:
-      forall s fb stk soff c rs m f m',
+      forall s fb stk soff c rs m f m' m'',
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra init_ra s) ->
       Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
+      clear_stage m' = Some m'' ->
       step (State s fb (Vptr stk soff) (Mreturn :: c) rs m)
-        E0 (Returnstate s rs m')
+        E0 (Returnstate s rs m'')
   | exec_function_internal:
       forall s fb rs m f m1 m1_ m3 stk rs' m4,
         Genv.find_funct_ptr ge fb = Some (Internal f) ->
@@ -155,8 +163,8 @@ Inductive step: state -> trace -> state -> Prop :=
       let sp := Vptr stk Ptrofs.zero in
       (* store_stack m1 sp Tptr f.(fn_link_ofs) (parent_sp s) = Some m2 -> *)
       store_stack m1 sp Tptr f.(fn_retaddr_ofs) (parent_ra init_ra s) = Some m3 ->
-      Mem.unrecord_stack_block m3 = Some m4 ->
-      Mem.record_stack_blocks (Mem.push_new_stage m4) (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) = Some m1_ ->
+      clear_stage m3 = Some m4 ->
+      Mem.record_stack_blocks m4 (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) = Some m1_ ->
       rs' = undef_regs destroyed_at_function_entry rs ->
       step (Callstate s fb rs m)
         E0 (State s fb sp f.(fn_code) rs' m1_)
@@ -173,7 +181,6 @@ Inductive step: state -> trace -> state -> Prop :=
         Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate (Stackframe f sp ra c :: s) rs m)
         E0 (State s f (Vptr sp Ptrofs.zero) c rs m').
-
 
 Inductive callstack_function_defined : list stackframe -> Prop :=
 | cfd_empty:
@@ -251,23 +258,15 @@ Proof.
     rewrite FIND. repeat rewrite_stack_blocks. simpl. auto.
     rewrite_stack_blocks. constructor. red; easy.
     econstructor; eauto.
-  - econstructor; repeat rewrite_stack_blocks. auto.
+  - unfold clear_stage in H3; repeat destr_in H3. econstructor; repeat rewrite_stack_blocks. simpl; auto.
     inv CallStackConsistency; simpl; auto.
-    erewrite <- Mem.free_stack_blocks; eauto. eapply Mem.noperm_top.
-    rewrite_stack_blocks. inv CallStackConsistency.
-    intros b IFR o k p0 P.
-    red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
-    eapply Mem.perm_free_2 in P; eauto.
-    exploit Mem.agree_perms_mem.
-    rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-    eapply Mem.perm_free_3 in P; eauto.
-    erewrite <- SIZECORRECT; eauto. rewrite Ptrofs.unsigned_zero.
-    rewrite H0 in FIND. inv FIND. omega.
-    inv CallStackConsistency; simpl; auto.
-  - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
+    constructor. red; easy. auto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
-    inv CallStackConsistency. eauto.
-  - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+  - unfold clear_stage in H2; repeat destr_in H2.
+    econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+    inv CallStackConsistency. simpl. auto.
+  - unfold clear_stage in H3; repeat destr_in H3.
+    econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     rewrite store_stack_no_abstract in EQ by eauto.
     revert EQ; rewrite_stack_blocks. intro. rewrite EQ in CallStackConsistency. simpl in *.
     revert EQ; repeat rewrite_stack_blocks. erewrite (store_stack_no_abstract _ _ _ _ _ _ H2) by eauto.
@@ -402,6 +401,9 @@ Proof.
   destruct 1; simpl; intros CSC NPM; inv NPM;
     constructor;
     unfold block_prop, store_stack, init_sp_has_stackinfo, Mem.valid_block in *; simpl in *;
+      try match goal with
+            H: clear_stage _ = Some _ |- _ => unfold clear_stage in H; repeat destr_in H
+          end;
       try (destr;[idtac]); repeat rewrite_stack_blocks;
         rewnb; eauto;
           try assumption.
@@ -409,6 +411,18 @@ Proof.
     exists fi; split; eauto.
     simpl; auto.
   - constructor; auto.
+  - destruct MSISHS as (fi & INS & O); exists fi; split; eauto. simpl. right.
+    revert Heqv. inv CSC. inv CallStackConsistency. rewrite <- H7 in INS. destruct INS as [EQQ|INS]; auto.
+    rewrite <- H7 in ISP'NST.
+    destruct EQQ as [EQQ|[]].
+    exfalso; apply ISP'NST. unfold is_stack_top. simpl.
+    eapply in_frame_in_frames. eapply in_frame'_in_frame; eauto. left; auto.
+  - destruct MSISHS as (fi & INS & O); exists fi; split; eauto. simpl. right.
+    revert Heqv. inv CSC. inv CallStackConsistency. rewrite <- H6 in INS. destruct INS as [EQQ|INS]; auto.
+    rewrite <- H6 in ISP'NST.
+    destruct EQQ as [EQQ|[]].
+    exfalso; apply ISP'NST. unfold is_stack_top. simpl.
+    eapply in_frame_in_frames. eapply in_frame'_in_frame; eauto. left; auto.
   - xomega.
   - revert EQ1; repeat rewrite_stack_blocks. intro.
     unfold is_stack_top. simpl. intros [A|A].
@@ -426,9 +440,9 @@ Proof.
     exists fi; split; eauto. simpl. rewrite EQ0 in INS. simpl in INS.
     right. destruct INS; auto.
     exploit Mem.stack_norepet. intro ND. rewrite EQ0 in ND. revert Heqv. inv ND.
-    exfalso. apply H9 in INTL; auto.
-    rewrite in_frames'_rew in H5.
-    clear - H5. destruct H5 as (fr & IFR & IF1).
+    exfalso. apply H8 in INTL; auto.
+    rewrite in_frames'_rew in H3.
+    clear - H3. destruct H3 as (fr & IFR & IF1).
     eapply in_frame_in_frames; eauto.
     eapply in_frame'_in_frame; eauto.
   - xomega.
@@ -464,21 +478,6 @@ Qed.
 
 
 End RELSEM.
-
-Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall fb m0 m1 b m2,
-      let ge := Genv.globalenv p in
-      Genv.init_mem p = Some m0 ->
-      Genv.find_symbol ge p.(prog_main) = Some fb ->
-      Mem.alloc m0 0 0 = (m1,b) ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b 0 0) = Some m2 ->
-      initial_state p (Callstate nil fb (Regmap.init Vundef) (Mem.push_new_stage m2)).
-
-Inductive final_state: state -> int -> Prop :=
-  | final_state_intro: forall rs m r retcode,
-      loc_result signature_main = One r ->
-      rs r = Vint retcode ->
-      final_state (Returnstate nil rs m) retcode.
 
 Definition semantics (rao: function -> code -> ptrofs -> Prop) (p: program) :=
   Semantics (step (Vptr (Genv.genv_next (Genv.globalenv p)) Ptrofs.zero) Vnullptr rao) (initial_state p) final_state (Genv.globalenv p).
