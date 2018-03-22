@@ -2790,6 +2790,56 @@ Proof.
   revert PSA. rewrite push_new_stage_stack. simpl; auto.
 Qed.
 
+Definition clear_stage (m: mem): option mem :=
+  match Mem.unrecord_stack_block m with
+  | Some m' => Some (Mem.push_new_stage m')
+  | None => None
+  end.
+
+Lemma clear_stage_perm:
+  forall m m'
+    (CS: clear_stage m = Some m')
+    b o k p,
+    perm m' b o k p <-> perm m b o k p.
+Proof.
+  unfold clear_stage; intros. repeat destr_in CS.
+  rewrite push_new_stage_perm.
+  split. eapply unrecord_stack_block_perm; eauto.
+  eapply unrecord_stack_block_perm'; eauto.
+Qed.
+
+Lemma clear_stage_nextblock:
+  forall m m'
+    (CS: clear_stage m = Some m'),
+    nextblock m' = nextblock m.
+Proof.
+  unfold clear_stage; intros. repeat destr_in CS.
+  rewrite push_new_stage_nextblock.
+  eapply unrecord_stack_block_nextblock; eauto.
+Qed.
+
+Lemma clear_stage_stack_adt:
+  forall m m'
+    (CS: clear_stage m = Some m'),
+    stack_adt m' = nil :: tl (stack_adt m).
+Proof.
+  unfold clear_stage; intros. repeat destr_in CS.
+  rewrite push_new_stage_stack.
+  edestruct unrecord_stack_adt; eauto. rewrite H. simpl. auto.
+Qed.
+
+Definition top_is_new (m:mem) :=
+  top_tframe_prop (fun tf => tf = nil) (stack_adt m).
+
+Lemma check_top_is_new m : { top_is_new m } + { ~ top_is_new m }.
+Proof.
+  unfold top_is_new.
+  destruct (stack_adt m) eqn:STK. right; intro A; inv A.
+  destruct t. left; constructor. auto.
+  right; intro A; inv A. inv H0.
+Defined.
+
+
 End WITHMEMORYMODEL.
 
 End Mem.

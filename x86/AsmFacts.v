@@ -704,8 +704,7 @@ Section WITHMEMORYMODEL.
       apply Mem.nextblock_store in Heqo.
       apply Mem.nextblock_alloc in Heqp. 
       rewrite Heqo0, Heqo, Heqp. xomega.
-    - repeat (destr_in H1; [idtac]). inv H1.
-      rewrite <- (Mem.nextblock_free _ _ _ _ _ Heqo0). xomega.
+    - repeat (destr_in H1; [idtac]). inv H1. rewnb. xomega.
     - repeat destr_in H1. apply Ple_refl.
   Qed.
 

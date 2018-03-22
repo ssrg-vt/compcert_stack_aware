@@ -2256,6 +2256,8 @@ Ltac rewrite_stack_blocks :=
     let EQ := fresh "EQ" in
     destruct (Mem.unrecord_stack_adt _ _ H) as (f, EQ); replace (Mem.stack_adt m) with (tl (Mem.stack_adt m1))
       by (rewrite EQ; reflexivity)
+  | H: Mem.clear_stage _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
+    rewrite (Mem.clear_stage_stack_adt _ _ H)
   end.
 
 Ltac rewrite_perms_bw H :=
@@ -2288,6 +2290,8 @@ Ltac rewnb :=
       rewrite (Mem.record_stack_block_nextblock _ _ _ H)
     | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
       rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
+    | H: Mem.clear_stage _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.clear_stage_nextblock _ _ H)
     | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
     | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
       eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
@@ -2319,6 +2323,8 @@ Arguments extcall_perm {mem memory_model_ops external_calls_ops memory_model_prf
       rewrite (record_perm _ _ _ H)
     | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
       rewrite (unrecord_perm _ _ H)
+    | H: Mem.clear_stage _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (Mem.clear_stage_perm _ _ H)
     | |- context [Mem.perm (Mem.push_new_stage _) _ _ _ _] =>
       rewrite (Mem.push_new_stage_perm)
     | H: external_call _ ?ge ?args ?m1 ?t ?res ?m2 |- context [Mem.perm ?m2 ?b _ _ _] =>

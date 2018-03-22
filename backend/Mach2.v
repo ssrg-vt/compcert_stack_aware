@@ -41,12 +41,6 @@ Variable return_address_offset: function -> code -> ptrofs -> Prop.
 
 Variable ge: genv.
 
-Definition clear_stage (m: mem): option mem :=
-  match Mem.unrecord_stack_block m with
-  | Some m' => Some (Mem.push_new_stage m')
-  | None => None
-  end.
-
 Inductive step: state -> trace -> state -> Prop :=
   | exec_Mlabel:
       forall s f sp lbl c rs m,
@@ -106,7 +100,7 @@ Inductive step: state -> trace -> state -> Prop :=
       (* load_stack m (Vptr stk soff) Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra init_ra s) ->
       Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
-      clear_stage m' = Some m'' ->
+      Mem.clear_stage m' = Some m'' ->
       step (State s fb (Vptr stk soff) (Mtailcall sig ros :: c) rs m)
         E0 (Callstate s f' rs m'')
   | exec_Mbuiltin:
@@ -152,19 +146,19 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra init_ra s) ->
       Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
-      clear_stage m' = Some m'' ->
+      Mem.clear_stage m' = Some m'' ->
       step (State s fb (Vptr stk soff) (Mreturn :: c) rs m)
         E0 (Returnstate s rs m'')
   | exec_function_internal:
-      forall s fb rs m f m1 m1_ m3 stk rs' m4,
+      forall s fb rs m f m1 m1_ m3 stk rs',
         Genv.find_funct_ptr ge fb = Some (Internal f) ->
         check_alloc_frame (fn_frame f) f  ->
-      Mem.alloc m 0 f.(fn_stacksize) = (m1, stk) ->
+        (* Mem.top_is_new m -> *)
+        Mem.alloc m 0 f.(fn_stacksize) = (m1, stk) ->
       let sp := Vptr stk Ptrofs.zero in
       (* store_stack m1 sp Tptr f.(fn_link_ofs) (parent_sp s) = Some m2 -> *)
       store_stack m1 sp Tptr f.(fn_retaddr_ofs) (parent_ra init_ra s) = Some m3 ->
-      clear_stage m3 = Some m4 ->
-      Mem.record_stack_blocks m4 (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) = Some m1_ ->
+      Mem.record_stack_blocks m3 (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) = Some m1_ ->
       rs' = undef_regs destroyed_at_function_entry rs ->
       step (Callstate s fb rs m)
         E0 (State s fb sp f.(fn_code) rs' m1_)
@@ -224,12 +218,14 @@ Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_call:
     forall cs' fb rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
-      (TTNP: top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m'))
+      (* (TTNP: top_tframe_no_perm (Mem.perm m') (Mem.stack_adt m')) *)
+      (TIN: Mem.top_is_new m')
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:
     forall cs' rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
+      (TIN: Mem.top_is_new m')
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Returnstate cs' rs m').
 
@@ -256,26 +252,24 @@ Proof.
   - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
   - econstructor. rewrite_stack_blocks. simpl. 
     rewrite FIND. repeat rewrite_stack_blocks. simpl. auto.
-    rewrite_stack_blocks. constructor. red; easy.
+    red. rewrite_stack_blocks. constructor. auto.
     econstructor; eauto.
-  - unfold clear_stage in H3; repeat destr_in H3. econstructor; repeat rewrite_stack_blocks. simpl; auto.
+  - econstructor; repeat rewrite_stack_blocks. simpl; auto.
     inv CallStackConsistency; simpl; auto.
-    constructor. red; easy. auto.
+    red. rewrite_stack_blocks. constructor. auto. auto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
-  - unfold clear_stage in H2; repeat destr_in H2.
-    econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+  - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     inv CallStackConsistency. simpl. auto.
-  - unfold clear_stage in H3; repeat destr_in H3.
+    red. rewrite_stack_blocks. constructor; auto.
+  - unfold store_stack in H2.
     econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
-    rewrite store_stack_no_abstract in EQ by eauto.
-    revert EQ; rewrite_stack_blocks. intro. rewrite EQ in CallStackConsistency. simpl in *.
-    revert EQ; repeat rewrite_stack_blocks. erewrite (store_stack_no_abstract _ _ _ _ _ _ H2) by eauto.
-    intros. constructor. revert CallStackConsistency. repeat rewrite_stack_blocks.
-    erewrite (store_stack_no_abstract _ _ _ _ _ _ H2) by eauto. rewrite EQ0. simpl. auto.
+    revert EQ1; repeat rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
+    inv TIN. rewrite EQ1 in H4; inv H4.
+    econstructor; eauto.
     simpl.
     erewrite <- SIZECORRECT. apply Z.max_r. apply H0. eauto.
-    reflexivity.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+    red; inv TIN. rewrite_stack_blocks. rewrite <- H2. constructor; auto.
   - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     simpl in *; eauto. rewrite FINDF in CallStackConsistency. eauto.
 Qed.
@@ -351,27 +345,27 @@ Proof.
   destruct (Val.offset_ptr v p); simpl in *; inv H;  eauto with mem.
 Qed.
 
-Ltac rewnb :=
-  repeat
-    match goal with
-    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
-    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
-    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_free _ _ _ _ _ H)
-    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
-    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
-    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
-    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
-    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
-      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
-    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
-      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
-    end.
+(* Ltac rewnb := repeat first [Events.rewnb | ] *)
+(*   repeat *)
+(*     match goal with *)
+(*     | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] => *)
+(*       rewrite (Mem.nextblock_store _ _ _ _ _ _ H) *)
+(*     | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] => *)
+(*       rewrite (Mem.storev_nextblock _ _ _ _ _ H) *)
+(*     | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] => *)
+(*       rewrite (Mem.nextblock_free _ _ _ _ _ H) *)
+(*     | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] => *)
+(*       rewrite (Mem.nextblock_alloc _ _ _ _ _ H) *)
+(*     | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] => *)
+(*       rewrite (Mem.record_stack_block_nextblock _ _ _ H) *)
+(*     | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] => *)
+(*       rewrite (Mem.unrecord_stack_block_nextblock _ _ H) *)
+(*     | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock *)
+(*     | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) => *)
+(*       eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ] *)
+(*     | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) => *)
+(*       eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ] *)
+(*     end. *)
 
 Opaque Z.mul Z.add.
 
@@ -401,9 +395,6 @@ Proof.
   destruct 1; simpl; intros CSC NPM; inv NPM;
     constructor;
     unfold block_prop, store_stack, init_sp_has_stackinfo, Mem.valid_block in *; simpl in *;
-      try match goal with
-            H: clear_stage _ = Some _ |- _ => unfold clear_stage in H; repeat destr_in H
-          end;
       try (destr;[idtac]); repeat rewrite_stack_blocks;
         rewnb; eauto;
           try assumption.
@@ -412,14 +403,14 @@ Proof.
     simpl; auto.
   - constructor; auto.
   - destruct MSISHS as (fi & INS & O); exists fi; split; eauto. simpl. right.
-    revert Heqv. inv CSC. inv CallStackConsistency. rewrite <- H7 in INS. destruct INS as [EQQ|INS]; auto.
-    rewrite <- H7 in ISP'NST.
+    revert Heqv. inv CSC. inv CallStackConsistency. rewrite <- H8 in INS. destruct INS as [EQQ|INS]; auto.
+    rewrite <- H8 in ISP'NST.
     destruct EQQ as [EQQ|[]].
     exfalso; apply ISP'NST. unfold is_stack_top. simpl.
     eapply in_frame_in_frames. eapply in_frame'_in_frame; eauto. left; auto.
   - destruct MSISHS as (fi & INS & O); exists fi; split; eauto. simpl. right.
-    revert Heqv. inv CSC. inv CallStackConsistency. rewrite <- H6 in INS. destruct INS as [EQQ|INS]; auto.
-    rewrite <- H6 in ISP'NST.
+    revert Heqv. inv CSC. inv CallStackConsistency. rewrite <- H7 in INS. destruct INS as [EQQ|INS]; auto.
+    rewrite <- H7 in ISP'NST.
     destruct EQQ as [EQQ|[]].
     exfalso; apply ISP'NST. unfold is_stack_top. simpl.
     eapply in_frame_in_frames. eapply in_frame'_in_frame; eauto. left; auto.
@@ -430,21 +421,11 @@ Proof.
     eapply Mem.fresh_block_alloc in ISP'VALID; eauto.
     revert Heqv. inv CSC. 
     intros.
-    revert Heqv. inv EQ1. intro. eapply lp_has_init_sp in CallStackConsistency; eauto.
-    rewrite Heqv. exploit init_sp_ofs_zero. eauto. intro; subst i. eauto.
-  - revert EQ1; repeat rewrite_stack_blocks. intro. revert Heqv. inv EQ1. intro.
-    revert EQ; repeat rewrite_stack_blocks. intro.
-    revert Heqv. inv CSC. intro. exploit init_sp_ofs_zero; eauto. intro; subst i.
-    exploit lp_has_init_sp. apply CallStackConsistency. eauto. intro INTL.
+    revert Heqv. inv TIN. rewrite EQ1 in H4; inv H4. simpl in A. easy.
+  - revert EQ1; repeat rewrite_stack_blocks. intro. revert Heqv. inv CSC. inv TIN. rewrite EQ1 in H4; inv H4. intro.
+    rewrite EQ1 in MSISHS. simpl in MSISHS.
     destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto. simpl. rewrite EQ0 in INS. simpl in INS.
-    right. destruct INS; auto.
-    exploit Mem.stack_norepet. intro ND. rewrite EQ0 in ND. revert Heqv. inv ND.
-    exfalso. apply H8 in INTL; auto.
-    rewrite in_frames'_rew in H3.
-    clear - H3. destruct H3 as (fr & IFR & IF1).
-    eapply in_frame_in_frames; eauto.
-    eapply in_frame'_in_frame; eauto.
+    exists fi; split; eauto. simpl. right. destruct INS; auto. easy.
   - xomega.
   - intros; subst. intro; subst stk.
     eapply Mem.fresh_block_alloc; eauto.

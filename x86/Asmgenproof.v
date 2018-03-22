@@ -1108,16 +1108,42 @@ Opaque loadind.
 
   Lemma clear_stage_extends:
     forall m1 m2 (EXT: Mem.extends m1 m2) (SAMEADT: Mem.stack_adt m1 = Mem.stack_adt m2)
-      m1' (CS: clear_stage m1 = Some m1'),
-    exists m2', clear_stage m2 = Some m2' /\ Mem.extends m1' m2' /\ Mem.stack_adt m1' = Mem.stack_adt m2'.
+      m1' (CS: Mem.clear_stage m1 = Some m1'),
+    exists m2', Mem.clear_stage m2 = Some m2' /\ Mem.extends m1' m2' /\ Mem.stack_adt m1' = Mem.stack_adt m2'.
   Proof.
-    unfold clear_stage. intros. destr_in CS. inv CS.
+    unfold Mem.clear_stage. intros. destr_in CS. inv CS.
     edestruct Mem.unrecord_stack_block_extends as (m2' & USB & EXT'); eauto. rewrite USB.
     eexists; split; eauto. split. apply Mem.extends_push. auto.
     repeat rewrite_stack_blocks. rewrite EQ, EQ0. simpl. congruence.
   Qed.
 
   exploit clear_stage_extends; eauto. repeat rewrite_stack_blocks. auto. intros (m2' & CS & EXT' & EQ).
+
+  assert (CTF: check_top_frame m'0 (Some stk) (frame_size (Mach.fn_frame f)) = true).
+  {
+    generalize (frame_size_correct _ _ FIND). intros SEQ.
+    rewrite SEQ.
+    unfold check_top_frame. rewrite <- SAMEADT.
+    inv CSC. inv CallStackConsistency. rewrite FSIZE, BLOCKS.
+    unfold proj_sumbool. destr. rewrite H5 in FIND0; inv FIND0.
+    erewrite frame_size_correct; eauto.
+    rewrite zeq_true. reflexivity.
+    exfalso. apply n.
+    constructor; auto.
+    red; split; auto.
+    simpl. erewrite agree_sp in H12; eauto. inv H12; auto.
+    simpl. symmetry. rewrite H5 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+  }
+
+
+  assert (CISIS: check_init_sp_in_stack init_sp m2' = true).
+  {
+    unfold check_init_sp_in_stack. destr; eauto.
+    destruct (in_stack_dec (Mem.stack_adt m2') b); auto. exfalso.
+    apply n. clear n. inv CSC. inv CallStackConsistency.
+    exploit lp_has_init_sp. apply REC. f_equal. eapply init_sp_ofs_zero; eauto.
+    repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H14. simpl. rewrite in_stack_cons.  auto. 
+  }
 
   destruct ros as [rf|fid]; simpl in H; monadInv H7.
 + (* Indirect call *)
@@ -1131,30 +1157,12 @@ Opaque loadind.
   eapply plus_left. eapply exec_step_internal. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
   simpl. replace (chunk_of_type Tptr) with Mptr in * by (unfold Tptr, Mptr; destruct Archi.ptr64; auto).
-  rewrite C. rewrite <- (sp_val _ _ _ AG).
+  rewrite C. rewrite <- (sp_val _ _ _ AG). rewrite CTF.
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
-  rewrite SEQ.
-  rewrite E.
-  unfold check_top_frame. rewrite <- SAMEADT.
-  inv CSC. inv CallStackConsistency. rewrite FSIZE, BLOCKS.
-  simpl.
-  rewrite if_forall_dec.
-  unfold proj_sumbool. rewrite H5 in FIND0; inv FIND0.
-  erewrite frame_size_correct; eauto.
-  rewrite zeq_true.
-  unfold check_init_sp_in_stack. destr; eauto.
-  destr_in Heqb.
-  exfalso.
-  destruct (in_stack_dec (Mem.stack_adt m2_) b); simpl in Heqb; try congruence.
-  apply n.
-  eapply lp_has_init_sp.
-  repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H15.
-  econstructor 2. eauto. eauto. eauto.  f_equal. eapply init_sp_ofs_zero; eauto.
-  constructor; auto.
-  red; split; auto.
-  simpl. erewrite agree_sp in H13; eauto. inv H13; auto.
-  simpl. symmetry. rewrite H5 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+  rewrite SEQ, E.
+  rewrite CS, CISIS.
+  eauto.
 
   apply star_one. eapply exec_step_internal.
   transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H4. simpl. eauto.
@@ -1167,13 +1175,12 @@ Opaque loadind.
   eapply parent_sp_type; eauto. apply init_sp_type. 
   erewrite <- (agree_sp _ _ _ AG). inv CSC; econstructor; eauto. rewrite <- SAMEADT; eauto.
   Simplifs. rewrite Pregmap.gso; auto.
-  generalize (preg_of_not_SP rf). rewrite (ireg_of_eq _ _ EQ1). congruence.
+  generalize (preg_of_not_SP rf). rewrite (ireg_of_eq _ _ EQ2). congruence.
   repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
-  destr. eauto.
-  repeat rewrite_stack_blocks; eauto.
+  destr. apply SAMEPERM.  rewrite in_stack_cons in H10. destruct H10. easy. apply in_stack_tl.  auto. 
 
 + (* Direct call *)
-  generalize (code_tail_next_int _ _ _ _ NOOV H7). intro CT1.
+  generalize (code_tail_next_int _ _ _ _ NOOV H8). intro CT1.
   left; econstructor; split.
   eapply plus_left. eapply exec_step_internal. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
@@ -1181,29 +1188,11 @@ Opaque loadind.
   rewrite C. rewrite <- (sp_val _ _ _ AG).
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
-  rewrite SEQ.
-  rewrite E.
-  unfold check_top_frame. rewrite <- SAMEADT.
-  inv CSC. inv CallStackConsistency.
-  rewrite FSIZE, BLOCKS.
-  rewrite if_forall_dec.
-  unfold proj_sumbool. rewrite H4 in FIND0; inv FIND0.
-  erewrite frame_size_correct; eauto.
-  rewrite zeq_true.
-  unfold check_init_sp_in_stack. destr; eauto.
-  destr_in Heqb.
-  exfalso.
-  destruct (in_stack_dec (Mem.stack_adt m2_) b); simpl in Heqb; try congruence.
-  apply n.
-  eapply lp_has_init_sp.
-  repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H12.
-  econstructor 2. eauto. eauto. eauto.  f_equal. eapply init_sp_ofs_zero; eauto.
-  constructor; auto.
-  red; split; auto.
-  simpl. erewrite agree_sp in H10; eauto. inv H10; auto.
-  simpl. symmetry. rewrite H4 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+  rewrite CTF, SEQ, E, CS, CISIS.
+  eauto.
+
   apply star_one. eapply exec_step_internal.
-  transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H3. simpl. eauto.
+  transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H4. simpl. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
   simpl. eauto. traceEq.
   inv CSC.
@@ -1215,8 +1204,7 @@ Opaque loadind.
   econstructor; eauto; rewrite <- SAMEADT; eauto.
   rewrite Pregmap.gss. unfold Genv.symbol_address. rewrite symbols_preserved. rewrite H. auto.
   repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
-  destr. eauto.
-  repeat rewrite_stack_blocks; eauto.
+  destr. apply SAMEPERM. rewrite in_stack_cons in H7. destruct H7. easy. apply in_stack_tl. auto. 
 
 - (* Mbuiltin *)
   inv AT. monadInv H5.
@@ -1371,41 +1359,48 @@ Transparent destroyed_by_jumptable.
   exploit Mem.loadv_extends. eauto. eexact H0. auto. simpl. intros [ra' [C D]].
   exploit (lessdef_parent_ra init_ra); eauto. intros. subst ra'. clear D.
   exploit Mem.free_parallel_extends; eauto. constructor. intros (m2' & E & F).
-  monadInv H5.
+  exploit clear_stage_extends; eauto. repeat rewrite_stack_blocks. auto. intros (m3' & CS & EXT' & EQ).
+  monadInv H6.
   exploit code_tail_next_int; eauto. intro CT1.
+  
+
+  assert (CTF: check_top_frame m'0 (Some stk) (fn_stacksize f) = true).
+  {
+    unfold check_top_frame. rewrite <- SAMEADT.
+    inv CSC. inv CallStackConsistency. rewrite FSIZE, BLOCKS.
+    unfold proj_sumbool. destr. rewrite H in FIND0; inv FIND0.
+    erewrite frame_size_correct; eauto.
+    rewrite zeq_true. reflexivity.
+    exfalso. apply n.
+    constructor; auto.
+    red; split; auto.
+    simpl. erewrite agree_sp in H10; eauto. inv H10; auto.
+    simpl. symmetry. rewrite H in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+  }
+
+  assert (CISIS: check_init_sp_in_stack init_sp m3' = true).
+  {
+    unfold check_init_sp_in_stack. destr; eauto.
+    destruct (in_stack_dec (Mem.stack_adt m3') b); auto. exfalso.
+    apply n. clear n. inv CSC. inv CallStackConsistency.
+    exploit lp_has_init_sp. apply REC. f_equal. eapply init_sp_ofs_zero; eauto.
+    repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H12. simpl. rewrite in_stack_cons.  auto.
+  }
+
   inv CSC. inversion CallStackConsistency. subst.
-  edestruct (Mem.unrecord_stack_block_succeeds m') as (m2 & USB & STKEQ). rewrite_stack_blocks.
-  rewrite <- H11. reflexivity.
-  edestruct Mem.unrecord_stack_block_extends as (m3' & USB' & EXT'). 2: apply USB. eauto. subst.
+  edestruct (Mem.unrecord_stack_block_succeeds m'') as (m''' & USB & STKEQ). rewrite_stack_blocks. reflexivity.
+  edestruct Mem.unrecord_stack_block_extends as (m4' & USB' & EXT''). 2: apply USB. eauto.
   rewrite FIND in FIND0; inv FIND0.
+
   left; econstructor; split.
   + eapply plus_left. eapply exec_step_internal. eauto.
     eapply functions_transl; eauto. eapply find_instr_tail; eauto.
     simpl. rewrite C. rewrite <- (sp_val _ _ _ AG).
     rewrite Ptrofs.unsigned_zero in E; simpl in E.
     generalize (frame_size_correct _ _ FIND). intros SEQ.
-    rewrite SEQ.
-    rewrite  E; eauto.
-    unfold check_top_frame. rewrite <- SAMEADT.
-    rewrite <- H11.
-    rewrite FSIZE, BLOCKS.
-    rewrite if_forall_dec.
-    unfold proj_sumbool.
-    erewrite frame_size_correct; eauto.
-    rewrite zeq_true. 
-    unfold check_init_sp_in_stack. destr; eauto.
-    destr_in Heqb.
-    exfalso.
-    destruct (in_stack_dec (Mem.stack_adt m2') b); simpl in Heqb; try congruence.
-    apply n.
-    eapply lp_has_init_sp.
-    repeat rewrite_stack_blocks. rewrite <- SAMEADT. eauto. f_equal.
-    eapply init_sp_ofs_zero; eauto.
-    constructor; auto.
-    red; split; auto.
-    simpl. erewrite agree_sp in H9; eauto. inv H9; auto.
+    rewrite SEQ, E, CS, CTF, CISIS. eauto.
     apply star_one. eapply exec_step_internal.
-    transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H2. simpl. eauto.
+    transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H3. simpl. eauto.
     eapply functions_transl; eauto. eapply find_instr_tail; eauto.
     simpl. rewrite USB'. eauto. traceEq.
   +
@@ -1418,7 +1413,7 @@ Transparent destroyed_by_jumptable.
     econstructor; eauto.
     rewrite <- SAMEADT. eauto. auto. auto.
     repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
-    destr; eauto.
+    destr. apply SAMEPERM. rewrite in_stack_cons in H6. destruct H6. easy. apply in_stack_tl. auto. 
     repeat rewrite_stack_blocks. congruence.
 
 - (* internal function *)
@@ -1430,8 +1425,6 @@ Transparent destroyed_by_jumptable.
   exploit Mem.alloc_extends. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros [m1' [C D]].
   exploit Mem.storev_extends. eexact D. eexact H2. eauto. eauto.
-  (* intros [m2' [F G]]. *)
-  (* exploit Mem.storev_extends. eexact G. eexact H3. eauto. eauto. *)
   intros [m3' [P Q]].
   exploit frame_size_correct. eauto. intros X.
   exploit Mem.record_stack_blocks_extends.
@@ -1450,19 +1443,9 @@ Transparent destroyed_by_jumptable.
     eapply Mem.perm_alloc_inv in PERM. 2: eauto. rewrite pred_dec_true in PERM; auto.
     rewrite X. auto. 
   }
-  inv CSC. repeat rewrite_stack_blocks.
-  rewrite <- SAMEADT. 
-  inv TTNP; constructor. red. intros b FB IFR o k p PP; eapply (H5 b FB IFR o k p); eauto.
-  revert PP. repeat rewrite_perms. destr; eauto. subst.
-  exploit Mem.in_frames_valid. rewrite <- H4. rewrite in_stack_cons; left; eauto. intro VB; eapply Mem.fresh_block_alloc in VB; eauto. destruct VB.
-  rewrite SAMEPERM. auto. eapply in_frames_in_stack. rewrite <- H4; left; eauto. eauto.
+  inv CSC. repeat rewrite_stack_blocks. rewrite <- SAMEADT. inv TIN. constructor; red; easy.
   repeat rewrite_stack_blocks. rewrite SAMEADT. omega.
   intros (m1'' & CC & DD).
-  (* exploit Mem.alloc_record_push_frame. 3-5: eauto. reflexivity. rewrite X. eauto. *)
-  (* rewrite X; eauto. *)
-  (* instantiate (1:= (chunk_of_type Tptr, fn_retaddr_ofs f, parent_ra init_ra s)::nil). *)
-  (* simpl. simpl in P. rewrite Ptrofs.add_zero_l in P. rewrite P. eauto. *)
-  (* intro PF. *)
   left; econstructor; split.
   apply plus_one. econstructor; eauto.
   simpl. rewrite Ptrofs.unsigned_zero. simpl. eauto.
@@ -1471,7 +1454,10 @@ Transparent destroyed_by_jumptable.
   rewrite ATLR. erewrite agree_sp. 2: eauto.
   edestruct check_alloc_frame_correct. eauto. rewrite H4.
   rewrite X. rewrite C.
-  simpl in P. rewrite Ptrofs.add_zero_l in P. rewrite P. rewrite CC. eauto.
+  simpl in P. rewrite Ptrofs.add_zero_l in P. rewrite P. rewrite CC.
+  rewrite pred_dec_true.
+  eauto.
+  inv CSC. red; rewrite <- SAMEADT; auto.
   econstructor; eauto.
   unfold nextinstr. rewrite Pregmap.gss. repeat rewrite Pregmap.gso; auto with asmgen.
   rewrite ATPC. simpl. constructor; eauto.
@@ -1501,7 +1487,7 @@ Transparent destroyed_at_function_entry.
   intros [args' [C D]].
   exploit external_call_mem_extends; eauto.
   intros [res' [m2' [P [Q [R S]]]]].
-  inv CSC. inv TTNP.
+  inv CSC. inv TIN.
   edestruct (Mem.unrecord_stack_block_succeeds m') as (m2 & USB & STKEQ). rewrite_stack_blocks. eauto.
   edestruct Mem.unrecord_stack_block_extends as (m3' & USB' & EXT'). 2: apply USB. eauto. subst.
   left; econstructor; split.
@@ -1589,7 +1575,7 @@ Proof.
            repeat econstructor; eauto.
            unfold get_frame_blocks. simpl.
            intros (fsp & fr & r & ? & ?). inv H2. simpl in H4. inv H4. auto.
-        -- rewrite_stack_blocks. constructor; red; easy.
+        -- red. rewrite_stack_blocks. constructor; auto.
         -- constructor.
     + unfold Genv.symbol_address.
       rewrite (match_program_main TRANSF).
@@ -1629,7 +1615,7 @@ Proof.
 Qed.
 
 Theorem transf_program_correct:
-  forward_simulation (Mach.semantics return_address_offset prog) (Asm.semantics (ptr_of_block init_sp_block) tprog).
+  forward_simulation (Mach2.semantics return_address_offset prog) (Asm.semantics (ptr_of_block init_sp_block) tprog).
 Proof.
   eapply forward_simulation_star with (measure := measure)
                                         (match_states := fun s1 s2 => match_states (ptr_of_block init_sp_block) Vnullptr s1 s2 /\ call_stack_consistency (ptr_of_block init_sp_block) ge s1).
