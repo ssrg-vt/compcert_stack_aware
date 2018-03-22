@@ -671,7 +671,7 @@ Definition check_alloc_frame (f: frame_info) (* ofs_link *) (* ofs_ra *) :=
   (* (Nat.eq_dec (length (frame_link f)) 1) *)
   (*   && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link f) *)
   (*   && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) *)
-  (*   &&  *) zle 0 (frame_size f).
+  (*   &&  *) zlt 0 (frame_size f).
 
 
 Definition match_frame (bfi: block * frame_info) (stk: option block) (sz: Z) : Prop :=
@@ -694,12 +694,13 @@ Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
   | _ => false
   end.
 
-Definition parent_pointer (m: mem) : option (block*Z) :=
+Definition parent_pointer (m: mem) : option val :=
   match Mem.stack_adt m with
+  | nil => Some init_sp
   | _::(fr::_)::_ =>
     match frame_adt_blocks fr with
       (b,fi)::nil =>
-      Some (b, frame_size fi)
+      Some (Vptr b Ptrofs.zero)
     | _ => None
     end
   | _ => None
@@ -1056,6 +1057,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
+    check (Mem.check_top_is_new m);
     do m' <- Mem.unrecord_stack_block m;
       Next (rs#PC <- (rs#RA) #RA <- Vundef) m'
   (** Saving and restoring registers *)
@@ -1085,18 +1087,15 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
             do m' <- Mem.free m stk 0 sz;
             do m' <- Mem.clear_stage m';
             check (check_init_sp_in_stack m');
-            Next (nextinstr (rs#RSP <-
-                               (match parent_pointer m with
-                                | None => init_sp
-                                | Some (sp,_) => Vptr sp Ptrofs.zero
-                                end) #RA <- ra)) m'
+            do sp <- parent_pointer m;
+            Next (nextinstr (rs#RSP <- sp #RA <- ra)) m'
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz =>
-    do b, _ <- parent_pointer m ;
+    do sp <- parent_pointer m ;
       check (check_top_frame m None sz);
       check (Sumbool.sumbool_not _ _ (preg_eq rd RSP));
-      Next (nextinstr (rs#rd <- (Vptr b Ptrofs.zero))) m
+      Next (nextinstr (rs#rd <- sp)) m
   | Pcfi_adjust n => Next rs m
   
   | Pbuiltin ef args res =>

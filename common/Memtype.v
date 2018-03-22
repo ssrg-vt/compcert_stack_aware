@@ -291,6 +291,18 @@ Definition mem_unchanged (T: mem -> mem -> Prop) :=
            /\ (forall P, strong_unchanged_on P m1 m2)
            /\ (forall b o chunk, load chunk m2 b o = load chunk m1 b o).
 
+Definition top_is_new (m:mem) :=
+  top_tframe_prop (fun tf => tf = nil) (stack_adt m).
+
+Lemma check_top_is_new m : { top_is_new m } + { ~ top_is_new m }.
+Proof.
+  unfold top_is_new.
+  destruct (stack_adt m) eqn:STK. right; intro A; inv A.
+  destruct t. left; constructor. auto.
+  right; intro A; inv A. inv H0.
+Defined.
+
+
 End WITHMEMORYMODELOPS.
 
 Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem} 
@@ -1843,12 +1855,14 @@ for [unchanged_on]. *)
  record_stack_block_inject_left_zero {injperm: InjectPerm}:
     forall m1 m1' m2 j g f1 f2
       (INJ: inject j g m1 m2)
+      (TIN: top_is_new m1)
       (FAP2: frame_at_pos (stack_adt m2) O f2)
       (FI: tframe_inject j (perm m1) (f1::nil) f2)
       (HP: has_perm_frame (perm m1) j f1)
       (SZ2: Forall (fun f => Forall (fun f =>0 = frame_adt_size f) f)%Z (stack_adt m2)) 
-      (RSB: record_stack_blocks (push_new_stage m1) f1 = Some m1'),
-      inject j (fun n : nat => if Nat.eq_dec n O then Some O else g (pred n)) m1' m2;
+      (RSB: record_stack_blocks m1 f1 = Some m1')
+      (G0: g O = Some O),
+      inject j g m1' m2;
 
  unrecord_stack_block_inject_left_zero {injperm: InjectPerm}:
     forall (m1 m1' m2 : mem) (j : meminj) g,
@@ -2828,16 +2842,6 @@ Proof.
   edestruct unrecord_stack_adt; eauto. rewrite H. simpl. auto.
 Qed.
 
-Definition top_is_new (m:mem) :=
-  top_tframe_prop (fun tf => tf = nil) (stack_adt m).
-
-Lemma check_top_is_new m : { top_is_new m } + { ~ top_is_new m }.
-Proof.
-  unfold top_is_new.
-  destruct (stack_adt m) eqn:STK. right; intro A; inv A.
-  destruct t. left; constructor. auto.
-  right; intro A; inv A. inv H0.
-Defined.
 
 
 End WITHMEMORYMODEL.

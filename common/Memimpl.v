@@ -8221,6 +8221,85 @@ Proof.
   + rewrite ! PERM1. eapply mi_perm_inv0 in H0; eauto.
 Qed.
 
+Lemma record_stack_inject_left_zero':
+  forall j g m1 s1 s2 f1 f2
+    (FAP: frame_at_pos s2 0 f2)
+    (FI: tframe_inject j m1 f1 f2)
+    (SI: stack_inject j g m1 (nil :: s1) s2)
+    (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z s2)
+    (WTF: wf_tframe m1 j f1)
+    (G0: g O = Some O),
+    stack_inject j g m1 (f1 :: s1) s2.
+Proof.
+  intros j g m1 s1 s2 f1 f2 FAP FI SI SZ2 WTF.
+  unfold upstar, option_map.
+  destruct SI.
+  constructor; auto.
+  - inv stack_src_wf. constructor; auto.
+  - intros.
+    destruct (Nat.eq_dec i1 O). subst; eauto.
+    apply frame_at_pos_cons_inv in FAP0. 2: omega.
+    eapply stack_inject_frames_ex; eauto. destruct i1. omega. eapply frame_at_pos_cons. auto.
+  - intros.
+    destruct (Nat.eq_dec i1 O).
+    + inv FAP1; simpl in H. inv H.
+      assert (i2 = O) by congruence. subst. eauto.
+    + destruct i1. omega. apply frame_at_pos_cons_inv in FAP1.
+      edestruct stack_inject_frame_inject as (f7 & FAP' & FI'); eauto. apply frame_at_pos_cons. auto. omega.
+  - intros. eapply stack_inject_not_in_source; eauto. rewrite in_stack_cons in NIS. rewrite in_stack_cons. intuition. 
+Qed.
+
+Lemma record_stack_blocks_mem_inj_left_zero':
+  forall j g m1 m2 f1 f2 m1',
+    mem_inj j g m1 m2 ->
+    top_is_new m1 ->
+    record_stack_blocks m1 f1 = Some m1' ->
+    frame_at_pos (stack_adt m2) O f2 ->
+    (exists vf2, In vf2 f2 /\ frame_inject j f1 vf2) ->
+    Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z (stack_adt m2) ->
+    g O = Some O ->
+    mem_inj j g m1' m2.
+Proof.
+  intros j g m1 m2 f1 f2 m1' INJ TIN ADT FAP FI SZ2 G0; autospe.
+  inv TIN.
+  unfold record_stack_blocks in ADT; repeat destr_in ADT.
+  pattern m1'.
+  eapply destr_dep_match. apply H1. clear H1. simpl; intros. inv H0.
+  inversion INJ; subst; constructor; simpl; intros; eauto.
+  eapply stack_inject_invariant_strong.
+  intros. change (perm m1 b ofs k p) in H1. apply H1. unfold prepend_to_current_stage in pf. rewrite <- H in pf. inv pf.
+  eapply record_stack_inject_left_zero'; eauto.
+  red. intros f3 [|[]]; subst. eauto. rewrite <- H in mi_stack_blocks0. auto. red. simpl. easy.
+Qed.
+
+Lemma record_stack_block_inject_left_zero':
+  forall m1 m1' m2 j g f1 f2
+    (INJ: inject j g m1 m2)
+    (TIN: top_is_new m1)
+    (FAP: frame_at_pos (stack_adt m2) 0 f2)
+    (FI: exists vf2, In vf2 f2 /\ frame_inject j f1 vf2)
+    (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f)%Z f) (stack_adt m2))
+    (G0: g O = Some O)
+    (RSB: record_stack_blocks m1 f1 = Some m1'),
+    inject j g m1' m2.
+Proof.
+  intros.
+  inversion INJ; eauto.
+  exploit record_stack_blocks_mem_inj_left_zero'; eauto.
+  intro MINJ.
+  edestruct (record_stack_blocks_mem_unchanged _ _ _ RSB) as (NB1 & PERM1 & U1 & C1) ; simpl in *.
+  inversion INJ; econstructor; simpl; intros; eauto.
+  + eapply mi_freeblocks0; eauto.
+    unfold valid_block in H; rewrite NB1 in H; eauto.
+  + red; intros.
+    rewrite PERM1 in H3, H2.
+    eapply mi_no_overlap0; eauto.
+  + exploit mi_representable0; eauto.
+    intros (A & B); split; auto. intro ofs; rewrite ! PERM1. eauto.
+  + rewrite ! PERM1. eapply mi_perm_inv0 in H0; eauto.
+Qed.
+
+
 Lemma unrecord_stack_inject_left_zero:
   forall j g m1 f s1 s2
     (SI: stack_inject j g m1 (f :: s1) s2)
@@ -9180,7 +9259,7 @@ Proof.
   simpl. vm_compute. intuition congruence.
   simpl. unfold stack_limit. exists 512; omega.
   intros. simpl. eapply stack_inv_below_limit, mem_stack_inv.
-  intros; eapply record_stack_block_inject_left_zero; eauto.
+  intros; eapply record_stack_block_inject_left_zero'; eauto.
   specialize (FI _ (or_introl eq_refl)). auto.
   intros; eapply unrecord_stack_block_inject_left_zero; eauto.
   intros; eapply mem_inject_ext; eauto.
