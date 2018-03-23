@@ -3889,10 +3889,7 @@ Proof.
            erewrite (Mem.record_stack_block_nextblock _ _ _ H5).
            rewrite Mem.push_new_stage_nextblock.
            reflexivity.
-        -- repeat rewrite_stack_blocks. setoid_rewrite in_stack_cons.
-           intros b0 [[]|INS] [A|[]]. simpl in A; inv A.
-           apply Mem.in_frames_valid in INS.
-           eapply Mem.fresh_block_alloc; eauto.
+        -- repeat rewrite_stack_blocks. easy.
         -- red; simpl. intros b0 [|[]]. simpl in *; subst.
            red; rewrite Mem.push_new_stage_nextblock. eapply Mem.valid_new_block; eauto.
         -- intros b0 fi [AA|[]]. inv AA.
@@ -3930,7 +3927,6 @@ Proof.
       eapply Genv.find_var_info_not_fresh; eauto.
     + red; simpl; tauto.
   - repeat rewrite_stack_blocks. repeat constructor; auto.
-    erewrite ! Genv.init_mem_stack_adt; eauto. constructor.
   - repeat rewrite_stack_blocks. constructor. red; easy.
   - constructor. rewrite Mem.nextblock_empty; xomega.
     constructor.

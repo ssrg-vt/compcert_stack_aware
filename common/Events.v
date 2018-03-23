@@ -2211,7 +2211,30 @@ Qed.
     erewrite ec_perm_frames; eauto. 2: apply external_call_spec. tauto.
   Qed.
 
-
+  Lemma drop_perm_perm:
+    forall m b lo hi p m',
+      Mem.drop_perm m b lo hi p = Some m' ->
+      forall b' o k p',
+        Mem.perm m' b' o k p' <-> (Mem.perm m b' o k p' /\( b = b' -> lo <= o < hi -> perm_order p p')).
+  Proof.
+    intros.
+    split.
+    intros PERM.
+    split.
+    eapply Mem.perm_drop_4; eauto. intros; subst.
+    eapply Mem.perm_drop_2; eauto.
+    intros (A & B).
+    destruct (peq b b').
+    2: eapply Mem.perm_drop_3; eauto.
+    subst.
+    trim B; auto.
+    destruct (zle lo o).
+    destruct (zlt o hi). trim B. omega.
+    eapply Mem.perm_implies.
+    eapply Mem.perm_drop_1; eauto. auto.
+    eapply Mem.perm_drop_3; eauto. right; right. omega.
+    eapply Mem.perm_drop_3; eauto. right; left. omega.
+  Qed.
 
 End WITHEXTERNALCALLS.
 
@@ -2233,6 +2256,7 @@ Ltac rewrite_perms_fw :=
     apply (Mem.perm_store_1 _ _ _ _ _ _ H1)
   end.
 
+Arguments Genv.init_mem_stack_adt {mem memory_model_ops _ _ _ _}.
 
 Ltac rewrite_stack_blocks :=
   match goal with
@@ -2242,8 +2266,10 @@ Ltac rewrite_stack_blocks :=
   | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack_adt ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
   | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
   | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
+  | H:Mem.drop_perm _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.drop_perm_stack_adt _ _ _ _ _ _ H)
   | H: context[ Mem.stack_adt (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
   | |- context[ Mem.stack_adt (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
+  | H: Genv.init_mem _ = Some ?m |- context [Mem.stack_adt ?m] => rewrite (Genv.init_mem_stack_adt _ _ H)
   | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
     let f := fresh "f" in
     let r := fresh "r" in
@@ -2275,6 +2301,8 @@ Ltac rewrite_perms_bw H :=
     end
   end.
 
+Arguments Genv.init_mem_genv_next {mem memory_model_ops _ _ _}.
+
 Ltac rewnb :=
   repeat
     match goal with
@@ -2284,6 +2312,8 @@ Ltac rewnb :=
       rewrite (Mem.storev_nextblock _ _ _ _ _ H)
     | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
       rewrite (Mem.nextblock_free _ _ _ _ _ H)
+    | H: Mem.drop_perm _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_drop _ _ _ _ _ _ H)
     | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
       rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
     | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
@@ -2297,6 +2327,8 @@ Ltac rewnb :=
       eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
     | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
       eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    | H: Genv.init_mem _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite <- (Genv.init_mem_genv_next _ _ H)
     end.
 
 
@@ -2304,6 +2336,7 @@ Ltac rewnb :=
 Arguments store_perm {mem memory_model_ops _}.
 Arguments storev_perm {mem memory_model_ops _}.
 Arguments free_perm {mem memory_model_ops _}.
+Arguments drop_perm_perm {mem memory_model_ops _}.
 Arguments alloc_perm {mem memory_model_ops _}.
 Arguments record_perm {mem memory_model_ops _}.
 Arguments unrecord_perm {mem memory_model_ops _}.
@@ -2317,6 +2350,8 @@ Arguments extcall_perm {mem memory_model_ops external_calls_ops memory_model_prf
       rewrite (storev_perm _ _ _ _ _ H)
     | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
       rewrite (free_perm _ _ _ _ _ H)
+    | H: Mem.drop_perm _ _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (drop_perm_perm _ _ _ _ _ _ H)
     | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.perm ?m _ _ _ _] =>
       rewrite (alloc_perm _ _ _ _ _ H)
     | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>

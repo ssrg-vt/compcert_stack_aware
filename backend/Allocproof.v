@@ -2384,7 +2384,6 @@ Proof.
   red; auto.
   apply Mem.extends_refl.
   repeat rewrite_stack_blocks. repeat constructor.
-  erewrite ! Genv.init_mem_stack_adt by eauto ; constructor.
   rewrite SIG, H3. constructor.
 Qed.
 

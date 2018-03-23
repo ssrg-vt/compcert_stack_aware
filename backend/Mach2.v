@@ -189,8 +189,17 @@ Hypothesis init_sp_ofs_zero:
   forall b o, init_sp = Vptr b o -> o = Ptrofs.zero.
 
 Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
-| list_prefix_nil s: (forall b, init_sp = Vptr b Ptrofs.zero <-> exists fsp fr r, s = (fsp::fr)::r /\ get_frame_blocks fsp = b::nil) ->
-                     list_prefix nil s
+| list_prefix_nil s
+                  (INITSP: forall b, init_sp = Vptr b Ptrofs.zero <-> exists fsp fr r, s = (fsp::fr)::r /\ get_frame_blocks fsp = b::nil)
+                  (NONIL: Forall (fun t => match t with
+                                          fr::nil =>
+                                          match frame_adt_blocks fr with
+                                            (b,fi)::nil => True
+                                          | _ => False
+                                          end
+                                        | _ => False
+                                        end) s):
+    list_prefix nil s
 | list_prefix_cons lsp s f sp bi
                    (REC: list_prefix lsp s)
                    (FSIZE: frame_adt_size f = frame_size bi)
@@ -378,7 +387,7 @@ Proof.
   induction 1; simpl; intros; eauto.
   unfold in_stack.
   unfold get_stack_blocks.
-  rewrite H in H0. revert H0.
+  rewrite INITSP in H. revert H.
   unfold get_stack_top_blocks.
   intros (fsp & fr & r & EQ & BLOCKS). subst. simpl. unfold get_frames_blocks. simpl. rewrite BLOCKS. 
   rewrite in_app. rewrite in_app. left; left; left. reflexivity.

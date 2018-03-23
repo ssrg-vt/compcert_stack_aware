@@ -696,13 +696,15 @@ Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
 
 Definition parent_pointer (m: mem) : val :=
   match Mem.stack_adt m with
+  | nil => init_sp
+  | _ :: nil => init_sp
   | _::(fr::_)::_ =>
     match frame_adt_blocks fr with
       (b,fi)::nil =>
       (Vptr b Ptrofs.zero)
-    | _ => init_sp
+    | _ => Vundef
     end
-  | _ => init_sp 
+  | _ => Vundef
   end.
 
 Local Open Scope list_scope.
@@ -727,6 +729,9 @@ Definition check_init_sp_in_stack (m: mem) :=
     in_stack_dec (Mem.stack_adt m) b 
   | _ => true
   end.
+
+Definition is_def (v: val) :=
+  match v with Vundef => None | _ => Some v end.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instruction) (rs: regset) (m: mem) : outcome :=
   match i with
@@ -1086,7 +1091,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
             do m' <- Mem.free m stk 0 sz;
             do m' <- Mem.clear_stage m';
             check (check_init_sp_in_stack m');
-            Next (nextinstr (rs#RSP <- (parent_pointer m) #RA <- ra)) m'
+            do sp <- is_def (parent_pointer m);
+            Next (nextinstr (rs#RSP <- sp #RA <- ra)) m'
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz =>
@@ -1243,7 +1249,8 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
       forall (SP_TYPE: Val.has_type (rs RSP) Tptr)
         (RA_TYPE: Val.has_type (rs RA) Tptr)
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
-        (RA_NOT_VUNDEF: rs RA <> Vundef),
+        (RA_NOT_VUNDEF: rs RA <> Vundef)
+        (TIN: Mem.top_is_new m),
         external_call ef ge args m t res m' ->
         Mem.unrecord_stack_block m' = Some m'' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->

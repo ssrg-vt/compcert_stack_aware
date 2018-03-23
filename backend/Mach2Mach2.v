@@ -369,7 +369,7 @@ End WITHINITSP.
     intros p s IS. inv IS.
     constructor; try reflexivity.
     - apply Mem.unchanged_on_refl.
-    - repeat rewrite_stack_blocks. erewrite Genv.init_mem_stack_adt. 2: eauto. simpl.
+    - repeat rewrite_stack_blocks. simpl.
       constructor; auto. constructor.
   Qed.
 
@@ -400,6 +400,7 @@ End WITHINITSP.
       revert EQ. repeat rewrite_stack_blocks. simpl. inversion 1. subst. f_equal.
       unfold ge. erewrite Genv.init_mem_genv_next; eauto.
       symmetry. eapply Mem.alloc_result; eauto. inv GFB. eauto.
+      repeat rewrite_stack_blocks. simpl. repeat constructor.
       red. rewrite_stack_blocks. constructor; auto.
       constructor.
     - simpl. intros s1 s2 r (MS & CSC). eapply final_transf; eauto.

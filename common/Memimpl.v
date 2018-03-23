@@ -8993,6 +8993,60 @@ Proof.
   f_equal. destruct m. simpl. apply mkmem_ext; auto.
 Qed.
 
+Lemma record_stack_blocks_mem_inj_right:
+  forall j g m1 m2 fi m2',
+    mem_inj j g m1 m2 ->
+    (forall b bi, in_frame' fi (b, bi) -> forall o, frame_perm bi o = Public) ->
+    (forall b f1 i1, g i1 = Some O -> f1 @ stack_adt m1 : i1 -> in_frames f1 b -> forall o k p, ~ perm m1 b o k p) ->
+    record_stack_blocks m2 fi = Some m2' ->
+    mem_inj j g m1 m2'.
+Proof.
+  intros j g m1 m2 fi m2' INJ PUB TOP RSB.
+  inv INJ; constructor; simpl; intros; eauto.
+  eapply record_stack_blocks_mem_unchanged in RSB. destruct RSB as ( _ & RSB & _); rewrite RSB; simpl; eauto.
+  unfold record_stack_blocks in RSB. repeat destr_in RSB.
+  pattern m2'. eapply destr_dep_match. apply H2. clear H2. simpl; intros. subst. unfold prepend_to_current_stage in pf.
+  simpl. repeat destr_in pf. eauto.
+  unfold record_stack_blocks in RSB. repeat destr_in RSB.
+  pattern m2'. eapply destr_dep_match. apply H0. clear H0. simpl; intros. subst. unfold prepend_to_current_stage in pf.
+  simpl. repeat destr_in pf.
+  inv mi_stack_blocks0; constructor; simpl; intros; eauto.
+  - edestruct (stack_inject_frame_inject _ _ _ G1 FAP1) as (f2 & FAP2 & TFI).
+    destruct (Nat.eq_dec i2 O).
+    + subst. eexists; split. constructor; reflexivity. red; intros.
+      destruct H0 as ( b1 & o & k & p & INJ & IFR & PERM & IPC).
+      eapply TOP in PERM; eauto. easy.
+      eapply in_frame_in_frames; eauto.
+    + exists f2; split; auto.
+      destruct i2. omega.
+      apply frame_at_pos_cons. apply frame_at_pos_cons_inv in FAP2. auto. omega.
+  - rewrite or_assoc in FI. rewrite or_comm in FI.
+    destruct FI. eapply stack_inject_not_in_source; eauto.
+    red. eapply PUB. eauto.
+Qed.
+  
+
+Lemma record_stack_blocks_inject_right:
+  forall j g m1 m2 fi m2',
+    inject j g m1 m2 ->
+    (forall b bi, in_frame' fi (b, bi) -> forall o, frame_perm bi o = Public) ->
+    (forall b f1 i1, g i1 = Some O -> f1 @ stack_adt m1 : i1 -> in_frames f1 b -> forall o k p, ~ perm m1 b o k p) ->
+    record_stack_blocks m2 fi = Some m2' ->
+    inject j g m1 m2'.
+Proof.
+  intros j g m1 m2 fi m2' INJ PUB TOP RSB.
+  inv INJ; constructor; auto.
+  - eapply record_stack_blocks_mem_inj_right; eauto.
+  - red; intros. edestruct record_stack_blocks_mem_unchanged. simpl. eauto. simpl in *. rewrite H0.
+    eapply mi_mappedblocks0; eauto.
+  - intros.
+    edestruct record_stack_blocks_mem_unchanged. simpl. eauto. simpl in *.
+    destruct H2. rewrite H2 in H0. eauto.  
+Qed.
+
+
+
+
 End WITHINJPERM.
 
 Local Instance memory_model_prf:
@@ -9319,7 +9373,8 @@ Proof.
   intros; eapply magree_push_new_stage; eauto.
   intros; eapply unrecord_stack_block_magree; eauto.
   intros; eapply loadbytes_push.
-  
+
+  intros; eapply record_stack_blocks_inject_right; eauto.
 Qed.
 
 End Mem.

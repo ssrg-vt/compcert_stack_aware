@@ -768,33 +768,26 @@ Qed.
     intros.
     unfold parent_pointer.
     inv H. inv CallStackConsistency. inv REC.
-    + destruct s; simpl in H0; try congruence. simpl.
-      destr. repeat destr_in Heqo. repeat destr. apply H1.
-      unfold get_frame_blocks. repeat eexists. rewrite Heql. reflexivity.
+    + destruct s; simpl in H1; try congruence. simpl.
+      inv NONIL. auto.
+      repeat destr_in H0. apply INITSP.
+      repeat eexists. unfold get_frame_blocks. rewrite Heql2. reflexivity.
     + destruct s; simpl in H1. inv H1. simpl. destr. inv H1.
       repeat destr_in H2.  rewrite BLOCKS0. auto.
   Qed.
-  
 
-  (* Lemma parent_pointer_correct': *)
-  (*   forall m1 s fb sp c ms *)
-  (*     (INITSP_NOTPTR: (~ exists b o, init_sp = Vptr b o) -> init_sp = Vnullptr) *)
-  (*     (* (INITSP_NONONE: forall b o oo n, In (b::nil, oo, n) (Mem.stack_adt m1) -> init_sp = Vptr b o -> oo <> None) *) *)
-  (*   (* (LP: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m1)) *), *)
-  (*     call_stack_consistency init_sp ge (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m1) -> *)
-  (*     parent_sp init_sp s = parent_pointer init_sp m1. *)
-  (* Proof. *)
-  (*   intros. *)
-  (*   erewrite parent_pointer_correct; eauto. destr. apply INITSP_NOTPTR. intros (b & o & ISP). *)
-  (*   inv H. clear INITSP_NOTPTR. *)
-  (*   unfold parent_pointer in Heqo. inv CallStackConsistency. rewrite <- H in Heqo. *)
-  (*   inv REC. *)
-  (*   specialize (init_sp_ofs_zero _ _ eq_refl). subst. *)
-  (*   destruct (H1 b). trim H2. reflexivity. *)
-  (*   destruct H2 as (fsp & fr & rr & TOP & EQ). subst. *)
-  (*   unfold get_frame_blocks in EQ. repeat destr_in Heqo; simpl in *; try congruence. *)
-  (*   rewrite BLOCKS0 in Heqo. inv Heqo. *)
-  (* Qed. *)
+  Lemma parent_pointer_is_def:
+    forall m1 s fb sp c ms,
+      init_sp <> Vundef ->
+      call_stack_consistency init_sp ge (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m1) ->
+      is_def (parent_pointer init_sp m1) = Some (parent_sp init_sp s).
+  Proof.
+    clear.
+    intros.
+    erewrite <- parent_pointer_correct; eauto. unfold is_def. destr.
+    contradict Heqv. unfold parent_sp. repeat destr.
+  Qed.
+
 
   Lemma check_alloc_frame_correct:
     forall fi f,
@@ -1118,6 +1111,8 @@ Opaque loadind.
     repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H14. simpl. rewrite in_stack_cons.  auto. 
   }
 
+  
+
   destruct ros as [rf|fid]; simpl in H; monadInv H7.
 + (* Indirect call *)
   assert (rs rf = Vptr f' Ptrofs.zero).
@@ -1135,7 +1130,9 @@ Opaque loadind.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
   rewrite SEQ, E.
   rewrite CS, CISIS.
-  eauto.
+  unfold parent_pointer. rewrite <- SAMEADT. fold (parent_pointer init_sp m).
+  erewrite agree_sp in CSC; eauto.
+  erewrite parent_pointer_is_def; eauto. apply init_sp_not_vundef.
 
   apply star_one. eapply exec_step_internal.
   transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H4. simpl. eauto.
@@ -1143,10 +1140,8 @@ Opaque loadind.
   simpl. eauto. traceEq.
   econstructor; eauto.
   apply agree_set_other; auto. apply agree_nextinstr. apply agree_set_other; auto.
-  erewrite <- parent_pointer_correct. 
   eapply agree_change_sp; eauto. eapply parent_sp_def; eauto. apply init_sp_not_vundef.
-  eapply parent_sp_type; eauto. apply init_sp_type. 
-  erewrite <- (agree_sp _ _ _ AG). inv CSC; econstructor; eauto. rewrite <- SAMEADT; eauto.
+  eapply parent_sp_type; eauto. apply init_sp_type.
   Simplifs. rewrite Pregmap.gso; auto.
   generalize (preg_of_not_SP rf). rewrite (ireg_of_eq _ _ EQ2). congruence.
   repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
@@ -1162,7 +1157,9 @@ Opaque loadind.
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
   rewrite CTF, SEQ, E, CS, CISIS.
-  eauto.
+  unfold parent_pointer. rewrite <- SAMEADT. fold (parent_pointer init_sp m).
+  erewrite agree_sp in CSC; eauto.
+  erewrite parent_pointer_is_def; eauto. apply init_sp_not_vundef.
 
   apply star_one. eapply exec_step_internal.
   transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H4. simpl. eauto.
@@ -1171,10 +1168,8 @@ Opaque loadind.
   inv CSC.
   econstructor; eauto.
   apply agree_set_other; auto. apply agree_nextinstr. apply agree_set_other; auto.
-  erewrite <- parent_pointer_correct.
   eapply agree_change_sp; eauto. eapply parent_sp_def; eauto. apply init_sp_not_vundef.
   eapply parent_sp_type; eauto. apply init_sp_type.
-  econstructor; eauto; rewrite <- SAMEADT; eauto.
   rewrite Pregmap.gss. unfold Genv.symbol_address. rewrite symbols_preserved. rewrite H. auto.
   repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
   destr. apply SAMEPERM. rewrite in_stack_cons in H7. destruct H7. easy. apply in_stack_tl. auto. 
@@ -1360,7 +1355,7 @@ Transparent destroyed_by_jumptable.
     repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H12. simpl. rewrite in_stack_cons.  auto.
   }
 
-  inv CSC. inversion CallStackConsistency. subst.
+  inversion CSC; subst. inversion CallStackConsistency. subst.
   edestruct (Mem.unrecord_stack_block_succeeds m'') as (m''' & USB & STKEQ). rewrite_stack_blocks. reflexivity.
   edestruct Mem.unrecord_stack_block_extends as (m4' & USB' & EXT''). 2: apply USB. eauto.
   rewrite FIND in FIND0; inv FIND0.
@@ -1371,7 +1366,11 @@ Transparent destroyed_by_jumptable.
     simpl. rewrite C. rewrite <- (sp_val _ _ _ AG).
     rewrite Ptrofs.unsigned_zero in E; simpl in E.
     generalize (frame_size_correct _ _ FIND). intros SEQ.
-    rewrite SEQ, E, CS, CTF, CISIS. eauto.
+    rewrite SEQ, E, CS, CTF, CISIS.
+    unfold parent_pointer. rewrite <- SAMEADT. fold (parent_pointer init_sp m).
+    erewrite agree_sp in CSC; eauto.
+    erewrite parent_pointer_is_def; eauto. apply init_sp_not_vundef.
+
     apply star_one. eapply exec_step_internal.
     transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H3. simpl. eauto.
     eapply functions_transl; eauto. eapply find_instr_tail; eauto.
@@ -1383,11 +1382,9 @@ Transparent destroyed_by_jumptable.
     econstructor. auto. eauto. auto.
     apply agree_set_other; auto.
     apply agree_set_other; auto. apply agree_nextinstr. apply agree_set_other; auto.
-    erewrite <- parent_pointer_correct.
     eapply agree_change_sp; eauto. eapply parent_sp_def; eauto. apply init_sp_not_vundef.
     eapply parent_sp_type; eauto. apply init_sp_type.
-    econstructor; eauto.
-    rewrite <- SAMEADT. eauto. auto. auto.
+    eauto. auto.
     repeat rewrite_stack_blocks; intros; repeat rewrite_perms; eauto.
     destr. apply SAMEPERM. rewrite in_stack_cons in H6. destruct H6. easy. apply in_stack_tl. auto. 
     repeat rewrite_stack_blocks. congruence.
@@ -1487,6 +1484,7 @@ Transparent destroyed_at_function_entry.
     rewrite ATLR.
     eapply parent_ra_def; eauto.
   }
+  red. rewrite <- SAMEADT, <- H2. constructor; auto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   unfold loc_external_result.
   clear. destruct (loc_result (ef_sig ef)); simpl; try split;
@@ -1551,6 +1549,7 @@ Proof.
            repeat econstructor; eauto.
            unfold get_frame_blocks. simpl.
            intros (fsp & fr & r & ? & ?). inv H2. simpl in H4. inv H4. auto.
+           repeat constructor; auto.
         -- red. rewrite_stack_blocks. constructor; auto.
         -- constructor.
     + unfold Genv.symbol_address.

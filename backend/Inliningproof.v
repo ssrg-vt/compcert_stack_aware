@@ -2424,18 +2424,17 @@ Proof.
     rewrite ALLOC in H4 ; inv H4.
     assert (forall b, f' b = Mem.flat_inj (Mem.nextblock m2) b).
     {
-      rewnb.
-      apply Mem.alloc_result in ALLOC. subst. 
+      exploit Mem.alloc_result. apply ALLOC. intro. subst.
+      revert JOLD JNEW.
       unfold Mem.flat_inj.
+      rewnb.
       intros.
       destr.
       - apply Plt_succ_inv in p.
         destruct p; subst; auto.
-        rewrite JOLD. unfold Mem.flat_inj; destr.
+        rewrite JOLD. destr.
         apply Plt_ne; auto.
-      - rewrite JOLD.
-        unfold Mem.flat_inj; destr. xomega.
-        intro; subst. xomega.
+      - rewrite JOLD. destr. xomega. intro; subst. xomega.
     }
     edestruct Mem.record_stack_blocks_inject_parallel as (m2'' & RSB & INJ'). 8: eauto.
     apply Mem.push_new_stage_inject; eauto.
@@ -2444,10 +2443,7 @@ Proof.
       constructor; simpl; auto.
       eapply Mem.valid_new_block. eauto.
       intros; rewrite H. rewnb. auto.
-    + repeat rewrite_stack_blocks.
-      intros b0 INS [|[]]. subst. simpl in INS.
-      apply Mem.in_frames_valid in INS.
-      eapply Mem.fresh_block_alloc; eauto.
+    + repeat rewrite_stack_blocks. easy.
     + red; simpl. intros b0 [|[]]. simpl in *; subst.
       exploit Mem.valid_new_block; eauto. unfold Mem.valid_block; rewnb; auto.
     + intros b0 fi [AA|[]]. inv AA.
@@ -2479,7 +2475,6 @@ Proof.
            ++ rewnb. apply Ple_refl.
         -- intro b0.
            repeat rewrite_stack_blocks.
-           erewrite Genv.init_mem_stack_adt; eauto.
            rewrite ! in_stack_cons.
            intros [[]|[[|[]]|[]]]. simpl in H4; subst. eauto.
         -- erewrite Genv.init_mem_stack_adt; eauto.
@@ -2490,7 +2485,7 @@ Proof.
           assert (i1 = i2).
           apply frame_at_pos_lt in FAP1.
           apply frame_at_pos_lt in FAP2. revert FAP1 FAP2 Gi.
-          repeat rewrite_stack_blocks. simpl. erewrite Genv.init_mem_stack_adt; eauto. simpl. clear.
+          repeat rewrite_stack_blocks. simpl. simpl. clear.
           unfold option_map. repeat destr. destr_in Heqo. inv Heqo. inversion 3. subst. omega.
           subst.
           exploit frame_at_same_pos. apply FAP1. apply FAP2. intro; subst; reflexivity.

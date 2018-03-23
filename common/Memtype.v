@@ -2110,6 +2110,13 @@ wf_stack_mem:
    forall m b o n,
      Mem.loadbytes (Mem.push_new_stage m) b o n = Mem.loadbytes m b o n;
 
+ record_stack_blocks_inject_right {injpern: InjectPerm}:
+   forall j g m1 m2 fi m2',
+     inject j g m1 m2 ->
+     (forall b bi, in_frame' fi (b, bi) -> forall o, frame_perm bi o = Public) ->
+     (forall b f1 i1, g i1 = Some O -> f1 @ stack_adt m1 : i1 -> in_frames f1 b -> forall o k p, ~ perm m1 b o k p) ->
+     record_stack_blocks m2 fi = Some m2' ->
+     inject j g m1 m2';
  
 }.
 

@@ -1474,9 +1474,7 @@ Proof.
   edestruct GINIT; eauto.
   eapply H0.
   instantiate (1 := o); omega.
-- 
-  rewrite (Genv.init_mem_stack_adt _ IM).
-  rewrite (Genv.init_mem_stack_adt _ TIM).
+- repeat rewrite_stack_blocks.
   unfold flat_frameinj; simpl.
   apply stack_inject_nil.
 (*
@@ -1591,7 +1589,7 @@ Proof.
     eapply Mem.valid_block_inject_2 in FB; eauto. eapply Mem.fresh_block_alloc in FB; eauto. easy.
   - reflexivity.
   - congruence.
-  - simpl. repeat rewrite_stack_blocks. simpl. erewrite ! Genv.init_mem_stack_adt; eauto. omega.
+  - simpl. repeat rewrite_stack_blocks. simpl. omega.
   - exists (Callstate nil f nil (Mem.push_new_stage m2') (fn_stack_requirements (prog_main tp))); split.
     econstructor; eauto.
     + fold tge. erewrite match_prog_main by eauto. auto.
@@ -1647,7 +1645,6 @@ Proof.
   red. simpl.
   repeat rewrite_stack_blocks.
   repeat constructor.
-  erewrite ! Genv.init_mem_stack_adt; eauto. constructor.
 Qed.
 
 Lemma transf_final_states:
