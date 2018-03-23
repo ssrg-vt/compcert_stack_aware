@@ -694,16 +694,15 @@ Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
   | _ => false
   end.
 
-Definition parent_pointer (m: mem) : option val :=
+Definition parent_pointer (m: mem) : val :=
   match Mem.stack_adt m with
-  | nil => Some init_sp
   | _::(fr::_)::_ =>
     match frame_adt_blocks fr with
       (b,fi)::nil =>
-      Some (Vptr b Ptrofs.zero)
-    | _ => None
+      (Vptr b Ptrofs.zero)
+    | _ => init_sp
     end
-  | _ => None
+  | _ => init_sp 
   end.
 
 Local Open Scope list_scope.
@@ -1087,15 +1086,13 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
             do m' <- Mem.free m stk 0 sz;
             do m' <- Mem.clear_stage m';
             check (check_init_sp_in_stack m');
-            do sp <- parent_pointer m;
-            Next (nextinstr (rs#RSP <- sp #RA <- ra)) m'
+            Next (nextinstr (rs#RSP <- (parent_pointer m) #RA <- ra)) m'
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz =>
-    do sp <- parent_pointer m ;
-      check (check_top_frame m None sz);
+    check (check_top_frame m None sz);
       check (Sumbool.sumbool_not _ _ (preg_eq rd RSP));
-      Next (nextinstr (rs#rd <- sp)) m
+      Next (nextinstr (rs#rd <- (parent_pointer m))) m
   | Pcfi_adjust n => Next rs m
   
   | Pbuiltin ef args res =>

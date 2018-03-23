@@ -267,7 +267,7 @@ Proof.
     inv TIN. rewrite EQ1 in H4; inv H4.
     econstructor; eauto.
     simpl.
-    erewrite <- SIZECORRECT. apply Z.max_r. apply H0. eauto.
+    erewrite <- SIZECORRECT. apply Z.max_r. red in H0. omega. eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     red; inv TIN. rewrite_stack_blocks. rewrite <- H2. constructor; auto.
   - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.

@@ -302,7 +302,7 @@ Definition check_alloc_frame (f: frame_info) (fn: function) :=
   (*     Ptrofs.unsigned (fn_retaddr_ofs fn) <= o < Ptrofs.unsigned (fn_retaddr_ofs fn) + size_chunk Mptr -> *)
   (*     frame_readonly f o) /\ *)
   (* disjointb  (Ptrofs.unsigned (fn_link_ofs fn)) (size_chunk Mptr) (Ptrofs.unsigned (fn_retaddr_ofs fn)) (size_chunk Mptr) = true /\ *)
-  0 <= (frame_size f) (* /\ *)
+  0 < (frame_size f) (* /\ *)
   (* exists fl, frame_link f = fl :: nil /\ seg_ofs fl = Ptrofs.unsigned (fn_link_ofs fn) *).
 
 Inductive step: state -> trace -> state -> Prop :=
@@ -536,7 +536,7 @@ Proof.
     revert EQ1; rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
     auto.
     simpl.
-    erewrite <- SIZECORRECT. apply Z.max_r. apply H0. eauto.
+    erewrite <- SIZECORRECT. apply Z.max_r. red in H0. omega. eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
   - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     simpl in *; eauto. rewrite FINDF in CallStackConsistency. eauto.

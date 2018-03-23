@@ -250,7 +250,7 @@ Section WITHMEMORYMODEL.
         (GLOBSYMB_INJ: meminj_preserves_globals' ge j)
         (GlobLe: (Genv.genv_next ge <= Mem.nextblock m)%positive)
         (GlobLeT: (Genv.genv_next ge <= Mem.nextblock m')%positive)
-        (SPinstack: in_stack (Mem.stack_adt m) binit_sp),
+        (SPinstack: in_stack' (Mem.stack_adt m) (binit_sp,{| frame_size := 0; frame_perm := fun _ => Public |})),
         match_states j (Ptrofs.unsigned ostack) (State rs m) (State rs' m').
 
   Lemma inject_stack_incr:
@@ -817,9 +817,8 @@ Section WITHMEMORYMODEL.
     - erewrite Mem.nextblock_store. 2 : eauto. xomega.
     - repeat rewrite_stack_blocks. revert EQ0; repeat rewrite_stack_blocks.
       inv TIN. inversion 1; subst.
-      rewrite <- H in SPinstack.
-      rewrite in_stack_cons in SPinstack. destruct SPinstack. easy.
-      rewrite in_stack_cons; right; auto.
+      rewrite <- H in SPinstack. simpl in SPinstack.
+      simpl. right. destruct SPinstack; auto. easy.
     - rewrite Z.add_comm, <- EQ'. apply Ptrofs.unsigned_range_2.
   Qed.
 
@@ -988,7 +987,7 @@ Section WITHMEMORYMODEL.
     destruct (is_unchanged i) eqn:ISUNCH.
     - edestruct init_sp_inj as (oinit & INJinit); eauto.
         inv MS; eauto.
-        inv MS; eapply SPinstack; eauto.
+        inv MS; eapply in_stack'_in_stack; eauto.
       edestruct exec_instr_inject as (rs2' & m2' & EXEC' & MINJ' & RINJ'); eauto.
         inv MS; eauto.
         inv MS; eauto.
@@ -1025,7 +1024,7 @@ Section WITHMEMORYMODEL.
           eapply inject_stack_more_perm. 2: eauto. intros. rewrite_perms. auto.
         * red. rewrite_stack_blocks. simpl. intros b fi delta H H0 b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
         * rewnb. auto.
-        * rewrite_stack_blocks. setoid_rewrite in_stack_cons. intros; eauto.
+        * rewrite_stack_blocks. simpl; auto.
         * red. auto.
       + (* call_r *)
         inv EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
@@ -1041,7 +1040,7 @@ Section WITHMEMORYMODEL.
         * rewrite_stack_blocks. constructor. eapply inject_stack_more_perm. 2: eauto. intros; rewrite_perms; auto.
         * red. rewrite_stack_blocks. simpl. intros b fi delta H H0 b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
         * rewnb. auto.
-        * rewrite_stack_blocks. setoid_rewrite in_stack_cons. intros; eauto.
+        * rewrite_stack_blocks. simpl; auto.
         * red. auto.
       + (* ret *)
         repeat destr_in EI.
@@ -1052,7 +1051,7 @@ Section WITHMEMORYMODEL.
           simpl. intros. destr_in H.
           inv t. easy. simpl.
           inv t. rewrite <- H in IS. inv IS. simpl. inv IPS_REC; simpl; auto. rewrite <- H in SPinstack.
-          rewrite in_stack_cons in SPinstack. destruct SPinstack. easy. easy.
+          simpl in SPinstack. destruct SPinstack as [[]|[]].
           simpl. repeat rewrite_stack_blocks. rewrite EQ. simpl.
           intros; repeat destr; try omega.
         * simpl; intros. apply val_inject_set; auto.
@@ -1074,7 +1073,7 @@ Section WITHMEMORYMODEL.
           right. auto.
         * rewnb. auto.
         * rewrite_stack_blocks. revert EQ. inv t. inversion 1; subst. rewrite <- H in SPinstack. simpl.
-          rewrite in_stack_cons in SPinstack. destruct SPinstack. easy. auto.
+          simpl in SPinstack. destruct SPinstack. easy. auto.
 
      + (* allocframe *)
        clear ISUNCH.
@@ -1127,10 +1126,9 @@ Section WITHMEMORYMODEL.
 
        exploit Mem.free_left_inject. apply MINJ. eauto. intro MINJ'.
        exploit clear_stage_inject_left; eauto.
-       simpl. destr. inv IS. rewrite in_stack_cons in SPinstack.
-       destruct SPinstack as [SPinstack | SPinstack].
-       rewrite in_frames_cons in SPinstack. destruct SPinstack as [IFR|[]].
-       edestruct in_frame_info. apply IFR. rewrite BLOCKS in H. destruct H as [H|[]]; inv H.
+       simpl. destr. inv IS. simpl in SPinstack.
+       destruct SPinstack as [[SPinstack|[]] | SPinstack].
+       red in SPinstack. rewrite BLOCKS in SPinstack. destruct SPinstack as [H|[]]; inv H.
        destruct s; simpl in n; try omega. inv IPS_REC.
        revert Heqb1. repeat rewrite_stack_blocks. destruct in_stack_dec; simpl; try congruence.
        rewrite in_stack_cons in i. destruct i. easy. rewrite Heqs in H. simpl in H. easy.
@@ -1193,17 +1191,30 @@ Section WITHMEMORYMODEL.
          simpl. intros. repeat rewrite_stack_blocks. rewrite Heqs. simpl. auto.
        * rewrite nextinstr_rsp. rewrite Pregmap.gso by congruence.
          rewrite Pregmap.gss.
-         unfold parent_pointer in Heqo2. repeat destr_in Heqo2. eauto.
+         unfold parent_pointer. unfold init_sp. repeat destr; eauto.
        * intros; apply val_inject_nextinstr.
          intros; apply val_inject_set; auto.
          intros; apply val_inject_set; auto.
-
-         unfold parent_pointer in Heqo2. rewrite Heqs in Heqo2. repeat destr_in Heqo2.
-         inv IPS_REC. rewrite Heql0 in BLOCKS0; inv BLOCKS0.
-         econstructor. eauto.
-         unfold offset_after_free. rewrite Ptrofs.add_zero_l.
-         f_equal. setoid_rewrite Ptrofs.unsigned_repr. simpl. rewrite size_frames_cons. change (size_frames nil) with 0.
-         rewrite Z.max_comm. rewrite <- SIZE0. rewrite <- SIZE.
+         unfold parent_pointer. rewrite Heqs.
+         inv IPS_REC.
+         -- simpl in SPinstack. destruct SPinstack as [[A|[]]|[]].
+            red in A. unfold get_frame_blocks in A.
+            rewrite BLOCKS in A. simpl in A.
+            destruct A as [A|[]]; inv A.
+            econstructor. eauto.
+            unfold offset_after_free. rewrite Ptrofs.add_zero_l.
+            f_equal. setoid_rewrite Ptrofs.unsigned_repr. simpl.
+            rewrite SIZE. simpl. change (align (Z.max 0 0) 8) with 0. omega.
+            simpl. change (align (Z.max 0 0) 8) with 0.
+            generalize (Mem.stack_limit_range); omega.
+         -- admit.
+         -- rewrite BLOCKS0.
+            econstructor. eauto.
+            unfold offset_after_free. rewrite Ptrofs.add_zero_l.
+            f_equal. setoid_rewrite Ptrofs.unsigned_repr. simpl.
+            rewrite size_frames_cons.
+            change (size_frames nil) with 0. rewrite SIZE0.
+            rewrite SIZE. rewrite Z.max_comm.
          Lemma max_align:
            forall x, 0 <= x ->
              Z.max 0 (align x 8) = align (Z.max 0 x) 8.
@@ -1212,17 +1223,21 @@ Section WITHMEMORYMODEL.
            rewrite ! Z.max_r; auto.
            etransitivity. 2: apply align_le. auto. omega.
          Qed.
-         rewrite ! max_align by (apply frame_adt_size_pos). omega.
 
-         split. generalize (Mem.size_stack_below m1). rewrite Heqs. simpl.
-         replace (size_frames (f0 :: nil)) with (align (Z.max 0 (frame_size fi)) 8). omega.
+         rewrite max_align. omega.
+         rewrite <- SIZE0; apply frame_adt_size_pos.
+
+         generalize (Mem.size_stack_below m1). rewrite Heqs. simpl.
+         replace (size_frames (f0 :: nil)) with (align (Z.max 0 (frame_size fi)) 8). split. omega.
+         generalize (size_stack_pos l)
+                    (size_frames_pos (fr :: nil)).
+         rewrite <- max_align.
+         generalize (Z.le_max_l 0 (align (frame_size fi) 8)).
+         generalize (Mem.stack_limit_range). omega.
+         rewrite <- SIZE; apply frame_adt_size_pos.
          rewrite size_frames_cons.
          rewrite <- max_align. rewrite Z.max_comm. f_equal. rewrite SIZE. reflexivity.
          rewrite <- SIZE; apply frame_adt_size_pos.
-         etransitivity. 2: apply RNGnewofs.
-         repeat rewrite_stack_blocks. rewrite Heqs. simpl.
-         cut (size_frames nil <= align (Z.max 0 (frame_size fi)) 8). omega.
-         rewrite <- max_align. apply Z.le_max_l. rewrite <- SIZE; apply frame_adt_size_pos.
          
        * red. rewrite nextinstr_rsp.
          rewrite ! Pregmap.gso by congruence.

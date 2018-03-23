@@ -3632,12 +3632,15 @@ Proof.
   + eapply plus_left. econstructor; eauto.
     {
       unfold check_alloc_frame. 
-      rewrite (unfold_transf_function _ _ TRANSL). Opaque fe_ofs_retaddr fe_size. simpl.
-      assert (forall z, proj_sumbool (zeq z z) = true).
-      {
-        intros. destruct zeq. reflexivity. congruence.
-      }
-      generalize (frame_env_range (function_bounds f)) (bound_stack_data_pos (function_bounds f)). simpl. omega.
+      rewrite (unfold_transf_function _ _ TRANSL). simpl fn_frame.
+      unfold frame_of_frame_env. unfold frame_size.
+      Lemma fe_retaddr_lt_fe_size:
+        forall b, fe_ofs_retaddr (make_env b) < fe_size (make_env b).
+      Proof.
+        simpl. intros.
+        destr; omega.
+      Qed.
+      eapply Z.le_lt_trans. apply fe_ofs_retaddr_pos. apply fe_retaddr_lt_fe_size.
     }
     rewrite <- A1. f_equal.
     rewrite (unfold_transf_function _ _ TRANSL). reflexivity.

@@ -762,48 +762,39 @@ Qed.
       (* list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m1) -> *)
     ,
       call_stack_consistency init_sp ge (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m1) ->
-      parent_sp init_sp s = match parent_pointer m1 with
-                              Some (b,_) => Vptr b Ptrofs.zero
-                            | None => init_sp
-                            end.
+      parent_sp init_sp s = parent_pointer init_sp m1.
   Proof.
     clear.
     intros.
     unfold parent_pointer.
     inv H. inv CallStackConsistency. inv REC.
     + destruct s; simpl in H0; try congruence. simpl.
-      repeat destr. repeat destr_in Heqo.
-      destruct (H1 b) as (A & B); apply B. clear A B.
-      repeat econstructor; eauto. unfold get_frame_blocks.
-      rewrite Heql. simpl. eauto.
-    + rewrite BLOCKS0. destruct s; simpl in H1. inv H1. simpl.
-      destr. inv CFD. rewrite FINDF in H1.
-      f_equal. inv H1. auto.
+      destr. repeat destr_in Heqo. repeat destr. apply H1.
+      unfold get_frame_blocks. repeat eexists. rewrite Heql. reflexivity.
+    + destruct s; simpl in H1. inv H1. simpl. destr. inv H1.
+      repeat destr_in H2.  rewrite BLOCKS0. auto.
   Qed.
   
 
-  Lemma parent_pointer_correct':
-    forall m1 s fb sp c ms
-      (INITSP_NOTPTR: (~ exists b o, init_sp = Vptr b o) -> init_sp = Vnullptr)
-      (* (INITSP_NONONE: forall b o oo n, In (b::nil, oo, n) (Mem.stack_adt m1) -> init_sp = Vptr b o -> oo <> None) *)
-    (* (LP: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m1)) *),
-      call_stack_consistency init_sp ge (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m1) ->
-      parent_sp init_sp s = match parent_pointer m1 with
-                              Some (b,_) => Vptr b Ptrofs.zero
-                            | None => Vnullptr
-                            end.
-  Proof.
-    intros.
-    erewrite parent_pointer_correct; eauto. destr. apply INITSP_NOTPTR. intros (b & o & ISP).
-    inv H. clear INITSP_NOTPTR.
-    unfold parent_pointer in Heqo. inv CallStackConsistency. rewrite <- H in Heqo.
-    inv REC.
-    specialize (init_sp_ofs_zero _ _ eq_refl). subst.
-    destruct (H1 b). trim H2. reflexivity.
-    destruct H2 as (fsp & fr & rr & TOP & EQ). subst.
-    unfold get_frame_blocks in EQ. repeat destr_in Heqo; simpl in *; try congruence.
-    rewrite BLOCKS0 in Heqo. inv Heqo.
-  Qed.
+  (* Lemma parent_pointer_correct': *)
+  (*   forall m1 s fb sp c ms *)
+  (*     (INITSP_NOTPTR: (~ exists b o, init_sp = Vptr b o) -> init_sp = Vnullptr) *)
+  (*     (* (INITSP_NONONE: forall b o oo n, In (b::nil, oo, n) (Mem.stack_adt m1) -> init_sp = Vptr b o -> oo <> None) *) *)
+  (*   (* (LP: list_prefix match_stackframe_frame_adt ms_init ms_nil (Stackframe fb sp (Vptr sp Ptrofs.zero) c :: s) (Mem.stack_adt m1)) *), *)
+  (*     call_stack_consistency init_sp ge (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m1) -> *)
+  (*     parent_sp init_sp s = parent_pointer init_sp m1. *)
+  (* Proof. *)
+  (*   intros. *)
+  (*   erewrite parent_pointer_correct; eauto. destr. apply INITSP_NOTPTR. intros (b & o & ISP). *)
+  (*   inv H. clear INITSP_NOTPTR. *)
+  (*   unfold parent_pointer in Heqo. inv CallStackConsistency. rewrite <- H in Heqo. *)
+  (*   inv REC. *)
+  (*   specialize (init_sp_ofs_zero _ _ eq_refl). subst. *)
+  (*   destruct (H1 b). trim H2. reflexivity. *)
+  (*   destruct H2 as (fsp & fr & rr & TOP & EQ). subst. *)
+  (*   unfold get_frame_blocks in EQ. repeat destr_in Heqo; simpl in *; try congruence. *)
+  (*   rewrite BLOCKS0 in Heqo. inv Heqo. *)
+  (* Qed. *)
 
   Lemma check_alloc_frame_correct:
     forall fi f,
@@ -813,7 +804,7 @@ Qed.
     unfold Mach.check_alloc_frame.
     intros fi f A.
     unfold check_alloc_frame.
-    destruct zle; auto. eauto. omega.
+    destruct zlt; auto. eauto. omega.
   Qed.
 
   (* Lemma init_sp_in_stack': *)
@@ -886,35 +877,17 @@ Qed.
       rs2 rd = parent_sp init_sp s /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
   Proof.
     intros.
-    exists (nextinstr (rs1#rd <- (match parent_pointer m1 with Some (b,_) => Vptr b Ptrofs.zero | None => init_sp end))). split; [|split].
+    exists (nextinstr (rs1#rd <- (parent_pointer init_sp m1))). split; [|split].
     - constructor.
-      + simpl. unfold parent_pointer.
-        inv LP.
-        inv CallStackConsistency. inv REC.
-        * simpl in PISP_DEF. destruct PISP_DEF.
-          rewrite FFP in FIND; inv FIND.
-          assert (s=nil) by (destruct s; simpl in *; try congruence). subst.
-          simpl in H2. rewrite H2 in H1.
-          destruct (H1 x0).
-          destruct H3 as (fsp & fr & rr & EQ & STK). auto.
-          subst. unfold get_frame_blocks in STK. destr. repeat destr_in Heqo. simpl in STK. inv STK.
-          unfold check_top_frame. rewrite Heqs. rewrite EQSTK in H. inv H.
-          rewrite if_forall_dec. rewrite FSIZE.  unfold proj_sumbool.
-          rewrite zeq_true.
-          destr.
-          rewrite Heql0. auto.
-          rewrite BLOCKS. constructor; auto.
-          red. split; auto. rewrite <- EQSTK in Heqo. rewrite <- H in Heqo.
-          exfalso; repeat destr_in Heqo; simpl in *; try congruence.
-        * rewrite BLOCKS0.
-          unfold check_top_frame. rewrite <- EQSTK. rewrite <- H.
-          rewrite FFP in FIND; inv FIND.
-          rewrite BLOCKS0.
-          rewrite if_forall_dec. rewrite FSIZE. unfold proj_sumbool.
-          rewrite zeq_true.
-          destr.
-          rewrite BLOCKS. constructor; auto.
-          red. split; auto.
+      + simpl. destr. destr. unfold parent_pointer. rewrite EQSTK. auto.
+        contradict Heqb. unfold check_top_frame. rewrite <- EQSTK.
+        inv LP. inv CallStackConsistency. rewrite BLOCKS. rewrite FSIZE.
+        rewrite FFP in FIND; inv FIND.
+        unfold proj_sumbool.
+        destr.
+        destr. simpl. congruence.
+        exfalso; apply n; clear n.
+        constructor; auto. red. split; auto.
       + rewrite nextinstr_pc. rewrite Pregmap.gso. auto. congruence.
     - rewrite nextinstr_inv by congruence.
       rewrite Pregmap.gss.
@@ -1402,7 +1375,10 @@ Transparent destroyed_by_jumptable.
     apply star_one. eapply exec_step_internal.
     transitivity (Val.offset_ptr rs0#PC Ptrofs.one). auto. rewrite <- H3. simpl. eauto.
     eapply functions_transl; eauto. eapply find_instr_tail; eauto.
-    simpl. rewrite USB'. eauto. traceEq.
+    simpl. rewrite USB'. eauto.
+    rewrite pred_dec_true. eauto.
+    red. repeat rewrite_stack_blocks. constructor; auto.
+    traceEq.
   +
     econstructor. auto. eauto. auto.
     apply agree_set_other; auto.
