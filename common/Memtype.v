@@ -1502,7 +1502,6 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
    forall f g m1 m2 m3,
      extends m1 m2 -> inject f g m2 m3 -> inject f g m1 m3;
 
- (* Needed by EraseArgs. *)
  extends_extends_compose {injperm: InjectPerm}:
    forall m1 m2 m3,
      extends m1 m2 -> extends m2 m3 -> extends m1 m3;

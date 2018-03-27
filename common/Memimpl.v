@@ -3738,7 +3738,7 @@ Lemma get_frame_info_inj:
     (MINJ: mem_inj f g m1 m2)
     (FB : f b1 = Some (b2, delta))
     (PERM: exists o k p, perm m1 b1 o k p /\ inject_perm_condition p),
-    option_le (fun fi => 
+    option_le_stack (fun fi => 
                  forall ofs k p,
                    perm m1 b1 ofs k p ->
                    inject_perm_condition p ->
@@ -4889,7 +4889,7 @@ Lemma get_frame_info_magree:
   forall P m1 m2 b
     (MINJ: magree m1 m2 P)
     (PERM: exists o k p, perm m1 b o k p /\ inject_perm_condition p),
-    option_le (fun fi => 
+    option_le_stack (fun fi => 
                  forall ofs k p,
                    perm m1 b ofs k p ->
                    inject_perm_condition p ->
