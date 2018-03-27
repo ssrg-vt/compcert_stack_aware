@@ -50,16 +50,6 @@ Section WITHMEMORYMODEL.
   Definition offset_after_alloc (p: Z) fi :=
     (p - align (Z.max 0 (frame_size fi)) 8).
 
-(* <<<<<<< HEAD *)
-(*    Definition exec_instr {F V} (ge: Genv.t F V) f i' rs (m: mem) := *)
-(*     match i' with *)
-(*     | (i,isz) => *)
-(*       match i with *)
-(*       | Pallocframe fi ofs_ra ofs_link => *)
-(*         let curofs := current_offset (rs RSP) in *)
-(*         let sp := Vptr (Genv.genv_next ge) (Ptrofs.repr (offset_after_alloc curofs fi)) in *)
-(*         match Mem.storev Mptr m (Val.offset_ptr sp ofs_link) rs#RSP with *)
-(* ======= *)
   Definition offset_after_free (p: Z) sz :=
     (p + align (Z.max 0 sz) 8).
 
@@ -96,7 +86,6 @@ Section WITHMEMORYMODEL.
       let curofs := current_offset (rs RSP) in
       let sp := Vptr bstack (Ptrofs.repr (offset_after_alloc curofs fi)) in
         match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
-(* >>>>>>> origin/newstackadt2 *)
         | None => Stuck
         | Some m2 =>
           match Mem.storev Mptr m2 (Val.offset_ptr sp ofs_ra) rs#RA with
@@ -105,20 +94,6 @@ Section WITHMEMORYMODEL.
             Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) (Ptrofs.repr (si_size isz))) m3
           end
         end
-(* <<<<<<< HEAD *)
-(*       | Pfreeframe sz ofs_ra ofs_link => *)
-(*         match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with *)
-(*         | None => Stuck *)
-(*         | Some ra => *)
-(*           match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_link) with *)
-(*           | None => Stuck *)
-(*           | Some sp => *)
-(*             Next (nextinstr (rs#RSP <- sp #RA <- ra) (Ptrofs.repr (si_size isz))) m *)
-(*           end *)
-(*         end *)
-(*       | _ => Asm.exec_instr ge f i' rs m *)
-(*       end *)
-(* ======= *)
     | Pfreeframe sz ofs_ra =>
       match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
       | None => Stuck
