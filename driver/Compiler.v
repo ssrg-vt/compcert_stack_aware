@@ -68,6 +68,7 @@ Require Linearizeproof.
 Require CleanupLabelsproof.
 Require Debugvarproof.
 Require Stackingproof.
+Require Mach2Mach2.
 Require Asmgenproof.
 Require RawAsmgen.
 (** Command-line flags. *)
@@ -443,13 +444,21 @@ Proof.
     inv H; inv H0.
     assert (m1 = m0 /\ bstack = bstack0) by intuition congruence. destruct H; subst.
     assert (m2 = m4) by congruence. subst.
-    f_equal. eapply Memtype.Mem.record_stack_block_det; eauto.
+    assert (m3 = m5) by congruence. subst. f_equal.
   - (* final no step *)
     assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
     { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
     inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
   - (* final states *)
     inv H; inv H0. congruence.
+Qed.
+
+Lemma fn_stack_requirements_pos:
+  forall p i, 0 <= fn_stack_requirements p i.
+Proof.
+  unfold fn_stack_requirements.
+  intros. repeat destr; try omega.
+  simpl. apply StackADT.frame_size_pos.
 Qed.
 
 Theorem cstrategy_semantic_preservation:
@@ -471,7 +480,7 @@ Ltac DestructM :=
   assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics init_sp tp)).
   {
   eapply compose_forward_simulations.
-    eapply SimplExprproof.transl_program_correct; eassumption.
+    eapply SimplExprproof.transl_program_correct; try eassumption. apply fn_stack_requirements_pos.
   eapply compose_forward_simulations.
     eapply SimplLocalsproof.transf_program_correct; eassumption.
   eapply compose_forward_simulations.
@@ -520,13 +529,16 @@ Ltac DestructM :=
       erewrite Asmgenproof.symbols_preserved; eauto.
       destruct (Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv p20) i) eqn:?; auto.
       destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p20) b) eqn:?; auto.
-      eapply Asmgenproof.functions_translated in Heqo0.
+      eapply Asmgenproof.functions_translated in Heqo0. 2: eauto.
       destruct Heqo0 as (tf & FFP & TF); rewrite FFP.
       destruct f; simpl in *; monadInv TF; auto.
       unfold Asmgen.transf_function in EQ. monadInv EQ. destr_in EQ1. inv EQ1.
-      unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto. auto.
+      unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto.
       eapply match_program_no_more_functions in Heqo0; eauto. rewrite Heqo0. auto.
     }
+  eapply compose_forward_simulations.
+    eapply Mach2Mach2.mach2_simulation.
+    eapply Stackingproof.stacking_frame_correct; eauto.
     subst. unfold init_sp.
     replace (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))
       with (Asmgenproof.init_sp_block p20).

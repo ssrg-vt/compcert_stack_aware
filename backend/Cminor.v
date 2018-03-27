@@ -619,10 +619,10 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
       exploit Mem.agree_perms_mem.
       rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
       eapply Mem.perm_free_3 in P; eauto.
-      rewrite SIZE; auto.
+      rewrite SIZE; auto. rewrite Zmax_spec. destr. omega.
     - erewrite find_label_funs_of_cont by eauto.
       rewrite funs_of_call_cont.  auto.
-    - apply Mem.alloc_stack_blocks in H. clear H0.
+    - apply Mem.alloc_stack_blocks in H.
       rewrite <- H, EQ1 in *. simpl in *.
       econstructor; eauto; reflexivity.
     - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite_stack_blocks. rewrite <- H4. econstructor; eauto.

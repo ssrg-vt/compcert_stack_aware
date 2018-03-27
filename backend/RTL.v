@@ -635,7 +635,7 @@ Section STACKINV.
                          (REC: match_stack_adt lsp s)
                          (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
                          (PUB: forall o, frame_perm bi o = Public)
-                         (SIZE: frame_size bi = z):
+                         (SIZE: frame_size bi = Z.max 0 z):
       match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
 
   Inductive stack_inv : state -> Prop :=
@@ -675,6 +675,7 @@ Section STACKINV.
       rewrite <- H6. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
       eapply Mem.perm_free_3 in P; eauto.
       rewrite SIZE; auto.
+      intros RNG; rewrite Zmax_spec in RNG. destr_in RNG; omega.
     - erewrite <- Mem.free_stack_blocks by eauto.
       eapply Mem.noperm_top.
       rewrite_stack_blocks. inv MSA1.
@@ -685,6 +686,7 @@ Section STACKINV.
       rewrite <- H5. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
       eapply Mem.perm_free_3 in P; eauto.
       rewrite SIZE; auto.
+      intros RNG; rewrite Zmax_spec in RNG. destr_in RNG; omega.
     - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
     - inv TOPNOPERM; constructor.

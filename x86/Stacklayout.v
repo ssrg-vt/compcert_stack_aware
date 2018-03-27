@@ -212,27 +212,17 @@ Program Definition frame_of_frame_env (b: bounds) : frame_info :=
                     then Public
                     else Private
   |}.
-(* Next Obligation. *)
-(*   rewrite Forall_forall. intros ? [?|[]]; subst. intros i H. simpl in *. *)
-(*   split. etransitivity. 2: apply H. *)
-(*   etransitivity. 2: apply align_le. generalize (bound_outgoing_pos b); omega. *)
-(*   destr; omega. *)
-(*   eapply Zlt_le_trans. apply H. *)
-(*   etransitivity. 2: apply le_add_pos. 2: destr; omega. *)
-(*   etransitivity. 2: apply align_le. 2: destr; omega. *)
-(*   etransitivity. 2: apply le_add_pos. 2: generalize (bound_stack_data_pos b); omega. *)
-(*   etransitivity. 2: apply align_le. 2: omega.  *)
-(*   etransitivity. 2: apply le_add_pos. 2: generalize (bound_local_pos b); omega. *)
-(*   etransitivity. 2: apply align_le. 2: omega. *)
-(*   change (size_chunk Mptr) with (if Archi.ptr64 then 8 else 4). *)
-(*   apply size_callee_save_area_incr. *)
-(* Qed. *)
-(* Next Obligation. *)
-(*   rewrite Forall_forall. intros ? [?|[]]; subst. intros i H. *)
-(*   red in H. simpl in *. *)
-(*   rewrite ! and_sumbool. *)
-(*   repeat destr. *)
-(* Qed. *)
+Next Obligation.
+  etransitivity. 2: apply le_add_pos. 2: destr; omega.
+  etransitivity. 2: apply align_le. 2: destr; omega.
+  etransitivity. 2: apply le_add_pos. 2: generalize (bound_stack_data_pos b); omega.
+  etransitivity. 2: apply align_le. 2: omega.
+  etransitivity. 2: apply le_add_pos. 2: generalize (bound_local_pos b); omega.
+  etransitivity. 2: apply align_le. 2: omega.
+  etransitivity. 2: apply size_callee_save_area_incr.
+  etransitivity. 2: apply align_le. 2: destr; omega.
+  generalize (bound_outgoing_pos b); omega.
+Qed.
 
 Lemma stkdata_retaddr_sep:
   forall b,

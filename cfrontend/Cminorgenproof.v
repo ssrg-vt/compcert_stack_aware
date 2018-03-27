@@ -2426,11 +2426,13 @@ Proof.
     intros b2 delta0 FB. simpl in *. rewrite FB in H11. inv H11.
     eexists; split. 
     auto. split; simpl; intros; auto.
+    rewrite Z.max_r.
     eapply Mem.perm_alloc_3.
     eauto.
     eapply Mem.perm_inject. apply FB. eauto.
-    eapply alloc_variables_perm. eauto. eauto. apply PTree.gempty. eauto. auto.
+    eapply alloc_variables_perm. eauto. eauto. apply PTree.gempty. eauto. rewrite Zmax_spec in H4; destr_in H4; omega.
     constructor.
+    eapply assign_variables_incr; eauto.
   }
   {
     intros b INF. unfold in_frame; simpl. intros [A|[]]. subst.
@@ -2443,7 +2445,7 @@ Proof.
   }
   {
     simpl. intros b fi o k0 p [A|[]]; inv A. simpl.
-    eapply Mem.perm_alloc_3; eauto.
+    rewrite_perms. rewrite peq_true. unfold tf; simpl. intros; rewrite Z.max_r; omega.
   }
   {
     simpl. 

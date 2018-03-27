@@ -2279,7 +2279,7 @@ Proof.
   }
   {
     intros b fi o kk p INF. destruct INF as [A|[]]; simpl in A; inv A.
-    simpl. intros; eapply Mem.perm_alloc_3. rewrite H9. eauto. eauto.
+    simpl. rewrite_perms. rewrite peq_true. intros; rewrite Z.max_r; omega.
   }
   {
     inv SI. rewrite_stack_blocks. inv TOPNOPERM. constructor.

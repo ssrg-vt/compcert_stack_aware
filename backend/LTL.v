@@ -377,6 +377,7 @@ Section STACKINV.
       rewrite <- H. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
       eapply Mem.perm_free_3 in P; eauto.
       rewrite SIZE; auto.
+      intros RNG; rewrite Zmax_spec in RNG. destr_in RNG; omega.
     - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
       rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
     - inv MSA1. repeat destr_in H1. econstructor.

@@ -72,7 +72,15 @@ Record frame_info :=
   {
     frame_size: Z;
     frame_perm: Z -> stack_permission;
+    frame_size_pos: (0 <= frame_size)%Z;
   }.
+
+Definition public_frame_info sz : frame_info :=
+  {|
+    frame_size := Z.max 0 sz;
+    frame_perm := fun _ => Public;
+    frame_size_pos := Z.le_max_l _ _;
+  |}.
 
 Definition frame_public f o := frame_perm f o = Public.
 
@@ -2661,7 +2669,7 @@ Qed.
 
 Definition make_singleton_frame_adt (b: block) (sz: Z) (machsz: Z) :=
   {|
-    frame_adt_blocks := (b,{| frame_size := sz; frame_perm := fun o => Public |})::nil;
+    frame_adt_blocks := (b, public_frame_info sz)::nil;
     frame_adt_size := Z.max 0 machsz;
     frame_adt_blocks_norepet := norepet_1 _;
     frame_adt_size_pos := Z.le_max_l _ _
@@ -3263,7 +3271,7 @@ Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
 | match_stack_adt_cons lsp s f r sp bi z
                        (REC: match_stack_adt lsp s)
                        (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
-                       (SIZE: frame_size bi = z):
+                       (SIZE: frame_size bi = Z.max 0 z):
     match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
 
 Lemma list_forall2_refl:

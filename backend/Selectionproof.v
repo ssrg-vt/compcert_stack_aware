@@ -1184,7 +1184,8 @@ Proof.
   }
   {
     intros b fi o kk p INF. destruct INF as [AA|[]]; simpl in AA; inv AA.
-    simpl. intros; eapply Mem.perm_alloc_3. apply A. eauto.
+    simpl.
+    rewrite_perms. rewrite peq_true. simpl; intros; rewrite Z.max_r; omega.
   }
   {
     inv SI. inv TOPNOPERM.

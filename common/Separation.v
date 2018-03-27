@@ -1142,7 +1142,7 @@ Proof.
   intros m1 m1' m2 j P fi b b' delta n H H0 H1 NIN sz H2 H3 H4 H5 H6 TTNP SEQ.
   edestruct record_stack_block_parallel_rule as (m2' & RSB & INJ); eauto.
   reflexivity. reflexivity.
-  simpl. eauto.
+  simpl. intros. rewrite Zmax_spec in H7. destr_in H7. omega. eauto.  
 Qed.
 
 Lemma push_rule:
@@ -1167,7 +1167,6 @@ Proof.
   exists b0, delta; split; eauto.
 Qed.
 
-
 Lemma push_rule_2:
   forall j g m1 m2 P Q,
     m2 |= mconj (minjection j g m1) Q ** P ->
@@ -1187,7 +1186,6 @@ Proof.
   eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on.
   simpl. congruence.
 Qed.
-
 
 Lemma unrecord_stack_block_parallel_rule:
   forall m1 m1' m2 j g P,

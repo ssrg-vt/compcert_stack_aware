@@ -930,7 +930,7 @@ Proof.
       intros b [|[]]; subst. simpl.
       eapply Mem.valid_new_block; eauto.
     * intros b fi [A|[]]; inv A. simpl.
-      intros; eapply Mem.perm_alloc_3; eauto.
+      intros o k p; rewrite_perms. rewrite peq_true. intros; rewrite Z.max_r; omega.
     * intros b1 b0 delta FB.
       unfold in_frame; simpl.
       split; intros [|[]]; subst; left. congruence.

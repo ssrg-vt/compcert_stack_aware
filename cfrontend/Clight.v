@@ -701,7 +701,7 @@ End SEMANTICS.
 (** The two semantics for function parameters.  First, parameters as local variables. *)
 
 Definition blocks_with_info (ge:genv) (e: env) : list (block * frame_info) :=
-  map (fun x => let '(b, lo, hi) := x in (b,{| frame_size := hi; frame_perm := fun o => Public |})) (blocks_of_env ge e).
+  map (fun x => let '(b, lo, hi) := x in (b, public_frame_info hi)) (blocks_of_env ge e).
 
 Inductive function_entry1 (ge: genv) (f: function) (vargs: list val) (m: mem) (e: env) (le: temp_env) (m': mem) (sz: Z) : Prop :=
   | function_entry1_intro: forall m1 m1' fa,

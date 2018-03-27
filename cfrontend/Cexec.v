@@ -2045,8 +2045,9 @@ Proof.
   unfold blocks_with_info, blocks_of_env in IN.
   rewrite !map_map, in_map_iff in IN.
   destruct IN as ((id & (bb & ty)) & EQ & IN). inv EQ. simpl.
-  eapply alloc_variables_perm. eauto. auto. apply PTree.gempty.
+  exploit alloc_variables_perm. eauto. auto. apply PTree.gempty.
   eapply PTree.elements_complete. eauto. eauto.
+  intros; rewrite Z.max_r; omega.
 Qed.
 
 Lemma list_norepet_map:
