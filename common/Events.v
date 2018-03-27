@@ -772,7 +772,7 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
     forall ge args m1 t res m2,
       sem ge args m1 t res m2 ->
       forall b o k p,
-        in_frames (Mem.stack_adt m1) b ->
+        in_stack (Mem.stack_adt m1) b ->
         Mem.perm m2 b o k p <-> Mem.perm m1 b o k p;
 
   ec_perm_unchanged:
@@ -961,6 +961,7 @@ Proof.
     + econstructor; eauto.
       eapply Mem.public_stack_access_extends; eauto.
       eapply Mem.store_valid_access_3; eauto.
+      apply inject_perm_condition_writable; constructor.
     + eapply Mem.store_unchanged_on; eauto.
       unfold loc_out_of_bounds; intros.
       assert (Mem.perm m1 b i Max Nonempty).
@@ -1004,6 +1005,7 @@ Proof.
     with ((Ptrofs.unsigned ofs  + size_chunk chunk) + delta) by omega.
     eapply Mem.public_stack_access_inject; eauto.
     eapply Mem.store_valid_access_3; eauto.
+    apply inject_perm_condition_writable; constructor.
   + eapply Mem.store_unchanged_on; eauto.
     unfold loc_unmapped; intros. inv AI; congruence.
   + eapply Mem.store_unchanged_on; eauto.
@@ -1161,7 +1163,7 @@ Proof.
   intro A; apply A.
   exploit Mem.invalid_block_stack_access. eapply Mem.fresh_block_alloc; eauto.
   unfold stack_access.
-  intros [[B C]|[B C]]. eapply Mem.stack_top_valid in B. eapply Mem.fresh_block_alloc in B; eauto. easy.
+  intros [B|B]. eapply Mem.stack_top_valid in B. eapply Mem.fresh_block_alloc in B; eauto. easy.
   eassumption.
 - inv H.  
   assert (b <> b0).
@@ -1193,7 +1195,7 @@ Inductive extcall_free_sem (ge: Senv.t):
       Mem.load Mptr m b (Ptrofs.unsigned lo - size_chunk Mptr) = Some (Vptrofs sz) ->
       Ptrofs.unsigned sz > 0 ->
       Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz) = Some m' ->
-      ~ in_frames (Mem.stack_adt m) b ->
+      ~ in_stack (Mem.stack_adt m) b ->
       extcall_free_sem ge (Vptr b lo :: nil) m E0 Vundef m'.
 
 
@@ -1334,6 +1336,7 @@ Proof.
   erewrite <- list_forall2_length.
   eapply Mem.public_stack_access_extends; eauto.
   eapply Mem.storebytes_range_perm; eauto.
+  apply inject_perm_condition_writable; constructor.
   eauto.
   split. constructor.
   split. auto.
@@ -1395,7 +1398,9 @@ Proof.
   apply Mem.range_perm_max with Cur; auto.
   apply Mem.range_perm_max with Cur; auto. omega.
   eapply public_stack_access_inside.
-  eapply Mem.public_stack_access_inject. 4: eauto. all: eauto. rewrite LEN. rewrite nat_of_Z_eq. eauto. omega.
+  eapply Mem.public_stack_access_inject. 5: eauto. all: eauto.
+  rewrite LEN. rewrite nat_of_Z_eq. eauto. omega.
+  apply inject_perm_condition_writable; constructor.
   omega.
   rewrite (list_forall2_length B); omega.
   split. constructor.
@@ -2092,8 +2097,271 @@ Qed.
 
 End EVAL_BUILTIN_ARG_INJECT.
 
+Lemma eval_builtin_arg_push:
+  forall {A} ge (e: A -> val) sp m a v,
+    eval_builtin_arg ge e sp m a v <->
+    eval_builtin_arg ge e sp (Mem.push_new_stage m) a v.
+Proof.
+  intros A ge0 e sp m a v; split; induction 1; econstructor; eauto;
+    repeat rewrite ? Mem.push_new_stage_loadv in *; eauto.
+  rewrite Mem.push_new_stage_loadv in H. eauto.
+  rewrite Mem.push_new_stage_loadv in H. eauto.
+Qed.
 
+Lemma eval_builtin_args_push:
+  forall {A} ge (e: A -> val) sp m al vl,
+    eval_builtin_args ge e sp m al vl <->
+    eval_builtin_args ge e sp (Mem.push_new_stage m) al vl.
+Proof.
+  unfold eval_builtin_args.
+  intros; apply list_forall2_iff.
+  intros; apply eval_builtin_arg_push.
+Qed.
+
+
+  Lemma store_perm:
+    forall chunk m b' o' v m',
+      Mem.store chunk m b' o' v = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    split; intros.
+    eapply Mem.perm_store_2; eauto.
+    eapply Mem.perm_store_1; eauto.
+  Qed.
+
+
+  Lemma storev_perm:
+    forall chunk m addr v m',
+      Mem.storev chunk m addr v = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    intros. destruct addr; simpl in *; try congruence.
+    eapply store_perm; eauto.
+  Qed.
+
+  Lemma free_perm:
+    forall m b lo hi m',
+      Mem.free m b lo hi = Some m' ->
+      forall b' o k p,
+        Mem.perm m' b' o k p <-> if peq b b' && zle lo o && zlt o hi then False else Mem.perm m b' o k p.
+  Proof.
+    intros.
+    destr.
+    - rewrite ! andb_true_iff in Heqb0. intuition.
+      destruct zlt; simpl in *; try congruence.
+      destruct zle; simpl in *; try congruence.
+      destruct peq; simpl in *; try congruence.
+      subst.
+      eapply Mem.perm_free_2; eauto.
+    - rewrite ! andb_false_iff in Heqb0.
+      split; intros.
+      + eapply Mem.perm_free_3; eauto.
+      + eapply Mem.perm_free_1; eauto.
+        destruct Heqb0. destruct H1. destruct peq; simpl in *; try congruence. auto.
+        destruct zle; simpl in *; try congruence. right. left. omega.
+        destruct zlt; simpl in *; try congruence. right. right. omega.
+  Qed.
+
+  Lemma alloc_perm:
+    forall m lo hi m' b,
+      Mem.alloc m lo hi = (m',b) ->
+      forall b' o k p,
+        Mem.perm m' b' o k p <-> if peq b b' then lo <= o < hi else Mem.perm m b' o k p.
+  Proof.
+    split; intros.
+    eapply Mem.perm_alloc_inv in H0; eauto. destr_in H0; subst; destr.
+    destr_in H0. subst.
+    eapply Mem.perm_implies. eapply Mem.perm_alloc_2; eauto. constructor.
+    eapply Mem.perm_alloc_1; eauto.
+  Qed.
+
+  Lemma record_perm:
+    forall m fi m',
+      Mem.record_stack_blocks m fi = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    split; intros.
+    eapply Mem.record_stack_block_perm; eauto.
+    eapply Mem.record_stack_block_perm'; eauto.
+  Qed.
+
+
+  Lemma unrecord_perm:
+    forall m m',
+      Mem.unrecord_stack_block m = Some m' ->
+      forall b o k p,
+        Mem.perm m' b o k p <-> Mem.perm m b o k p.
+  Proof.
+    split; intros.
+    eapply Mem.unrecord_stack_block_perm; eauto.
+    eapply Mem.unrecord_stack_block_perm'; eauto.
+  Qed.
+
+  Lemma extcall_perm:
+    forall ef ge args m1 t res m2,
+      external_call ef ge args m1 t res m2 ->
+      forall b o k p,
+        in_stack (Mem.stack_adt m1) b ->
+        Mem.perm m2 b o k p <-> Mem.perm m1 b o k p.
+  Proof.
+    intros.
+    erewrite ec_perm_frames; eauto. 2: apply external_call_spec. tauto.
+  Qed.
+
+  Lemma drop_perm_perm:
+    forall m b lo hi p m',
+      Mem.drop_perm m b lo hi p = Some m' ->
+      forall b' o k p',
+        Mem.perm m' b' o k p' <-> (Mem.perm m b' o k p' /\( b = b' -> lo <= o < hi -> perm_order p p')).
+  Proof.
+    intros.
+    split.
+    intros PERM.
+    split.
+    eapply Mem.perm_drop_4; eauto. intros; subst.
+    eapply Mem.perm_drop_2; eauto.
+    intros (A & B).
+    destruct (peq b b').
+    2: eapply Mem.perm_drop_3; eauto.
+    subst.
+    trim B; auto.
+    destruct (zle lo o).
+    destruct (zlt o hi). trim B. omega.
+    eapply Mem.perm_implies.
+    eapply Mem.perm_drop_1; eauto. auto.
+    eapply Mem.perm_drop_3; eauto. right; right. omega.
+    eapply Mem.perm_drop_3; eauto. right; left. omega.
+  Qed.
 
 End WITHEXTERNALCALLS.
 
 Hint Constructors eval_builtin_arg: barg.
+
+
+Ltac rewrite_perms_fw :=
+  match goal with
+  | H1: Mem.record_stack_blocks _ _ = Some ?m |- Mem.perm ?m _ _ _ _ =>
+    eapply (Mem.record_stack_block_perm' _ _ _ H1)
+  | H1: Mem.alloc _ _ _ = (?m,_) |- Mem.perm ?m _ _ _ _ =>
+    first [
+        apply Mem.perm_implies; [apply (Mem.perm_alloc_2 _ _ _ _ _ H1) | try constructor]
+      |  apply (Mem.perm_alloc_1 _ _ _ _ _ H1)
+      ]
+  | H1: Mem.store _ _ _ _ _ = Some ?m |- Mem.perm ?m _ _ _ _ =>
+    apply (Mem.perm_store_1 _ _ _ _ _ _ H1)
+  | H1: Mem.storev _ _ _ _ = Some ?m |- Mem.perm ?m _ _ _ _ =>
+    apply (Mem.perm_store_1 _ _ _ _ _ _ H1)
+  end.
+
+Arguments Genv.init_mem_stack_adt {mem memory_model_ops _ _ _ _}.
+
+Ltac rewrite_stack_blocks :=
+  match goal with
+  | H:Mem.alloc _ _ _ = (?m, _) |- context [ Mem.stack_adt ?m ] => rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
+  | H:Mem.store _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
+  | H:Mem.storev _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.storev_stack_adt _ _ _ _ _ H)
+  | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack_adt ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
+  | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
+  | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
+  | H:Mem.drop_perm _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.drop_perm_stack_adt _ _ _ _ _ _ H)
+  | H: context[ Mem.stack_adt (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
+  | |- context[ Mem.stack_adt (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
+  | H: Genv.init_mem _ = Some ?m |- context [Mem.stack_adt ?m] => rewrite (Genv.init_mem_stack_adt _ _ H)
+  | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
+    let f := fresh "f" in
+    let r := fresh "r" in
+    let EQ1 := fresh "EQ1" in
+    let EQ2 := fresh "EQ2" in
+    destruct (Mem.record_stack_blocks_stack_eq _ _ _ H) as (f & r & EQ1 & EQ2); rewrite EQ2
+  | H:Mem.unrecord_stack_block ?m1 = Some ?m
+    |- context [ Mem.stack_adt ?m ] =>
+    let f := fresh "f" in
+    let EQ := fresh "EQ" in
+    destruct (Mem.unrecord_stack_adt _ _ H) as (f, EQ); replace (Mem.stack_adt m) with (tl (Mem.stack_adt m1))
+      by (rewrite EQ; reflexivity)
+  | H: Mem.clear_stage _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
+    rewrite (Mem.clear_stage_stack_adt _ _ H)
+  end.
+
+Ltac rewrite_perms_bw H :=
+  match type of H with
+    Mem.perm ?m2 _ _ _ _ =>
+    match goal with
+    | H1: Mem.record_stack_blocks _ _ = Some ?m |- _ =>
+      apply (Mem.record_stack_block_perm _ _ _ H1) in H
+    | H1: Mem.alloc _ _ _ = (?m,_) |- _ =>
+      apply (Mem.perm_alloc_inv _ _ _ _ _ H1) in H
+    | H1: Mem.store _ _ _ _ _ = Some ?m |- _ =>
+      apply (Mem.perm_store_2 _ _ _ _ _ _ H1) in H
+    | H1: Mem.storev _ _ _ _ = Some ?m |- _ =>
+      apply (Mem.perm_store_2 _ _ _ _ _ _ H1) in H
+    end
+  end.
+
+Arguments Genv.init_mem_genv_next {mem memory_model_ops _ _ _}.
+
+Ltac rewnb :=
+  repeat
+    match goal with
+    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
+    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
+    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_free _ _ _ _ _ H)
+    | H: Mem.drop_perm _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_drop _ _ _ _ _ _ H)
+    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
+    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
+    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
+    | H: Mem.clear_stage _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite (Mem.clear_stage_nextblock _ _ H)
+    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
+      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
+      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
+    | H: Genv.init_mem _ = Some ?m |- context [Mem.nextblock ?m] =>
+      rewrite <- (Genv.init_mem_genv_next _ _ H)
+    end.
+
+
+
+Arguments store_perm {mem memory_model_ops _}.
+Arguments storev_perm {mem memory_model_ops _}.
+Arguments free_perm {mem memory_model_ops _}.
+Arguments drop_perm_perm {mem memory_model_ops _}.
+Arguments alloc_perm {mem memory_model_ops _}.
+Arguments record_perm {mem memory_model_ops _}.
+Arguments unrecord_perm {mem memory_model_ops _}.
+Arguments extcall_perm {mem memory_model_ops external_calls_ops memory_model_prf symbols_inject_instance0 external_calls_props}.
+
+  Ltac rewrite_perms :=
+    match goal with
+    | H : Mem.store _ _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (store_perm _ _ _ _ _ _ H)
+    | H : Mem.storev _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (storev_perm _ _ _ _ _ H)
+    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (free_perm _ _ _ _ _ H)
+    | H: Mem.drop_perm _ _ _ _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (drop_perm_perm _ _ _ _ _ _ H)
+    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (alloc_perm _ _ _ _ _ H)
+    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (record_perm _ _ _ H)
+    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (unrecord_perm _ _ H)
+    | H: Mem.clear_stage _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
+      rewrite (Mem.clear_stage_perm _ _ H)
+    | |- context [Mem.perm (Mem.push_new_stage _) _ _ _ _] =>
+      rewrite (Mem.push_new_stage_perm)
+    | H: external_call _ ?ge ?args ?m1 ?t ?res ?m2 |- context [Mem.perm ?m2 ?b _ _ _] =>
+      rewrite (extcall_perm _ _ _ _ _ _ _ H)
+    end.

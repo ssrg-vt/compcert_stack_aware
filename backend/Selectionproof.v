@@ -779,7 +779,8 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (TS: sel_stmt (prog_defmap cunit) s = OK s')
         (MC: match_cont cunit hf k k')
         (LD: env_lessdef e e')
-        (ME: Mem.extends m m'),
+        (ME: Mem.extends m m')
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states
         (Cminor.State f s k sp e m)
         (State f' s' k' sp e' m')
@@ -788,14 +789,16 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (TF: match_fundef cunit f f')
         (MC: match_call_cont k k')
         (LD: Val.lessdef_list args args')
-        (ME: Mem.extends m m'),
+        (ME: Mem.extends m m')
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states
         (Cminor.Callstate f args k m sz)
         (Callstate f' args' k' m' sz)
   | match_returnstate: forall v v' k k' m m'
         (MC: match_call_cont k k')
         (LD: Val.lessdef v v')
-        (ME: Mem.extends m m'),
+        (ME: Mem.extends m m')
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states
         (Cminor.Returnstate v k m)
         (Returnstate v' k' m')
@@ -807,10 +810,11 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (LDA: Val.lessdef_list args args')
         (LDE: env_lessdef e e')
         (ME: Mem.extends m m')
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
         (EA: list_forall2 (CminorSel.eval_builtin_arg tge sp e' m') al args'),
       forall BUILTIN_ENABLED : builtin_enabled ef,
         match_states
-          (Cminor.Callstate (External ef) args (Cminor.Kcall optid f sp e k) m sz)
+          (Cminor.Callstate (External ef) args (Cminor.Kcall optid f sp e k) (Mem.push_new_stage m) sz)
           (State f' (Sbuiltin (sel_builtin_res optid) ef al) k' sp e' m')
   | match_builtin_2: forall cunit hf v v' optid f sp e k m f' e' m' k'
         (LINK: linkorder cunit prog)
@@ -819,7 +823,8 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_cont cunit hf k k')
         (LDV: Val.lessdef v v')
         (LDE: env_lessdef e e')
-        (ME: Mem.extends m m'),
+        (ME: forall m'', Mem.unrecord_stack_block m = Some m'' -> Mem.extends m'' m')
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (tl (Mem.stack_adt m)) (Mem.stack_adt m')),
       match_states
         (Cminor.Returnstate v (Cminor.Kcall optid f sp e k) m)
         (State f' Sskip k' sp (set_builtin_res (sel_builtin_res optid) v' e') m').
@@ -990,23 +995,24 @@ Definition measure (s: Cminor.state) : nat :=
 
 Lemma sel_step_correct:
   forall S1 t S2, Cminor.step fn_stack_requirements ge S1 t S2 ->
-  forall T1, match_states S1 T1 ->
+  forall T1, match_states S1 T1 -> stack_inv T1 ->
   (exists T2, step fn_stack_requirements tge T1 t T2 /\ match_states S2 T2)
   \/ (measure S2 < measure S1 /\ t = E0 /\ match_states S2 T1)%nat.
 Proof.
-  induction 1; intros T1 ME; inv ME; try (monadInv TS).
+  induction 1; intros T1 ME SI; inv ME; try (monadInv TS).
 - (* skip seq *)
   inv MC. left; econstructor; split. econstructor. econstructor; eauto.
 - (* skip block *)
   inv MC. left; econstructor; split. econstructor. econstructor; eauto.
 - (* skip call *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [A B]].
-  exploit Mem.unrecord_stack_block_extends; eauto. intros (m2'' & C & D).
+
   left; econstructor; split.
   econstructor. inv MC; simpl in H; simpl; auto.
   erewrite stackspace_function_translated; eauto.
   eauto.
   econstructor; eauto. eapply match_is_call_cont; eauto.
+  repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
 - (* assign *)
   exploit sel_expr_correct; eauto. intros [v' [A B]].
   left; econstructor; split.
@@ -1019,6 +1025,7 @@ Proof.
   left; econstructor; split.
   eapply eval_store; eauto.
   econstructor; eauto.
+  repeat rewrite_stack_blocks; eauto.
 - (* Scall *)
   exploit classify_call_correct; eauto.
   destruct (classify_call (prog_defmap cunit) a) as [ | id0 | ef].
@@ -1033,7 +1040,9 @@ Proof.
   econstructor; eauto.
   eapply sig_function_translated; eauto.
   eapply match_callstate with (cunit := cunit'); eauto.
-  red; intros. eapply match_cont_call with (cunit := cunit) (hf := hf); eauto. 
+  red; intros. eapply match_cont_call with (cunit := cunit) (hf := hf); eauto.
+  apply Mem.extends_push; auto.
+  repeat rewrite_stack_blocks; repeat constructor; auto.
 + (* direct *)
   intros [b [U V]].
   exploit sel_exprlist_correct; eauto. intros [vargs' [C D]].
@@ -1047,6 +1056,8 @@ Proof.
   replace id0 with id.
   eapply match_callstate with (cunit := cunit'); eauto.
   red; intros; eapply match_cont_call with (cunit := cunit) (hf := hf); eauto.
+  apply Mem.extends_push; auto.
+  repeat rewrite_stack_blocks; repeat constructor; auto.
   apply Genv.find_invert_symbol in U.
   apply Genv.find_invert_symbol in EQ'.
   congruence.
@@ -1056,9 +1067,9 @@ Proof.
   exploit sel_builtin_args_correct; eauto. intros [vargs' [C D]].
   right; split. simpl. omega. split. auto.
   econstructor; eauto.
+
 - (* Stailcall *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [P Q]].
-  exploit Mem.unrecord_stack_block_extends; eauto. intros (m2'' & CC & DD).
   erewrite <- stackspace_function_translated in P by eauto.
   exploit sel_expr_correct; eauto. intros [vf' [A B]].
   exploit sel_exprlist_correct; eauto. intros [vargs' [C D]].
@@ -1081,14 +1092,19 @@ Proof.
   econstructor; eauto. eapply sig_function_translated; eauto.
   eapply match_callstate with (cunit := cunit'); eauto.
   eapply call_cont_commut; eauto.
+  repeat rewrite_stack_blocks; eauto.
+
 - (* Sbuiltin *)
   exploit sel_builtin_args_correct; eauto. intros [vargs' [P Q]].
-  exploit external_call_mem_extends; eauto.
+  exploit external_call_mem_extends; eauto. apply Mem.extends_push; eauto.
   intros [vres' [m2 [A [B [C D]]]]].
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  intros (m2'' & E & F).
   left; econstructor; split.
   econstructor. eauto.
-  eapply external_call_symbols_preserved; eauto. apply senv_preserved. auto.
+  eapply external_call_symbols_preserved; eauto. apply senv_preserved. eauto. auto.
   econstructor; eauto. apply sel_builtin_res_correct; auto.
+  repeat rewrite_stack_blocks; eauto.
 - (* Seq *)
   left; econstructor; split.
   constructor.
@@ -1126,19 +1142,19 @@ Proof.
   econstructor; eauto.
 - (* Sreturn None *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [P Q]].
-  exploit Mem.unrecord_stack_block_extends; eauto. intros (m2'' & C & D).
   erewrite <- stackspace_function_translated in P by eauto.
   left; econstructor; split.
   econstructor. simpl; eauto. eauto.
   econstructor; eauto. eapply call_cont_commut; eauto.
+  repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
 - (* Sreturn Some *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [P Q]].
-  exploit Mem.unrecord_stack_block_extends; eauto. intros (m2'' & C & D).
   erewrite <- stackspace_function_translated in P by eauto.
   exploit sel_expr_correct; eauto. intros [v' [A B]].
   left; econstructor; split.
   econstructor; eauto.
   econstructor; eauto. eapply call_cont_commut; eauto.
+  repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
 - (* Slabel *)
   left; econstructor; split. constructor. econstructor; eauto.
 - (* Sgoto *)
@@ -1158,19 +1174,39 @@ Proof.
   monadInv TF. generalize EQ; intros TF; monadInv TF.
   exploit Mem.alloc_extends. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros [m2' [A B]].
-  exploit Mem.record_stack_blocks_extends; eauto.
+  exploit Mem.record_stack_blocks_extends. 2: eauto.
+  eauto.
   {
-    unfold in_frame; simpl. intros ? [?|[]]; subst.
-    erewrite Mem.alloc_stack_blocks; eauto. intro INF. apply Mem.in_frames_valid in INF.
-    eapply Mem.fresh_block_alloc in INF; eauto.
+    unfold in_frame. simpl. intros ? [?|[]]; subst.
+    intro IFF.
+    erewrite Mem.alloc_stack_blocks in IFF; eauto.
+    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
   }
   {
-    constructor; auto; simpl; congruence.
+    intros b fi o kk p INF. destruct INF as [AA|[]]; simpl in AA; inv AA.
+    simpl. intros; eapply Mem.perm_alloc_3. apply A. eauto.
   }
+  {
+    inv SI. inv TOPNOPERM.
+    rewrite_stack_blocks. rewrite <- H1. constructor.
+    red in H2. red.
+    intros. intro P.
+    eapply Mem.perm_alloc_inv in P; eauto.
+    destr_in P. subst.
+    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
+    eapply Mem.fresh_block_alloc; eauto.
+    eapply H2 in P; eauto.
+  }
+  repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   intros (m2'' & C & D).
   left; econstructor; split.
   econstructor; simpl; eauto.
   econstructor; simpl; eauto. apply set_locals_lessdef. apply set_params_lessdef; auto.
+  repeat rewrite_stack_blocks.
+  revert EQ1 EQ3; repeat rewrite_stack_blocks.
+  intros EQ1 EQ3; rewrite EQ1, EQ3 in STRUCT.
+  inv STRUCT; constructor; eauto. repeat constructor; auto.
+
 - (* external call *)
   destruct TF as (hf & HF & TF). 
   monadInv TF.
@@ -1180,22 +1216,35 @@ Proof.
   econstructor.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   econstructor; eauto.
+  repeat rewrite_stack_blocks; eauto.
 - (* external call turned into a Sbuiltin *)
-  exploit external_call_mem_extends; eauto.
+  exploit external_call_mem_extends; eauto. apply Mem.extends_push; eauto.
   intros [vres' [m2 [A [B [C D]]]]].
+  edestruct Mem.unrecord_stack_block_succeeds as (m2' & USB & EXT).
+  erewrite <- external_call_stack_blocks. 2: exact A. rewrite Mem.push_new_stage_stack. reflexivity.
   left; econstructor; split.
   econstructor. eauto.
-  eapply external_call_symbols_preserved; eauto. apply senv_preserved. auto.
+  eapply external_call_symbols_preserved; eauto. apply senv_preserved. eauto. auto.
   econstructor; eauto.
+  {
+    intros.
+    exploit Mem.unrecord_stack_block_extends; eauto.
+    rewrite USB. intros (? & EQ & EXT'); inv EQ; auto.
+  }
+  repeat rewrite_stack_blocks; eauto.
 - (* return *)
   apply match_call_cont_cont in MC. destruct MC as (cunit0 & hf0 & MC). 
   inv MC.
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  intros (m2'' & C & D).
   left; econstructor; split.
-  econstructor.
+  econstructor. eauto.
   econstructor; eauto. destruct optid; simpl; auto. apply set_var_lessdef; auto.
+  repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
 - (* return of an external call turned into a Sbuiltin *)
   right; split. simpl; omega. split. auto. econstructor; eauto.
   apply sel_builtin_res_correct; auto.
+  rewrite_stack_blocks. auto.
 Qed.
 
 Lemma sel_initial_states:
@@ -1210,7 +1259,9 @@ Proof.
   rewrite (match_program_main TRANSF). fold tge. rewrite symbols_preserved. eauto.
   eexact A.
   rewrite <- H2. eapply sig_function_translated; eauto.
-  inv TRANSF.  inv H4. rewrite H5. econstructor; eauto. red; intros; constructor. apply Mem.extends_refl.
+  eauto. eauto.
+  destruct TRANSF as (_ & MAIN & _); rewrite MAIN. econstructor; eauto. red; intros; constructor. apply Mem.extends_refl.
+  apply stack_equiv_refl; auto.
 Qed.
 
 Lemma sel_final_states:
@@ -1225,11 +1276,15 @@ Qed.
 Theorem transf_program_correct:
   forward_simulation (Cminor.semantics fn_stack_requirements prog) (CminorSel.semantics fn_stack_requirements tprog).
 Proof.
-  apply forward_simulation_opt with (match_states := match_states) (measure := measure).
-  apply senv_preserved. 
-  apply sel_initial_states; auto.
-  apply sel_final_states; auto.
-  apply sel_step_correct; auto.
+  apply forward_simulation_opt with (match_states := fun s1 s2 => match_states s1 s2 /\ stack_inv s2) (measure := measure).
+  apply senv_preserved.
+  - simpl. intros s1 IS. edestruct sel_initial_states as (s2 & IS2 & MS2); eauto.
+    exploit stack_inv_initial; eauto.
+  - simpl. intros s1 s2 r (MS & _) FS.
+    eapply sel_final_states; eauto.
+  - simpl; intros s1 t s1' STEP s2 (MS & IS).
+    edestruct sel_step_correct as [(s2' & STEP' & MS2)|(DEC & NOTRACE & MS2)]; eauto.
+    left; eexists; split; eauto. split; eauto using stack_inv_inv.
 Qed.
 
 End PRESERVATION.

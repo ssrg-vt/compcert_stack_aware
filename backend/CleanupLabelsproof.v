@@ -305,7 +305,7 @@ Proof.
   econstructor.
   eapply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
-  eauto. auto.
+  eauto. eauto. auto.
   econstructor; eauto with coqlib.
 (* Llabel *)
   case_eq (Labelset.mem lbl (labels_branched_to (fn_code f))); intros.
@@ -347,7 +347,7 @@ Proof.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   econstructor; eauto with coqlib.
 (* return *)
-  inv H3. inv H1. left; econstructor; split.
+  inv H4. inv H2. left; econstructor; split.
   econstructor; eauto.
   econstructor; eauto.
 Qed.
@@ -364,8 +364,8 @@ Proof.
   eapply (Genv.init_mem_transf TRANSL); eauto.
   rewrite (match_program_main TRANSL), symbols_preserved; eauto.
   apply function_ptr_translated; auto.
-  rewrite sig_function_translated. auto.
-  inv TRANSL. inv H4. rewrite H5. constructor; auto. constructor.
+  rewrite sig_function_translated. auto. eauto. eauto.
+  inv TRANSL. destruct H6 as (MAIN & PUB); rewrite MAIN; constructor; auto. constructor.
 Qed.
 
 Lemma transf_final_states:

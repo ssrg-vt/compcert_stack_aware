@@ -733,7 +733,8 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
         loadind RAX ofs ty dst k
       else
         (do k1 <- loadind RAX ofs ty dst k;
-         loadind RSP f.(fn_link_ofs) Tptr AX k1)
+           OK (instr_to_with_info (Pload_parent_pointer RAX (StackADT.frame_size (Mach.fn_frame f))) :: k1)
+           (* loadind RSP f.(fn_link_ofs) Tptr AX k1 *))
   | Mop op args res =>
       transl_op op args res k
   | Mload chunk addr args dst =>
@@ -746,10 +747,10 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
       OK (instr_to_with_info (Pcall_s symb sig) :: k)
   | Mtailcall sig (inl reg) =>
       do r <- ireg_of reg;
-      OK (instr_to_with_info (Pfreeframe (StackADT.frame_size (f.(Mach.fn_frame))) f.(fn_retaddr_ofs) f.(fn_link_ofs)) ::
+      OK (instr_to_with_info (Pfreeframe (StackADT.frame_size (f.(Mach.fn_frame))) f.(fn_retaddr_ofs)) ::
           instr_to_with_info (Pjmp_r r sig) :: k)
   | Mtailcall sig (inr symb) =>
-      OK (instr_to_with_info (Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs) f.(fn_link_ofs)) ::
+      OK (instr_to_with_info (Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs)) ::
           instr_to_with_info (Pjmp_s symb sig) :: k)
   | Mlabel lbl =>
       OK(instr_to_with_info (Plabel lbl) :: k)
@@ -760,7 +761,7 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
   | Mjumptable arg tbl =>
       do r <- ireg_of arg; OK (instr_to_with_info (Pjmptbl r tbl) :: k)
   | Mreturn =>
-      OK (instr_to_with_info (Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs) f.(fn_link_ofs)) ::
+      OK (instr_to_with_info (Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs)) ::
           instr_to_with_info (Pret) :: k)
   | Mbuiltin ef args res =>
       OK (instr_to_with_info (Pbuiltin ef (List.map (map_builtin_arg preg_of) args) (map_builtin_res preg_of res)) :: k)
@@ -809,7 +810,7 @@ Definition transl_code' (f: Mach.function) (il: list Mach.instruction) (axp: boo
 Definition transl_function (f: Mach.function) :=
   do c <- transl_code' f f.(Mach.fn_code) true;
   OK (mkfunction f.(Mach.fn_sig)
-                     (instr_to_with_info (Pallocframe f.(Mach.fn_frame) f.(fn_retaddr_ofs) f.(fn_link_ofs)) :: c)
+                     (instr_to_with_info (Pallocframe f.(Mach.fn_frame) f.(fn_retaddr_ofs)) :: c)
                      (f.(Mach.fn_frame))).
 
 Definition transf_function (f: Mach.function) : res Asm.function :=

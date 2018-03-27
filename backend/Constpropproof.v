@@ -315,7 +315,8 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (STACKS: list_forall2 match_stackframes s s')
            (PC: match_pc f rs m n pc pc')
            (REGS: regs_lessdef rs rs')
-           (MEM: Mem.extends m m'),
+           (MEM: Mem.extends m m')
+           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states n (State s f sp pc rs m)
                     (State s' (transf_function (romem_for cu) f) sp pc' rs' m')
   | match_states_call:
@@ -323,14 +324,16 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (LINK: linkorder cu prog)
            (STACKS: list_forall2 match_stackframes s s')
            (ARGS: Val.lessdef_list args args')
-           (MEM: Mem.extends m m'),
+           (MEM: Mem.extends m m')
+           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       match_states O (Callstate s f args m sz)
                      (Callstate s' (transf_fundef (romem_for cu) f) args' m' sz)
   | match_states_return:
       forall s v m s' v' m'
            (STACKS: list_forall2 match_stackframes s s')
            (RES: Val.lessdef v v')
-           (MEM: Mem.extends m m'),
+           (MEM: Mem.extends m m')
+           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
       list_forall2 match_stackframes s s' ->
       match_states O (Returnstate s v m)
                      (Returnstate s' v' m').
@@ -341,6 +344,7 @@ Lemma match_states_succ:
   list_forall2 match_stackframes s s' ->
   regs_lessdef rs rs' ->
   Mem.extends m m' ->
+  stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m') ->
   match_states O (State s f sp pc rs m)
                  (State s' (transf_function (romem_for cu) f) sp pc rs' m').
 Proof.
@@ -365,12 +369,10 @@ Ltac TransfInstr :=
 (** The proof of simulation proceeds by case analysis on the transition
   taken in the source code. *)
 
-
-
 Lemma transf_step_correct:
   forall s1 t s2,
   step fn_stack_requirements ge s1 t s2 ->
-  forall n1 s1' (SS: sound_state prog s1) (MS: match_states n1 s1 s1'),
+  forall n1 s1' (SS: sound_state prog s1) (IS: stack_inv s1') (MS: match_states n1 s1 s1'),
   (exists n2, exists s2', step fn_stack_requirements tge s1' t s2' /\ match_states n2 s2 s2')
   \/ (exists n2, n2 < n1 /\ t = E0 /\ match_states n2 s2 s1')%nat.
 Proof.
@@ -471,6 +473,7 @@ Proof.
   left; econstructor; econstructor; split.
   eapply exec_Istore; eauto.
   eapply match_states_succ; eauto.
+  repeat rewrite_stack_blocks; eauto.
 
 - (* Icall *)
   rename pc'0 into pc.
@@ -502,10 +505,11 @@ Proof.
   constructor; auto. constructor; auto.
   econstructor; eauto.
   apply regs_lessdef_regs; auto.
+  apply Mem.extends_push; auto.
+  repeat rewrite_stack_blocks. repeat constructor; auto.
 
 - (* Itailcall *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [A B]].
-  exploit Mem.unrecord_stack_block_extends; eauto. intros (m2'' & C & D).
   exploit transf_ros_correct; eauto. intros (cu' & FIND & LINK').
   TransfInstr; intro.
   left; econstructor; econstructor; split.
@@ -524,31 +528,37 @@ Proof.
     simpl.
     destruct RIF as (b & o & EQ & EQ1).
     generalize (EM r). setoid_rewrite Heqa. rewrite EQ. inversion 1. subst.
-    inv H7.
-    apply GE in H8.
-    apply Genv.find_invert_symbol in H8.
+    inv H6.
+    apply GE in H7.
+    apply Genv.find_invert_symbol in H7.
     apply Genv.find_invert_symbol in EQ1. unfold ge in EQ1. congruence.
     auto.
   }
   apply sig_function_translated; auto.
   constructor; auto.
   apply regs_lessdef_regs; auto.
+  repeat rewrite_stack_blocks. congruence.
 
 - (* Ibuiltin *)
   rename pc'0 into pc. TransfInstr; intros.
 Opaque builtin_strength_reduction.
-  exploit builtin_strength_reduction_correct; eauto. intros (vargs' & P & Q).
+  edestruct builtin_strength_reduction_correct with (m := Mem.push_new_stage m) as (vargs' & P & Q); eauto.
+  rewrite <- eval_builtin_args_push. eauto.
   exploit (eval_builtin_args_lessdef (ge := ge) (e1 := fun r => rs#r) (fun r => rs'#r)).
-    apply REGS. eauto. eexact P.
+    apply REGS. apply Mem.extends_push; eauto. eexact P.
   intros (vargs'' & U & V).
   exploit external_call_mem_extends; eauto.
+  apply Mem.extends_push; eauto.
   intros [v' [m2' [A [B [C D]]]]].
+  edestruct Mem.unrecord_stack_block_extends as (m3' & USB & EXT'); eauto.
   left; econstructor; econstructor; split.
   eapply exec_Ibuiltin; eauto.
-  eapply eval_builtin_args_preserved. eexact symbols_preserved. eauto.
+  eapply eval_builtin_args_preserved. eexact symbols_preserved.
+  apply eval_builtin_args_push. eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   eapply match_states_succ; eauto.
   apply set_res_lessdef; auto.
+  repeat rewrite_stack_blocks; eauto.
 
 - (* Icond, preserved *)
   rename pc'0 into pc. TransfInstr.
@@ -589,31 +599,44 @@ Opaque builtin_strength_reduction.
 
 - (* Ireturn *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [A B]].
-  exploit Mem.unrecord_stack_block_extends; eauto. intros (m2'' & C & D).
-  left; exists O; exists (Returnstate s' (regmap_optget or Vundef rs') m2''); split.
+  left; exists O; exists (Returnstate s' (regmap_optget or Vundef rs') m2'); split.
   eapply exec_Ireturn; eauto. TransfInstr; auto.
   constructor; auto.
   destruct or; simpl; auto.
-
+  repeat rewrite_stack_blocks; eauto using stack_equiv_tail.
+    
 - (* internal function *)
   exploit Mem.alloc_extends. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros [m2' [A B]].
-  exploit Mem.record_stack_blocks_extends; eauto.
-  {
-    unfold in_frame ;simpl. intros ? [?|[]]; subst.
-    erewrite Mem.alloc_stack_blocks; eauto. intro INF. apply Mem.in_frames_valid in INF.
-    eapply Mem.fresh_block_alloc in INF; eauto.
-  }
-  {
-    constructor; auto; simpl; congruence.
-  }
-  intros (m2'' & C & D).
-  simpl. unfold transf_function.
-  left; exists O; econstructor; split.
-  eapply exec_function_internal; simpl; eauto.
-  simpl. econstructor; eauto.
-  constructor.
-  apply init_regs_lessdef; auto.
+  exploit Mem.record_stack_blocks_extends. 2: eauto.
+  eauto.
+  + unfold in_frame. simpl. intros ? [?|[]]; subst.
+    intro IFF.
+    erewrite Mem.alloc_stack_blocks in IFF; eauto.
+    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
+  + intros b fi o k0 p [AA|[]] P; inv AA.
+    eapply Mem.perm_alloc_3 with (k:= k0) (p0 := p); eauto.
+  + inv IS. inv TOPNOPERM.
+    rewrite_stack_blocks. rewrite <- H1. constructor.
+    red in H2. red.
+    intros. intro P.
+    eapply Mem.perm_alloc_inv in P; eauto.
+    destr_in P. subst.
+    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
+    eapply Mem.fresh_block_alloc; eauto.
+    eapply H2 in P; eauto.
+  + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
+  + intros (m2'' & C & D).
+    simpl. unfold transf_function.
+    left; exists O; econstructor; split.
+    eapply exec_function_internal; simpl; eauto.
+    simpl. econstructor; eauto.
+    constructor.
+    apply init_regs_lessdef; auto.
+    repeat rewrite_stack_blocks.
+    revert EQ1 EQ0; repeat rewrite_stack_blocks.
+    intros EQ1 EQ0; rewrite EQ1, EQ0 in SE.
+    inv SE; constructor; eauto. repeat constructor; auto.
 
 - (* external function *)
   exploit external_call_mem_extends; eauto.
@@ -622,12 +645,16 @@ Opaque builtin_strength_reduction.
   eapply exec_function_external; eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   constructor; auto.
+  repeat rewrite_stack_blocks; eauto.
 
 - (* return *)
-  inv H4. inv H1.
+  inv H5. inv H2.
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  intros (m2'' & C & D).
   left; exists O; econstructor; split.
   eapply exec_return; eauto.
   econstructor; eauto. constructor. apply set_reg_lessdef; auto.
+  repeat rewrite_stack_blocks. eapply stack_equiv_tail; eauto.
 Qed.
 
 End WITHROMEMFOR.
@@ -642,7 +669,7 @@ Lemma transf_initial_states:
 Proof.
   intros. inversion H.
   exploit function_ptr_translated; eauto. intros (cu & FIND & LINK).
-  exists O; exists (Callstate nil (transf_fundef (romem_for cu) f) nil m0 (fn_stack_requirements (prog_main tprog))); split.
+  exists O; exists (Callstate nil (transf_fundef (romem_for cu) f) nil (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto.
   apply (Genv.init_mem_match TRANSL); auto.
   replace (prog_main tprog) with (prog_main prog).
@@ -650,8 +677,10 @@ Proof.
   assumption.
   symmetry; eapply match_program_main; eauto.
   rewrite <- H3. apply sig_function_translated.
+  eauto. eauto.
   erewrite <- match_program_main; eauto.
   constructor. auto. constructor. constructor. apply Mem.extends_refl.
+  apply stack_equiv_refl; auto.
 Qed.
 
 Lemma transf_final_states:
@@ -667,17 +696,19 @@ Qed.
 Theorem transf_program_correct:
   forward_simulation (RTL.semantics fn_stack_requirements prog) (RTL.semantics fn_stack_requirements tprog).
 Proof.
-  apply Forward_simulation with lt (fun n s1 s2 => sound_state prog s1 /\ match_states n s1 s2); constructor.
+  apply Forward_simulation with lt (fun n s1 s2 => sound_state prog s1 /\ match_states n s1 s2 /\ stack_inv s2); constructor.
 - apply lt_wf.
 - simpl; intros. exploit transf_initial_states; eauto. intros (n & st2 & A & B).
   exists n, st2; intuition. eapply sound_initial; eauto.
-- simpl; intros. destruct H. eapply transf_final_states; eauto.
-- simpl; intros. destruct H0.
+  eapply stack_inv_initial; eauto.
+- simpl; intros. destruct H as (SS & MS & SI). eapply transf_final_states; eauto.
+- simpl; intros. destruct H0 as (SS & MS & SI).
   assert (sound_state prog s1') by (eapply sound_step; eauto).
   fold ge; fold tge.
   exploit transf_step_correct; eauto.
   intros [ [n2 [s2' [A B]]] | [n2 [A [B C]]]].
   exists n2; exists s2'; split; auto. left; apply plus_one; auto.
+  split; auto. split; auto. eapply stack_inv_inv; eauto.
   exists n2; exists s2; split; auto. right; split; auto. subst t; apply star_refl.
 - apply senv_preserved.
   assumption.

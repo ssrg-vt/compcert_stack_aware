@@ -573,14 +573,15 @@ Inductive step: state -> trace -> state -> Prop :=
       Genv.find_funct ge vf = Some fd ->
       type_of_fundef fd = Tfunction tyargs tyres cconv ->
       step (State f (Scall optid a al) k e le m)
-        E0 (Callstate fd vargs (Kcall optid f e le k) m (fn_stack_requirements id))
+        E0 (Callstate fd vargs (Kcall optid f e le k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
-  | step_builtin:   forall f optid ef tyargs al k e le m vargs t vres m',
+  | step_builtin:   forall f optid ef tyargs al k e le m vargs t vres m' m'',
       eval_exprlist e le m al tyargs vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
       step (State f (Sbuiltin optid ef tyargs al) k e le m)
-         t (State f Sskip k e (set_opttemp optid vres le) m')
+         t (State f Sskip k e (set_opttemp optid vres le) m'')
 
   | step_seq:  forall f s1 s2 k e le m,
       step (State f (Ssequence s1 s2) k e le m)
@@ -618,24 +619,21 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f Sbreak (Kloop2 s1 s2 k) e le m)
         E0 (State f Sskip k e le m)
 
-  | step_return_0: forall f k e le m m' m'',
+  | step_return_0: forall f k e le m m',
       Mem.free_list m (blocks_of_env e) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn None) k e le m)
-        E0 (Returnstate Vundef (call_cont k) m'')
-  | step_return_1: forall f a k e le m v v' m' m'',
+        E0 (Returnstate Vundef (call_cont k) m')
+  | step_return_1: forall f a k e le m v v' m',
       eval_expr e le m a v ->
       sem_cast v (typeof a) f.(fn_return) m = Some v' ->
       Mem.free_list m (blocks_of_env e) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f (Sreturn (Some a)) k e le m)
-        E0 (Returnstate v' (call_cont k) m'')
-  | step_skip_call: forall f k e le m m' m'',
+        E0 (Returnstate v' (call_cont k) m')
+  | step_skip_call: forall f k e le m m',
       is_call_cont k ->
       Mem.free_list m (blocks_of_env e) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (State f Sskip k e le m)
-        E0 (Returnstate Vundef k m'')
+        E0 (Returnstate Vundef k m')
 
   | step_switch: forall f a sl k e le m v n,
       eval_expr e le m a v ->
@@ -669,9 +667,10 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Callstate (External ef targs tres cconv) vargs k m sz)
          t (Returnstate vres k m')
 
-  | step_returnstate: forall v optid f e le k m,
+  | step_returnstate: forall v optid f e le k m m',
+      Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate v (Kcall optid f e le k) m)
-        E0 (State f Sskip k e (set_opttemp optid v le) m).
+        E0 (State f Sskip k e (set_opttemp optid v le) m').
 
 (** ** Whole-program semantics *)
 
@@ -681,13 +680,15 @@ Inductive step: state -> trace -> state -> Prop :=
   without arguments and with an empty continuation. *)
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall b f m0,
+  | initial_state_intro: forall b f m0 m1 b1 m2,
       let ge := Genv.globalenv p in
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some b ->
       Genv.find_funct_ptr ge b = Some f ->
       type_of_fundef f = Tfunction Tnil type_int32s cc_default ->
-      initial_state p (Callstate f nil Kstop m0 (fn_stack_requirements (prog_main p))).
+      Mem.alloc m0 0 0 = (m1,b1) ->
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 (** A final state is a [Returnstate] with an empty continuation. *)
 
@@ -699,11 +700,16 @@ End SEMANTICS.
 
 (** The two semantics for function parameters.  First, parameters as local variables. *)
 
+Definition blocks_with_info (ge:genv) (e: env) : list (block * frame_info) :=
+  map (fun x => let '(b, lo, hi) := x in (b,{| frame_size := hi; frame_perm := fun o => Public |})) (blocks_of_env ge e).
+
 Inductive function_entry1 (ge: genv) (f: function) (vargs: list val) (m: mem) (e: env) (le: temp_env) (m': mem) (sz: Z) : Prop :=
-  | function_entry1_intro: forall m1 m1',
+  | function_entry1_intro: forall m1 m1' fa,
       list_norepet (var_names f.(fn_params) ++ var_names f.(fn_vars)) ->
       alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 ->
-      Mem.record_stack_blocks m1 (map fst (map fst (blocks_of_env ge e)), None, sz) m1' ->
+      frame_adt_blocks fa = blocks_with_info ge e ->
+      frame_adt_size fa = sz ->
+      Mem.record_stack_blocks m1 fa = Some m1' ->
       bind_parameters ge e m1' f.(fn_params) vargs m' ->
       le = create_undef_temps f.(fn_temps) ->
       function_entry1 ge f vargs m e le m' sz.
@@ -713,12 +719,14 @@ Definition step1 fsr (ge: genv) := step fsr ge (function_entry1).
 (** Second, parameters as temporaries. *)
 
 Inductive function_entry2 (ge: genv)  (f: function) (vargs: list val) (m: mem) (e: env) (le: temp_env) (m1': mem) (sz: Z) : Prop :=
-  | function_entry2_intro m': 
+  | function_entry2_intro fa m': 
       list_norepet (var_names f.(fn_vars)) ->
       list_norepet (var_names f.(fn_params)) ->
       list_disjoint (var_names f.(fn_params)) (var_names f.(fn_temps)) ->
       alloc_variables ge empty_env m f.(fn_vars) e m' ->
-      Mem.record_stack_blocks m' (map fst (map fst (blocks_of_env ge e)), None, sz) m1' ->
+      frame_adt_blocks fa = blocks_with_info ge e ->
+      frame_adt_size fa = sz ->
+      Mem.record_stack_blocks m' fa = Some m1' ->
       bind_parameter_temps f.(fn_params) vargs (create_undef_temps f.(fn_temps)) = Some le ->
       function_entry2 ge f vargs m e le m1' sz.
 
@@ -747,6 +755,8 @@ Proof.
   inversion H; subst; auto.
   (* builtin *)
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
+  edestruct (Mem.unrecord_stack_block_succeeds m2) as (m2' & USB & EQ).
+  repeat rewrite_stack_blocks; reflexivity.
   econstructor; econstructor; eauto.
   (* external *)
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].

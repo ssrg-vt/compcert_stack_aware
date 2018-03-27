@@ -395,7 +395,7 @@ Proof.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   simpl. econstructor; eauto.
   (* return *)
-  inv H3. inv H1.
+  inv H4. inv H2.
   left; econstructor; split.
   eapply exec_return; eauto.
   constructor; auto.
@@ -408,14 +408,15 @@ Lemma transf_initial_states:
   exists st2, initial_state fn_stack_requirements tprog st2 /\ match_states st1 st2.
 Proof.
   intros. inversion H.
-  exists (Callstate nil (tunnel_fundef f) (Locmap.init Vundef) m0 (fn_stack_requirements (prog_main tprog))); split.
+  exists (Callstate nil (tunnel_fundef f) (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto.
   apply (Genv.init_mem_transf TRANSL); auto.
   rewrite (match_program_main TRANSL).
   rewrite symbols_preserved. eauto.
   apply function_ptr_translated; auto.
   rewrite <- H3. apply sig_preserved.
-  inv TRANSL. inv H6. rewrite H4; constructor. constructor.
+  eauto.
+  inv TRANSL. destruct H8 as (MAIN & PUB); rewrite MAIN; constructor. constructor.
 Qed.
 
 Lemma transf_final_states:

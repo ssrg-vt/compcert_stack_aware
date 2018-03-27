@@ -48,6 +48,9 @@ Local Notation magree_free := Mem.magree_free.
 Local Notation magree_loadbytes := Mem.magree_loadbytes.
 Local Notation magree_storebytes_left := Mem.magree_storebytes_left.
 Local Notation mextends_agree := Mem.mextends_agree.
+Local Notation magree_push := Mem.magree_push.
+Local Notation magree_unrecord := Mem.magree_unrecord.
+
 
 Lemma magree_store_parallel:
   forall `{memory_model_prf: Mem.MemoryModel} {injperm: InjectPerm},
@@ -509,6 +512,7 @@ Proof.
   exists tm'; split. econstructor. econstructor; eauto.
   eapply Mem.public_stack_access_magree; eauto.
   eapply Mem.store_valid_access_3; eauto.
+  apply inject_perm_condition_writable; constructor.  
   auto.
 Qed.
 
@@ -522,11 +526,6 @@ Qed.
 
 Variable fn_stack_requirements: ident -> Z.
 
-Theorem step_simulation:
-  forall S1 t S2, step fn_stack_requirements ge S1 t S2 ->
-  forall S1', match_states S1 S1' -> sound_state prog S1 ->
-  exists S2', step fn_stack_requirements tge S1' t S2' /\ match_states S2 S2'.
-Proof.
 
 Ltac TransfInstr :=
   match goal with
@@ -548,7 +547,38 @@ Ltac UseTransfer :=
        simpl in *
   end.
 
-  induction 1; intros S1' MS SS; inv MS.
+
+Lemma stack_equiv_inv_step:
+  forall S1 t S2
+    (STEP: step fn_stack_requirements ge S1 t S2)
+    S1' (MS: match_states S1 S1')
+    S2' (STEP': step fn_stack_requirements tge S1' t S2')
+    (SEI: stack_equiv_inv S1 S1'),
+    stack_equiv_inv S2 S2'.
+Proof.
+  intros.
+  inv STEP; inv MS; try TransfInstr; inv STEP'; try congruence;
+    unfold stack_equiv_inv in *; simpl in *; repeat rewrite_stack_blocks; eauto;
+      try match goal with
+        H1: (fn_code ?f) ! ?pc = _,
+            H2: (fn_code ?f) ! ?pc = _ |- _ =>
+        rewrite H1 in H2; repeat destr_in H2
+      end.
+  - repeat constructor; auto.
+  - revert EQ1 EQ0. repeat rewrite_stack_blocks. intros A B; revert SEI; rewrite A, B. simpl.
+    inversion 1; subst. repeat constructor; auto.
+  - monadInv FUN.
+  - monadInv FUN.
+  - eauto using stack_equiv_tail.
+Qed.
+
+Theorem step_simulation:
+  forall S1 t S2, step fn_stack_requirements ge S1 t S2 ->
+  forall S1', match_states S1 S1' -> sound_state prog S1 -> stack_inv S1' -> stack_equiv_inv S1 S1' ->
+  exists S2', step fn_stack_requirements tge S1' t S2' /\ match_states S2 S2'.
+Proof.
+
+  induction 1; intros S1' MS SS SI SEI; inv MS.
 
 - (* nop *)
   TransfInstr; UseTransfer.
@@ -688,6 +718,7 @@ Ltac UseTransfer :=
   eapply eagree_ge; eauto. rewrite ANPC. simpl.
   apply eagree_update; eauto with na.
   eauto 2 with na.
+  apply Mem.extends_push.
   eapply magree_extends; eauto. apply nlive_all.
 
 - (* tailcall *)
@@ -696,8 +727,6 @@ Ltac UseTransfer :=
   exploit magree_free. eauto. constructor. eauto. instantiate (1 := nlive ge stk nmem_all).
   intros; eapply nlive_dead_stack; eauto.
   intros (tm' & C & D).
-  exploit Mem.unrecord_stack_block_extends; eauto. eapply magree_extends; eauto.
-  apply nlive_all. intros (m2' & USB & EXT).
   econstructor; split.
   eapply exec_Itailcall; eauto.
   {
@@ -713,13 +742,14 @@ Ltac UseTransfer :=
   eapply sig_function_translated; eauto.
   erewrite stacksize_translated by eauto. eexact C.
   eapply match_call_states with (cu := cu'); eauto 2 with na.
+  eapply Mem.magree_extends; eauto. apply nlive_all.
 
 - (* builtin *)
   TransfInstr; UseTransfer. revert ENV MEM TI.
   functional induction (transfer_builtin (vanalyze cu f)#pc ef args res ne nm);
   simpl in *; intros.
 + (* volatile load *)
-  inv H0. inv H6. rename b1 into v1.
+  inv H0. inv H7. rename b1 into v1.
   destruct (transfer_builtin_arg All
               (kill_builtin_res res ne,
               nmem_add nm (aaddr_arg (vanalyze cu f) # pc a1)
@@ -727,49 +757,52 @@ Ltac UseTransfer :=
   InvSoundState. exploit transfer_builtin_arg_sound; eauto.
   intros (tv1 & A & B & C & D).
   inv H1. simpl in B. inv B.
-  assert (X: exists tvres, volatile_load ge chunk tm b ofs t tvres /\ Val.lessdef vres tvres).
+  assert (X: exists tvres, volatile_load ge chunk (Mem.push_new_stage tm) b ofs t tvres /\ Val.lessdef vres tvres).
   {
-    inv H2.
+    inv H3.
   * exists (Val.load_result chunk v); split; auto. constructor; auto.
-  * exploit magree_load; eauto.
+  * exploit magree_load.
+    apply Mem.magree_push. eauto. eauto.
     exploit aaddr_arg_sound_1; eauto. rewrite <- AN. intros.
     intros. eapply nlive_add; eassumption.
     intros (tv & P & Q).
     exists tv; split; auto. constructor; auto.
   }
   destruct X as (tvres & P & Q).
+  rewrite Mem.unrecord_push in H2; inv H2.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
   constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
-  constructor. simpl. eauto.
+  constructor. simpl. eauto. apply Mem.unrecord_push.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
   eapply magree_monotone; eauto. intros. apply incl_nmem_add; auto.
 + (* volatile store *)
-  inv H0. inv H6. inv H7. rename b1 into v1. rename b0 into v2.
+  inv H0. inv H7. inv H8. rename b1 into v1. rename b0 into v2.
   destruct (transfer_builtin_arg (store_argument chunk)
               (kill_builtin_res res ne, nm) a2) as (ne2, nm2) eqn: TR2.
   destruct (transfer_builtin_arg All (ne2, nm2) a1) as (ne1, nm1) eqn: TR1.
   InvSoundState.
-  exploit transfer_builtin_arg_sound. eexact H4. eauto. eauto. eauto. eauto. eauto.
+  exploit transfer_builtin_arg_sound. eexact H5. eauto. eauto. eauto. eauto. eauto.
   intros (tv1 & A1 & B1 & C1 & D1).
-  exploit transfer_builtin_arg_sound. eexact H3. eauto. eauto. eauto. eauto. eauto.
+  exploit transfer_builtin_arg_sound. eexact H4. eauto. eauto. eauto. eauto. eauto.
   intros (tv2 & A2 & B2 & C2 & D2).
-  exploit transf_volatile_store; eauto.
+  exploit transf_volatile_store; eauto. apply magree_push. apply D2.
   intros (EQ & tm' & P & Q). subst vres.
+  edestruct magree_unrecord as (m2' & USB & MAG). apply Q. eauto.
   econstructor; split.
-  eapply exec_Ibuiltin; eauto.
+  eapply exec_Ibuiltin. eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
   constructor. eauto. constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
-  simpl; eauto.
+  simpl; eauto. eauto. auto.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
 + (* memcpy *)
   rewrite e1 in TI.
-  inv H0. inv H6. inv H7. rename b1 into v1. rename b0 into v2.
+  inv H0. inv H7. inv H8. rename b1 into v1. rename b0 into v2.
   set (adst := aaddr_arg (vanalyze cu f) # pc dst) in *.
   set (asrc := aaddr_arg (vanalyze cu f) # pc src) in *.
   destruct (transfer_builtin_arg All
@@ -778,20 +811,19 @@ Ltac UseTransfer :=
            as (ne2, nm2) eqn: TR2.
   destruct (transfer_builtin_arg All (ne2, nm2) src) as (ne1, nm1) eqn: TR1.
   InvSoundState.
-  exploit transfer_builtin_arg_sound. eexact H3. eauto. eauto. eauto. eauto. eauto.
-  intros (tv1 & A1 & B1 & C1 & D1).
   exploit transfer_builtin_arg_sound. eexact H4. eauto. eauto. eauto. eauto. eauto.
+  intros (tv1 & A1 & B1 & C1 & D1).
+  exploit transfer_builtin_arg_sound. eexact H5. eauto. eauto. eauto. eauto. eauto.
   intros (tv2 & A2 & B2 & C2 & D2).
   inv H1.
-  exploit magree_loadbytes. eauto. eauto.
+  exploit magree_loadbytes. 2: eauto. apply magree_push; eauto.
   intros. eapply nlive_add; eauto.
   unfold asrc, vanalyze; rewrite AN; eapply aaddr_arg_sound_1; eauto.
   intros (tbytes & P & Q).
-  exploit magree_storebytes_parallel.
+  exploit magree_storebytes_parallel. 2: eauto. apply magree_push.
   eapply magree_monotone. eexact D2.
   instantiate (1 := nlive ge sp0 (nmem_remove nm adst sz)).
   intros. apply incl_nmem_add; auto.
-  eauto.
   instantiate (1 := nlive ge sp0 nm).
   intros. eapply nlive_remove; eauto.
   unfold adst, vanalyze; rewrite AN; eapply aaddr_arg_sound_1; eauto.
@@ -799,65 +831,78 @@ Ltac UseTransfer :=
   rewrite nat_of_Z_eq in H1 by omega. auto.
   eauto.
   intros (tm' & A & B).
+  edestruct magree_unrecord as (m2' & USB & MAG). apply B. eauto.
+    
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge). exact symbols_preserved.
   constructor. eauto. constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
   simpl in B1; inv B1. simpl in B2; inv B2. econstructor; eauto.
-  eapply Mem.public_stack_access_magree; eauto.
+  eapply Mem.public_stack_access_magree; eauto. apply magree_push; eauto.
   erewrite <- list_forall2_length; eauto.
   eapply Mem.storebytes_range_perm; eauto.
   erewrite <- list_forall2_length; eauto.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
+
 + (* memcpy eliminated *)
   rewrite e1 in TI.
-  inv H0. inv H6. inv H7. rename b1 into v1. rename b0 into v2.
+  inv H0. inv H7. inv H8. rename b1 into v1. rename b0 into v2.
   set (adst := aaddr_arg (vanalyze cu f) # pc dst) in *.
   set (asrc := aaddr_arg (vanalyze cu f) # pc src) in *.
   inv H1.
+
+  edestruct Mem.storebytes_push as (m2 & SB); eauto.
+  exploit Mem.push_storebytes_unrecord; eauto. rewrite H2. intro A; inv A.
+
   econstructor; split.
   eapply exec_Inop; eauto.
   eapply match_succ_states; eauto. simpl; auto.
   destruct res; auto. apply eagree_set_undef; auto.
-  eapply magree_storebytes_left; eauto.
-  clear H3.
+  eapply magree_storebytes_left. 2: eauto. eauto. 
+  clear H4.
   exploit aaddr_arg_sound; eauto.
   intros (bc & A & B & C).
   intros. eapply nlive_contains; eauto.
   erewrite Mem.loadbytes_length in H0 by eauto.
   rewrite nat_of_Z_eq in H0 by omega. auto.
+
 + (* annot *)
   destruct (transfer_builtin_args (kill_builtin_res res ne, nm) _x1) as (ne1, nm1) eqn:TR.
   InvSoundState.
   exploit transfer_builtin_args_sound; eauto. intros (tvl & A & B & C & D).
   inv H1.
+  rewrite Mem.unrecord_push in H2. inv H2.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
   eapply external_call_symbols_preserved. apply senv_preserved.
-  constructor. eapply eventval_list_match_lessdef; eauto 2 with na.
+  constructor. eapply eventval_list_match_lessdef; eauto 2 with na. apply Mem.unrecord_push.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
 + (* annot val *)
   destruct (transfer_builtin_args (kill_builtin_res res ne, nm) _x1) as (ne1, nm1) eqn:TR.
   InvSoundState.
   exploit transfer_builtin_args_sound; eauto. intros (tvl & A & B & C & D).
-  inv H1. inv B. inv H6.
+  inv H1. inv B. inv H7.
+  rewrite Mem.unrecord_push in H2; inv H2.
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
   eapply external_call_symbols_preserved. apply senv_preserved.
   constructor.
   eapply eventval_match_lessdef; eauto 2 with na.
+  apply Mem.unrecord_push.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
 + (* debug *)
   inv H1.
   exploit can_eval_builtin_args; eauto. intros (vargs' & A).
+  rewrite Mem.unrecord_push in H2; inv H2.
   econstructor; split.
   eapply exec_Ibuiltin; eauto. constructor.
+  apply Mem.unrecord_push.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
 + (* all other builtins *)
@@ -870,8 +915,10 @@ Ltac UseTransfer :=
   InvSoundState.
   exploit transfer_builtin_args_sound; eauto. intros (tvl & A & B & C & D).
   exploit external_call_mem_extends; eauto 2 with na.
-  eapply magree_extends; eauto. intros. apply nlive_all.
+  apply Mem.extends_push. eapply magree_extends; eauto. intros. apply nlive_all.
   intros (v' & tm' & P & Q & R & ST).
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  intros (m2' & USB & EXT).
   econstructor; split.
   eapply exec_Ibuiltin; eauto.
   apply eval_builtin_args_preserved with (ge1 := ge); eauto. exact symbols_preserved.
@@ -902,34 +949,42 @@ Ltac UseTransfer :=
   exploit magree_free. eauto. constructor. eauto. instantiate (1 := nlive ge stk nmem_all).
   intros; eapply nlive_dead_stack; eauto.
   intros (tm' & A & B).
-  exploit Mem.unrecord_stack_block_extends; eauto. eapply magree_extends; eauto.
-  apply nlive_all. intros (m2' & USB & EXT).
   econstructor; split.
   eapply exec_Ireturn; eauto.
   erewrite stacksize_translated by eauto. eexact A.
   constructor; auto.
   destruct or; simpl; eauto 2 with na.
+  eapply magree_extends; eauto. apply nlive_all.
 
 - (* internal function *)
   monadInv FUN. generalize EQ. unfold transf_function. fold (vanalyze cu f). intros EQ'.
   destruct (analyze (vanalyze cu f) f) as [an|] eqn:AN; inv EQ'.
   exploit Mem.alloc_extends; eauto. apply Zle_refl. apply Zle_refl.
   intros (tm' & A & B).
-  exploit Mem.record_stack_blocks_extends; eauto.
-  {
-    unfold in_frame; simpl. intros ? [?|[]]; subst.
-    erewrite Mem.alloc_stack_blocks; eauto. intro INF. apply Mem.in_frames_valid in INF.
-    eapply Mem.fresh_block_alloc in INF; eauto.
-  }
-  {
-    constructor; auto; simpl; congruence.
-  }
-  intros (tm'' & C & D).
-  econstructor; split.
-  econstructor; simpl; eauto.
-  simpl. econstructor; eauto.
-  apply eagree_init_regs; auto.
-  apply mextends_agree; auto.
+  exploit Mem.record_stack_blocks_extends. 2: eauto.
+  eauto.
+  + unfold in_frame. simpl. intros ? [?|[]]; subst.
+    intro IFF.
+    erewrite Mem.alloc_stack_blocks in IFF; eauto.
+    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
+  + intros b fi o k0 p [AA|[]] P; inv AA.
+    eapply Mem.perm_alloc_3 with (k:= k0) (p0 := p); eauto.
+  + inv SI. inv TOPNOPERM.
+    rewrite_stack_blocks. rewrite <- H1. constructor.
+    red in H2. red.
+    intros. intro P.
+    eapply Mem.perm_alloc_inv in P; eauto.
+    destr_in P. subst.
+    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
+    eapply Mem.fresh_block_alloc; eauto.
+    eapply H2 in P; eauto.
+  + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
+  + intros (m2' & USB & EXT).
+    econstructor; split.
+    econstructor; simpl; eauto.
+    simpl. econstructor; eauto.
+    apply eagree_init_regs; auto.
+    apply mextends_agree; auto.
 
 - (* external function *)
   exploit external_call_mem_extends; eauto.
@@ -941,9 +996,11 @@ Ltac UseTransfer :=
   econstructor; eauto.
 
 - (* return *)
-  inv STACKS. inv H1.
+  inv STACKS. inv H2.
+  exploit Mem.unrecord_stack_block_extends; eauto.
+  intros (m2' & USB & EXT).
   econstructor; split.
-  constructor.
+  constructor. eauto.
   econstructor; eauto. apply mextends_agree; auto.
 Qed.
 
@@ -961,7 +1018,7 @@ Lemma transf_initial_states:
 Proof.
   intros. inversion H.
   exploit function_ptr_translated; eauto. intros (cu & tf & A & B & C).
-  exists (Callstate nil tf nil m0 (fn_stack_requirements (prog_main tprog))); split.
+  exists (Callstate nil tf nil (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto.
   eapply (Genv.init_mem_match TRANSF); eauto.
   replace (prog_main tprog) with (prog_main prog). 
@@ -986,15 +1043,22 @@ Theorem transf_program_correct:
 Proof.
   intros.
   apply forward_simulation_step with
-     (match_states := fun s1 s2 => sound_state prog s1 /\ match_states s1 s2).
+     (match_states := fun s1 s2 => sound_state prog s1 /\ match_states s1 s2 /\ stack_inv s2 /\ stack_equiv_inv s1 s2).
 - apply senv_preserved.
   assumption.
 - simpl; intros. exploit transf_initial_states; eauto. intros [st2 [A B]].
   exists st2; intuition. eapply sound_initial; eauto.
-- simpl; intros. destruct H. eapply transf_final_states; eauto.
-- simpl; intros. destruct H0.
+  eapply stack_inv_initial; eauto.
+  inv H; inv A. red. simpl.
+  repeat rewrite_stack_blocks.
+  repeat erewrite Genv.init_mem_stack_adt by eauto.
+  repeat constructor.
+- simpl; intros. destruct H as (? & MS & ?). eapply transf_final_states; eauto.
+- simpl; intros. destruct H0 as (SS & MS & SI & SEI).
   assert (sound_state prog s1') by (eapply sound_step; eauto).
   fold ge; fold tge. exploit step_simulation; eauto. intros [st2' [A B]].
+  exploit stack_inv_inv. apply A. eauto. intro SI2.
+  exploit stack_equiv_inv_step; eauto. intros.
   exists st2'; auto.
 Qed.
 

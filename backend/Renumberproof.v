@@ -245,7 +245,7 @@ Proof.
     eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   constructor; auto.
 (* return *)
-  inv STACKS. inv H1.
+  inv STACKS. inv H2.
   econstructor; split.
   eapply exec_return; eauto.
   constructor; auto.
@@ -261,6 +261,7 @@ Proof.
   rewrite symbols_preserved. rewrite (match_program_main TRANSL). eauto.
   eapply function_ptr_translated; eauto.
   rewrite <- H3; apply sig_preserved.
+  eauto. eauto.
   destruct TRANSL as (_ & A & _); rewrite A. constructor. constructor.
 Qed.
 

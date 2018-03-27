@@ -965,7 +965,7 @@ Proof.
     discriminate.
   econstructor; eauto.
   inv WTI. apply wt_stackframes_change_sig with (fn_sig f); auto.
-  inv WTI. rewrite <- H8. apply wt_regset_list. auto.
+  inv WTI. rewrite <- H7. apply wt_regset_list. auto.
   (* Ibuiltin *)
   econstructor; eauto. eapply wt_exec_Ibuiltin; eauto.
   (* Icond *)
@@ -974,7 +974,7 @@ Proof.
   econstructor; eauto.
   (* Ireturn *)
   econstructor; eauto.
-  inv WTI; simpl. auto. unfold proj_sig_res; rewrite H3. auto.
+  inv WTI; simpl. auto. unfold proj_sig_res; rewrite H2. auto.
   (* internal function *)
   simpl in *. inv H7.
   econstructor; eauto.
@@ -983,8 +983,8 @@ Proof.
   econstructor; eauto. simpl.
   eapply external_call_well_typed; eauto.
   (* return *)
-  inv H1. econstructor; eauto.
-  apply wt_regset_assign; auto. rewrite H10; auto.
+  inv H2. econstructor; eauto.
+  apply wt_regset_assign; auto. rewrite H11; auto.
 Qed.
 
 Lemma wt_initial_state:

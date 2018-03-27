@@ -63,7 +63,7 @@ VLIB=Axioms.v Coqlib.v Intv.v Maps.v Heaps.v Lattice.v Ordered.v \
 # Parts common to the front-ends and the back-end (in common/)
 
 COMMON=Errors.v AST.v Linking.v \
-  Events.v Globalenvs.v Memdata.v MemPerm.v StackADT.v Memtype.v Memory.v \
+  Events.v Globalenvs.v Memdata.v MemPerm.v Assoc.v StackADT.v StackInj.v Memtype.v Memory.v \
   Memimpl.v \
   Values.v Smallstep.v Behaviors.v Switch.v Determinism.v Unityping.v \
   Separation.v
@@ -93,18 +93,18 @@ BACKEND=\
   Linearize.v Linearizeproof.v \
   CleanupLabels.v CleanupLabelsproof.v \
   Debugvar.v Debugvarproof.v \
-  Mach.v \
+  Mach.v Mach2.v Mach2Mach2.v \
   EraseArgs.v \
   Bounds.v Stacklayout.v Stacking.v Stackingproof.v \
   Asm.v Asmgen.v Asmgenproof0.v Asmgenproof1.v Asmgenproof.v \
-	AsmFacts.v RawAsmgen.v RawAsmgenproof.v \
-  Sect.v Sectinj.v \
-  FlatAsm.v FlatAsmGlobenv.v FlatAsmGlobdef.v FlatAsmBuiltin.v \
-  FlatAsmgen.v FlatAsmgenproof.v 
+  Inlining.v Inliningspec.v Inliningproof.v \
+  Tailcall.v Tailcallproof.v \
+  AsmFacts.v RawAsmgen.v
+  # Sect.v Sectinj.v \
+  # FlatAsm.v FlatAsmGlobenv.v FlatAsmGlobdef.v FlatAsmBuiltin.v \
+  # FlatAsmgen.v FlatAsmgenproof.v 
 
-#  Tailcall.v Tailcallproof.v \
-#  Inlining.v Inliningspec.v Inliningproof.v \
- 
+
 # C front-end modules (in cfrontend/)
 
 CFRONTEND=Ctypes.v Cop.v Csyntax.v Csem.v Ctyping.v Cstrategy.v Cexec.v \

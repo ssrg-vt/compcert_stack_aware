@@ -26,12 +26,15 @@ Section WITHMEMORYMODEL.
   Context `{external_calls_ops: !ExternalCallsOps mem}
           `{enable_builtins_instance: EnableBuiltins (memory_model_ops:=memory_model_ops) mem}.
 
-  Definition is_unchanged (i: instr_with_info) :=
+  Definition stack_invar (i: instr_with_info) :=
     match i with
     | (i,_) =>
       match i with
-        Pallocframe _ _ _ 
-      | Pfreeframe _ _ _ => false
+        Pallocframe _ _  
+      | Pfreeframe _ _
+      | Pcall_s _ _
+      | Pcall_r _ _ 
+      | Pret => false
       | _ => true
       end
     end.
@@ -41,9 +44,9 @@ Section WITHMEMORYMODEL.
       Stacking pass satisfy this requirement. *)
 
   Definition asm_instr_no_rsp (i : Asm.instr_with_info) : Prop :=
-    is_unchanged i = true ->
-    forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f,
-      Asm.exec_instr ge f i rs1 m1 = Next rs2 m2 ->
+    stack_invar i = true ->
+    forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f isp,
+      Asm.exec_instr isp ge f i rs1 m1 = Next rs2 m2 ->
       rs2 # RSP = rs1 # RSP.
 
   Definition asm_code_no_rsp (c : Asm.code) : Prop :=
@@ -224,12 +227,24 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
           apply not_eq_sym; eapply preg_of_not_rsp; eauto.
   Qed.  
   
-  
+    Ltac simpl_cinfo :=
+    match goal with
+    | [ H: context [Asmgen.code_to_with_info _ _ _] |- _ ] =>
+      unfold Asmgen.code_to_with_info in H; simpl_cinfo
+    | [ H: context [Asmgen.instr_to_with_info _ _] |- _ ] =>
+      unfold Asmgen.instr_to_with_info in H; simpl_cinfo
+    | [ H: context [exec_instr _ _ _ _ _ _ = Next _ _] |- _ ] =>
+      unfold exec_instr in H; simpl_cinfo
+    | [ |- exec_instr _ _ _ _ _ _ = Next _ _ ] =>
+      unfold exec_instr; simpl_cinfo
+    | _ => simpl in *
+    end.
+
   Ltac invasm :=
     repeat match goal with
              H: bind _ ?x = OK ?x1 |- _ =>
              monadInv H
-           | H: exec_instr _ _ _ _ _ = _ |- _ =>
+           | H: exec_instr _ _ _ _ _ _ = _ |- _ =>
              unfold exec_instr in H; simpl in H; inv H
            | |- _ => apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs
            end.
@@ -244,36 +259,39 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     intros x0 m x2 i c A B C.
     unfold mk_setcc in B. unfold Asmgen.mk_setcc in B. destr_in B.
     - destruct c. simpl in *.
-      destruct B; subst; auto; red; intros; unfold exec_instr in H1; simpl in H1; solve_rs.
-      unfold Asmgen.mk_setcc_base in B. simpl in B. destr_in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      unfold Asmgen.mk_setcc_base in B. simpl in B. destr_in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
+      unfold Asmgen.instr_to_with_info in B.
+      destruct B; subst; auto; red; intros; unfold Asm.exec_instr in H1; simpl in H1; solve_rs.
+      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in B; simpl in B. 
+      destruct (ireg_eq x2 RAX) eqn: IEQ; simpl in B.
+      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in B; simpl in B. 
+      destruct (ireg_eq x2 RAX) eqn: IEQ; simpl in B.
+      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
       simpl in B. destr_in B.
-      red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
+      red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
     - destruct c.
-      unfold Asmgen.mk_setcc_base in B; simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
+      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in B; simpl in B.
+      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
       simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
+      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
       simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold exec_instr in EI; simpl in EI; solve_rs.
+      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI;  unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f isp EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
   Qed.
 
   Lemma asmgen_transl_cond_rsp:
@@ -314,6 +332,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     repeat destr_in A. solve_rs.
   Qed.
 
+
   Lemma mkjcc_no_rsp:
     forall x0 x2 i c,
       asm_code_no_rsp x0 ->
@@ -321,18 +340,18 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       asm_instr_no_rsp i.
   Proof.
     intros x0 x2 i c A H1.
-    unfold mk_jcc, Asmgen.mk_jcc in H1. destr_in H1.
-    - destruct H1. subst.  red; simpl; intros.
-      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs.
+    unfold mk_jcc, Asmgen.mk_jcc in H1. destr_in H1; simpl_cinfo.
+    - destruct H1. subst. red; simpl; intros; simpl_cinfo.
+      repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs.
       eapply A; eauto.
-    - destruct H1. subst. red; simpl; intros.
-      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs.
-      destruct H0. subst. red; simpl; intros. 
-      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs.
+    - destruct H1. subst. red; simpl; intros; simpl_cinfo.
+      invasm. repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs.
+      destruct H0. subst. red; simpl; intros; simpl_cinfo. 
+      invasm. repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs.
       simpl in H0. 
       eapply A; eauto.
-    - destruct H1. subst.  red; simpl; intros.
-      invasm. repeat destr_in H3. eapply goto_label_rsp; eauto. solve_rs. solve_rs.
+    - destruct H1. subst.  red; simpl; intros; simpl_cinfo.
+      invasm. repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs. solve_rs.
       intros. eapply A. eauto.
   Qed.
   
@@ -430,7 +449,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     { unfold P; simpl. inversion 1; tauto. }
     revert H0.
     generalize (Mach.fn_code f) true (fun c : code => OK c).
-    clear g Heqs.
+    clear g.
     induction c; simpl; intros; eauto.
     eapply H0; eauto. red; easy.
     eapply IHc. 2: apply EQ0.
@@ -470,9 +489,9 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Qed.
 
   Definition asm_instr_no_stack (i : Asm.instr_with_info) : Prop :=
-    is_unchanged i = true ->
-    forall F V (ge: _ F V) rs1 m1 rs2 m2 f,
-      Asm.exec_instr ge f i rs1 m1 = Next rs2 m2 ->
+    stack_invar i = true ->
+    forall F V (ge: _ F V) rs1 m1 rs2 m2 f isp,
+      Asm.exec_instr isp ge f i rs1 m1 = Next rs2 m2 ->
       Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
 
 
@@ -512,7 +531,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Lemma asmgen_no_change_stack i:
     asm_instr_no_stack i.
   Proof.
-    red; intros IU F V ge0 rs1 m1 rs2 m2 f EI.
+    red; intros IU F V ge0 rs1 m1 rs2 m2 f isp EI.
     destruct i as (i & info);
       destruct i; simpl in IU; try discriminate;
         unfold exec_instr in EI; simpl in EI; repeat destr_in EI;
@@ -526,8 +545,8 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Qed.
 
   Definition asm_instr_nb_fw i:=
-    forall F V (ge: _ F V) f rs1 m1 rs2 m2,
-      Asm.exec_instr ge f i rs1 m1 = Next rs2 m2 ->
+    forall F V (ge: _ F V) f rs1 m1 rs2 m2 isp,
+      Asm.exec_instr isp ge f i rs1 m1 = Next rs2 m2 ->
       Ple (Mem.nextblock m1) (Mem.nextblock m2).
 
   Definition asm_code_nb_fw c :=
@@ -559,7 +578,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Lemma asmgen_nextblock_forward i:
     asm_instr_nb_fw i.
   Proof.
-    red. intros F V ge f rs1 m1 rs2 m2 EI.
+    red. intros F V ge f rs1 m1 rs2 m2 isp EI.
     unfold exec_instr in EI.
     destruct i as(i&info); destruct i; simpl in EI; inv EI; try (apply Ple_refl);
       first [now eapply exec_load_nb; eauto
@@ -574,17 +593,16 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
     - unfold goto_label in H1. repeat destr_in H1; apply Ple_refl.
+    - rewrite Mem.push_new_stage_nextblock; xomega.
+    - rewrite Mem.push_new_stage_nextblock; xomega.
+    - repeat destr_in H1. rewnb. xomega.
     - repeat destr_in H1.
-      edestruct (Mem.push_frame_alloc_record) as (m3 & ALLOC & m4 & STORES & RSB). eauto.
-      edestruct Mem.record_stack_blocks_mem_unchanged; eauto. simpl. eauto.
-      rewrite H0.
-      apply Mem.do_stores_nextblock in STORES. rewrite STORES.
-      rewrite (Mem.nextblock_alloc _ _ _ _ _ ALLOC).
-      xomega.
-    - repeat destr_in H1.
-      edestruct Mem.unrecord_stack_block_mem_unchanged. simpl; eauto.
-      rewrite H0.
-      rewrite (Mem.nextblock_free _ _ _ _ _ Heqo1). apply Ple_refl.
+      apply Mem.record_stack_block_nextblock in Heqo0.
+      apply Mem.nextblock_store in Heqo.
+      apply Mem.nextblock_alloc in Heqp. 
+      rewrite Heqo0, Heqo, Heqp. xomega.
+    - repeat (destr_in H1; [idtac]). rewnb. xomega.
+    - repeat destr_in H1. apply Ple_refl.
   Qed.
 
   Lemma val_inject_set:

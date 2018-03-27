@@ -39,6 +39,7 @@ Section PRESERVATION.
 Context `{external_calls_prf: ExternalCalls}.
 
 Variable fn_stack_requirements: ident -> Z.
+Hypothesis fn_stack_requirements_pos: forall i, 0 <= fn_stack_requirements i.
 Variable prog: Csyntax.program.
 Variable tprog: Clight.program.
 Hypothesis TRANSL: match_prog prog tprog.
@@ -171,6 +172,27 @@ Proof.
   (* By copy *)
   rewrite H0. rewrite <- comp_env_preserved in *.
   destruct (type_is_volatile ty); split; auto; eapply assign_loc_copy; eauto.
+Qed.
+
+Lemma volatile_store_push:
+  forall ge chunk m b o v t m',
+    volatile_store ge chunk m b o v t m' ->
+    exists m1,
+      volatile_store ge chunk (Mem.push_new_stage m) b o v t m1 /\ Mem.unrecord_stack_block m1 = Some m'.
+Proof.
+  intros ge0 chunk m b o v t m' VS; inv VS.
+  eexists; split. econstructor; eauto. apply Mem.unrecord_push.
+  edestruct (Mem.valid_access_store' (Mem.push_new_stage m) chunk b (Ptrofs.unsigned o) v).
+  exploit Mem.store_valid_access_3. eauto. intros (V1 & V2 & V3).
+  split. red; intros. rewrite Mem.push_new_stage_perm. auto. split; auto.
+  rewrite_stack_blocks. intros. red. right.
+  red; simpl. auto.
+  eexists; split.
+  econstructor. auto.
+  eauto.
+  rewrite_stack_blocks.
+  auto.
+  eapply Mem.push_store_unrecord; eauto.
 Qed.
 
 (** Evaluation of simple expressions and of their translation *)
@@ -801,7 +823,9 @@ Proof.
   intros. change (PTree.set id v le) with (set_opttemp (Some id) v le). econstructor.
   econstructor. constructor. eauto.
   simpl. unfold sem_cast. simpl. eauto. constructor.
-  simpl. econstructor; eauto. auto.
+  simpl. econstructor; eauto. inv H2; constructor; auto.
+  rewrite Mem.push_new_stage_load. auto. apply Mem.unrecord_push.
+  auto.
 (* nonvolatile case *)
   intros [A B]. subst t. constructor. eapply eval_Elvalue; eauto.
 Qed.
@@ -819,11 +843,13 @@ Proof.
   intros. exploit assign_loc_translated; eauto. rewrite <- H3.
   unfold make_assign. destruct (chunk_for_volatile_type (typeof a1)) as [chunk|].
 (* volatile case *)
-  intros. change le with (set_opttemp None Vundef le) at 2. econstructor.
+  intros. change le with (set_opttemp None Vundef le) at 2.
+  edestruct volatile_store_push as (m1 & VS & USB). eauto.
+  econstructor.
   econstructor. constructor. eauto.
   simpl. unfold sem_cast. simpl. eauto.
   econstructor; eauto. rewrite H3; eauto. constructor.
-  simpl. econstructor; eauto. auto.
+  simpl. econstructor; eauto. eauto. auto.
 (* nonvolatile case *)
   intros [A B]. subst t. econstructor; eauto. congruence.
 Qed.
@@ -998,7 +1024,7 @@ Inductive match_states: Csem.state -> state -> Prop :=
       match_cont k tk ->
       match_states (Csem.State f s k e m)
                    (State tf ts tk e le m)
-  | match_callstates: forall fd args k m tfd tk sz,
+  | match_callstates: forall fd args k m tfd tk sz (SZpos: 0 <= sz),
       tr_fundef fd tfd ->
       match_cont k tk ->
       match_states (Csem.Callstate fd args k m sz)
@@ -1896,9 +1922,9 @@ Proof.
   auto.
 
 (* builtin *)
-  exploit tr_top_leftcontext; eauto. clear H9.
+  exploit tr_top_leftcontext; eauto. clear H10.
   intros [dst' [sl1 [sl2 [a' [tmp' [P [Q [R S]]]]]]]].
-  inv P. inv H2.
+  inv P. inv H3.
   (* for effects *)
   exploit tr_simple_exprlist; eauto. intros [SL EV].
   subst. simpl Kseqlist.
@@ -1919,7 +1945,7 @@ Proof.
   traceEq.
   econstructor; eauto.
   change sl2 with (nil ++ sl2). apply S.
-  apply tr_val_gen. auto. intros. constructor. rewrite H2; auto. simpl. apply PTree.gss.
+  apply tr_val_gen. auto. intros. constructor. rewrite H3; auto. simpl. apply PTree.gss.
   intros; simpl. apply PTree.gso. intuition congruence.
   auto.
 Qed.
@@ -2135,7 +2161,7 @@ Proof.
 
 
 (* return none *)
-  inv H8. econstructor; split.
+  inv H7. econstructor; split.
   left. apply plus_one. econstructor; eauto. rewrite blocks_of_env_preserved; eauto.
   constructor. apply match_cont_call; auto.
 (* return some 1 *)
@@ -2143,15 +2169,15 @@ Proof.
   left; eapply plus_left. constructor. apply push_seq. traceEq.
   econstructor; eauto. constructor. auto.
 (* return some 2 *)
-  inv H10. exploit tr_top_val_for_val_inv; eauto. intros [A [B C]]. subst.
+  inv H9. exploit tr_top_val_for_val_inv; eauto. intros [A [B C]]. subst.
   econstructor; split.
   left. eapply plus_two. constructor. econstructor. eauto.
   erewrite function_return_preserved; eauto. rewrite blocks_of_env_preserved; eauto.
   eauto. traceEq.
   constructor. apply match_cont_call; auto.
 (* skip return *)
-  inv H9.
-  assert (is_call_cont tk). inv H10; simpl in *; auto.
+  inv H8.
+  assert (is_call_cont tk). inv H9; simpl in *; auto.
   econstructor; split.
   left. apply plus_one. eapply step_skip_call; eauto. rewrite blocks_of_env_preserved; eauto.
   constructor. auto.
@@ -2198,13 +2224,15 @@ Proof.
   econstructor; eauto.
 
 (* internal function *)
-  inv H9. inversion H4; subst.
+  inv H11. inversion H6; subst.
   econstructor; split.
   left; apply plus_one. eapply step_internal_function. econstructor.
-  rewrite H8; rewrite H7; auto.
-  rewrite H8; rewrite H7. eapply alloc_variables_preserved; eauto.
-  rewrite blocks_of_env_preserved. eauto.
-  rewrite H7. eapply bind_parameters_preserved; eauto.
+  rewrite H9, H10; auto.
+  rewrite H9, H10. eapply alloc_variables_preserved; eauto.
+  unfold blocks_with_info. rewrite blocks_of_env_preserved. eauto.
+  rewrite H2. apply Z.max_r. auto.
+  eauto.
+  rewrite H9. eapply bind_parameters_preserved; eauto.
   eauto.
   constructor; auto.
 
@@ -2216,9 +2244,9 @@ Proof.
   constructor; auto.
 
 (* return *)
-  inv H3.
+  inv H4.
   econstructor; split.
-  left; apply plus_one. constructor.
+  left; apply plus_one. constructor. eauto.
   econstructor; eauto.
 Qed.
 
@@ -2252,7 +2280,9 @@ Proof.
   destruct TRANSL. destruct H as (A & B & C). simpl in B. auto. 
   eexact FIND.
   rewrite <- H3. apply type_of_fundef_preserved. auto.
-  inv TRANSL. inv H. inv H6.  setoid_rewrite H. constructor. auto. constructor.
+  eauto. eauto.
+  destruct TRANSL as ((_ & MAIN & _) & _).
+  setoid_rewrite MAIN. constructor. auto. auto. constructor.
 Qed.
 
 Lemma transl_final_states:

@@ -380,12 +380,14 @@ Proof.
   econstructor.
   constructor. eexact E1. constructor.
   simpl; constructor.
+  apply Mem.unrecord_push.
   simpl; auto.
   auto. traceEq.
 - eapply star_step; eauto.
   econstructor.
   constructor.
   simpl; constructor.
+  apply Mem.unrecord_push.
   simpl; auto.
   auto. traceEq.
 Qed.
@@ -546,9 +548,9 @@ Proof.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   constructor; auto.
 - (* return *)
-  inv H3. inv H1.
+  inv H4. inv H2.
   econstructor; split.
-  eapply plus_left. econstructor. apply eval_add_delta_ranges. traceEq.
+  eapply plus_left. econstructor. eauto. apply eval_add_delta_ranges. traceEq.
   constructor; auto.
 Qed.
 
@@ -560,11 +562,11 @@ Lemma transf_initial_states:
 Proof.
   intros. inversion H.
   exploit function_ptr_translated; eauto. intros [tf [A B]].
-  exists (Callstate nil tf (Locmap.init Vundef) m0 (fn_stack_requirements (prog_main tprog))); split.
+  exists (Callstate nil tf (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main tprog))); split.
   econstructor; eauto. eapply (Genv.init_mem_transf_partial TRANSF); eauto.
   rewrite (match_program_main TRANSF), symbols_preserved. auto.
   rewrite <- H3. apply sig_preserved. auto.
-  inv TRANSF.  inv H6. rewrite H4;  constructor. constructor. auto.
+  inv TRANSF.  destruct H8 as (MAIN & PUBLIC). rewrite MAIN. constructor. constructor. auto.
 Qed.
 
 Lemma transf_final_states:

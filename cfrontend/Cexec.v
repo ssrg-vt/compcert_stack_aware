@@ -504,7 +504,7 @@ Definition do_ef_free
       do vsz <- Mem.load Mptr m b (Ptrofs.unsigned lo - size_chunk Mptr);
       do sz <- do_alloc_size vsz;
       check (zlt 0 (Ptrofs.unsigned sz));
-      check (dec_not (in_frames_dec (Mem.stack_adt m) b));
+      check (dec_not (in_stack_dec (Mem.stack_adt m) b));
       do m' <- Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz);
       Some(w, E0, Vundef, m')
   | _ => None
@@ -922,7 +922,7 @@ Fixpoint step_expr (k: kind) (a: expr) (m: mem): reducts expr :=
               do fd <- Genv.find_funct ge vf;
               do vargs <- sem_cast_arguments vtl tyargs m;
               check type_eq (type_of_fundef fd) (Tfunction tyargs tyres cconv);
-              topred (Callred "red_call" fd vargs ty m i)
+              topred (Callred "red_call" fd vargs ty (Mem.push_new_stage m) i)
           | _ => stuck
           end
       | _, _ =>
@@ -934,9 +934,11 @@ Fixpoint step_expr (k: kind) (a: expr) (m: mem): reducts expr :=
       | Some vtl =>
         do vargs <- sem_cast_arguments vtl tyargs m;
           if builtin_is_enabled ef then
-            match do_external ef w vargs m with
+            match do_external ef w vargs (Mem.push_new_stage m) with
             | None => stuck
-            | Some(w',t,v,m') => topred (Rred "red_builtin" (Eval v ty) m' t)
+            | Some(w',t,v,m') =>
+              do m'' <- Mem.unrecord_stack_block m' ;
+                topred (Rred "red_builtin" (Eval v ty) m'' t)
             end
           else stuck
       | _ =>
@@ -1047,9 +1049,10 @@ Definition invert_expr_prop (a: expr) (m: mem) : Prop :=
   | Ebuiltin ef tyargs rargs ty =>
     exprlist_all_values rargs ->
     builtin_enabled ef /\
-    exists vargs t vres m' w',
+    exists vargs t vres m' m'' w',
       cast_arguments m rargs tyargs vargs
-      /\ external_call ef ge vargs m t vres m'
+      /\ external_call ef ge vargs (Mem.push_new_stage m) t vres m'
+      /\ Mem.unrecord_stack_block m' = Some m''
       /\ possible_trace w t w'
   | _ => True
   end.
@@ -1080,7 +1083,7 @@ Proof.
   exists t; exists v1; exists w'; auto.
   exists t; exists v1; exists w'; auto.
   exists v; auto.
-  intros; split. apply BUILTIN_ENABLED. exists vargs; exists t; exists vres; exists m'; exists w'; auto.
+  intros; split. apply BUILTIN_ENABLED. exists vargs; exists t; exists vres; exists m', m''; exists w'; auto.
 Qed.
 
 Lemma callred_invert:
@@ -1181,7 +1184,7 @@ Definition reduction_ok (k: kind) (a: expr) (m: mem) (rd: reduction) : Prop :=
   match k, rd with
   | LV, Lred _ l' m' => lred ge e a m l' m'
   | RV, Rred _ r' m' t => rred ge a m t r' m' /\ exists w', possible_trace w t w'
-  | RV, Callred _ fd args tyres m' i => callred ge a m fd args tyres i /\ m' = m
+  | RV, Callred _ fd args tyres m' i => callred ge a m fd args tyres i /\ m' = Mem.push_new_stage m
   | LV, Stuckred => ~imm_safe_t k a m
   | RV, Stuckred => ~imm_safe_t k a m
   | _, _ => False
@@ -1562,12 +1565,15 @@ Proof with (try (apply not_invert_ok; simpl; intro; myinv; intuition congruence;
   exploit is_val_list_all_values; eauto. intros ALLVAL.
   (* top *)
   destruct (sem_cast_arguments vtl tyargs m) as [vargs|] eqn:?...
-  destruct (do_external ef w vargs m) as [[[[? ?] v] m'] | ] eqn:?...
+  destruct (do_external ef w vargs (Mem.push_new_stage m)) as [[[[? ?] v] m'] | ] eqn:?...
   exploit do_ef_external_sound; eauto. intros [EC PT].
   destruct (builtin_is_enabled ef) eqn:?...
+  destruct (Mem.unrecord_stack_block m') eqn:?...
   apply topred_ok; auto. red. split; auto. eapply red_builtin; eauto.
   eapply sem_cast_arguments_sound; eauto.
   exists w0; auto.
+  edestruct (Mem.unrecord_stack_block_succeeds) as (m2' & USB & EQSTK); [|rewrite USB in Heqo2; congruence].
+  repeat rewrite_stack_blocks. reflexivity.
   destruct (builtin_is_enabled ef) eqn:?...
   apply not_invert_ok; simpl; intros; myinv. specialize (H ALLVAL). myinv.
   assert (x = vargs).
@@ -1672,20 +1678,21 @@ Proof.
   exploit sem_cast_arguments_complete; eauto. intros [vtl [A B]].
   destruct (builtin_is_enabled ef); try contradiction.
   exploit do_ef_external_complete; eauto. intros C.
-  rewrite A. rewrite B. rewrite C. econstructor; eauto.
+  rewrite A. rewrite B. rewrite C, H1. 
+  econstructor; eauto.
 Qed.
 
 Lemma callred_topred:
   forall a fd args ty i m,
   callred ge a m fd args ty i ->
-  exists rule, step_expr RV a m = topred (Callred rule fd args ty m i).
+  exists rule, step_expr RV a m = topred (Callred rule fd args ty (Mem.push_new_stage m) i).
 Proof.
   induction 1; simpl.
   rewrite H2. exploit sem_cast_arguments_complete; eauto. intros [vtl [A B]].
   destruct IFI as (bb & oo & IFI & IFI'). subst. simpl in *.
   rewrite A; rewrite H; rewrite B; rewrite H1.
   erewrite Genv.find_invert_symbol; eauto.
-  rewrite dec_eq_true. econstructor; eauto.
+  rewrite dec_eq_true. econstructor; eauto. 
 Qed.
 
 Definition reducts_incl {A B: Type} (C: A -> B) (res1: reducts A) (res2: reducts B) : Prop :=
@@ -1959,6 +1966,238 @@ Proof.
   rewrite H; rewrite IHalloc_variables; auto.
 Qed.
 
+Lemma alloc_variables_perm_1:
+  forall (ge: genv) e1 m1 vars e2 m2,
+    alloc_variables ge e1 m1 vars e2 m2 ->
+    forall b o k p,
+      Mem.perm m1 b o k p ->
+      Mem.perm m2 b o k p.
+Proof.
+  induction 1; simpl; intros b o k p P. auto.
+  eapply IHalloc_variables.
+  eapply Mem.perm_alloc_1; eauto.
+Qed.
+
+
+Lemma alloc_variables_perm_2:
+  forall (ge: genv) e1 m1 vars e2 m2,
+    alloc_variables ge e1 m1 vars e2 m2 ->
+    forall b o k p,
+      Mem.valid_block m1 b ->
+      Mem.perm m2 b o k p ->
+      Mem.perm m1 b o k p.
+Proof.
+  induction 1; simpl; intros b o k p V P. auto.
+  eapply IHalloc_variables in P.
+  eapply Mem.perm_alloc_inv in P; eauto.
+  destr_in P. subst. eapply Mem.fresh_block_alloc in V; eauto. easy.
+  eapply Mem.valid_block_alloc; eauto.
+Qed.
+
+Lemma alloc_variables_not_in_vars:
+  forall ge e1 m1 vars e2 m2,
+    alloc_variables ge e1 m1 vars e2 m2 ->
+    forall id,
+      ~ In id (map fst vars) ->
+      e1 ! id = e2 ! id.
+Proof.
+  induction 1; simpl; intros id0 NIN. auto.
+  destruct (peq id0 id). subst. intuition congruence.
+  erewrite <- IHalloc_variables; auto. rewrite PTree.gso. auto. auto.
+Qed.
+
+Lemma alloc_variables_perm:
+  forall ge e1 m1 vars e2 m2,
+    alloc_variables ge e1 m1 vars e2 m2 ->
+    list_norepet (map fst vars) ->
+    forall id b ty o k p,
+      e1 ! id = None ->
+      e2 ! id = Some (b,ty) ->
+      Mem.perm m2 b o k p ->
+      0 <= o < sizeof ge ty.
+Proof.
+  induction 1; simpl; intros LNR id0 b ty0 o k p E1 E2.
+  congruence.
+  inv LNR.
+  destruct (peq id id0). subst.
+  - erewrite <- alloc_variables_not_in_vars in E2; eauto.
+    rewrite PTree.gss in E2; inv E2.
+    intro P.
+    eapply alloc_variables_perm_2 in P. 2: eauto.
+    eapply Mem.perm_alloc_3; eauto.
+    eapply Mem.valid_new_block; eauto.
+  - eapply IHalloc_variables; eauto. rewrite PTree.gso; auto.
+Qed.
+
+Lemma do_alloc_variables_perms:
+  forall  m1 l e2 m2,
+    alloc_variables ge empty_env m1 l e2 m2 ->
+    list_norepet (map fst l) ->
+    Forall
+      (fun b : block * frame_info =>
+         forall (o : Z) (k : perm_kind) (p : permission),
+           Mem.perm m2 (fst b) o k p -> 0 <= o < frame_size (snd b)) (blocks_with_info ge e2).
+Proof.
+  intros m1 l e2 m2 AV LNR.
+  rewrite ! Forall_forall.
+  intros (b & fi) IN o k p PERM.
+  simpl in *.
+  unfold blocks_with_info, blocks_of_env in IN.
+  rewrite !map_map, in_map_iff in IN.
+  destruct IN as ((id & (bb & ty)) & EQ & IN). inv EQ. simpl.
+  eapply alloc_variables_perm. eauto. auto. apply PTree.gempty.
+  eapply PTree.elements_complete. eauto. eauto.
+Qed.
+
+Lemma list_norepet_map:
+  forall {A B} (f: A -> B) (l: list A) (lnr: list_norepet (map f l)),
+    list_norepet l.
+Proof.
+  induction l; simpl; intros; inv lnr; constructor; eauto. intro NIN; apply H1, in_map; auto.
+Qed.
+
+Lemma do_alloc_variables_norepet:
+  forall
+    v (lnr: list_norepet (map fst v)) e m e' m'
+    (DAV: do_alloc_variables e m v = (e', m'))
+    (REC: forall i1 i2 (diff: i1 <> i2) b1 b2 t1 t2
+              (EQ1: e ! i1 = Some (b1,t1))
+              (EQ2: e ! i2 = Some (b2,t2)),
+          b1 <> b2)
+      (VALID: forall i b t, e ! i = Some (b, t) -> Plt b (Mem.nextblock m))
+      i1 i2 (diff: i1 <> i2) b1 b2 t1 t2
+      (EQ1: e' ! i1 = Some (b1,t1))
+      (EQ2: e' ! i2 = Some (b2,t2)),
+      b1 <> b2.
+Proof.
+  induction v; simpl; intros; eauto.
+  inv DAV; eauto.
+  repeat destr_in DAV.
+  inv lnr. trim IHv. auto.
+  eapply IHv; eauto.
+  {
+    intros i0 i3 diff0 b0 b3 t0 t3.
+    rewrite ! PTree.gsspec.
+    destr. inversion 1; subst.
+    apply Mem.alloc_result in Heqp0. subst.
+    destr. intro EQ3. apply VALID in EQ3. intro; subst. xomega.
+    intro EQ0. 
+    destr. intro EQ3. inv EQ3.
+    apply VALID in EQ0. apply Mem.alloc_result in Heqp0. intro; subst. xomega.
+    intros. eauto.
+  }
+  {
+    intros. exploit Mem.nextblock_alloc. eauto. intro NB; rewrite NB.
+    rewrite PTree.gsspec in H. destr_in H. inv H.
+    exploit Mem.alloc_result. eauto. intro; subst; xomega.
+    eapply VALID in H. xomega.
+  }
+Qed.
+
+Program Definition alloc_variables_record f m sz : option (env * mem) :=
+  check (list_norepet_dec ident_eq (var_names (fn_params f) ++ var_names (fn_vars f)));
+    let '(e,m1) := do_alloc_variables empty_env m (f.(fn_params) ++ f.(fn_vars)) in
+    do m1 <- Mem.record_stack_blocks m1 (Build_frame_adt (blocks_with_info ge e) (Z.max 0 sz) _ _);
+      Some (e,m1).
+Next Obligation.
+  unfold blocks_with_info. unfold blocks_of_env.
+  rewrite ! map_map.
+  apply list_map_norepet.
+  eapply list_norepet_map.
+  apply PTree.elements_keys_norepet.
+  simpl; intros. unfold block_of_binding. repeat destr.
+  subst. repeat destr_in Heqp. repeat destr_in Heqp1. simpl. intro; subst.
+  apply PTree.elements_complete in H0.
+  apply PTree.elements_complete in H1.
+  destruct (peq i i0). subst. apply H2. congruence.
+  exploit do_alloc_variables_norepet. 2: eauto. rewrite map_app. apply H. setoid_rewrite PTree.gempty; congruence.
+  setoid_rewrite PTree.gempty; congruence. apply n. eauto. eauto. auto. auto.
+Qed.
+Next Obligation.
+  apply Z.le_max_l.
+Qed.
+
+Lemma destr_dep_match:
+  forall {A B: Type} (a: option A) (x: B)
+    (T: forall x (pf: Some x = a), B)
+    (MATCH: match a as ano return (ano = a -> option B) with
+            | Some m1 => fun Heq: Some m1 = a => Some (T _ Heq)
+            | None => fun Heq => None
+            end eq_refl = Some x) ,
+  forall P: B -> Prop,
+    (forall m (pf: Some m = a) x, T m pf = x -> P x) ->
+    P x.
+Proof.
+  intros. destr_in MATCH. subst. inv MATCH. eapply H. eauto.
+Qed.
+
+Lemma constr_let:
+  forall {A1 A2 B: Type} (a: A1 * A2)
+    m b (EQ: a = (m,b))
+    (T: forall m b (pf: (m,b) = a), option B)
+    X
+    (EQ: T _ _ (eq_sym EQ) = Some X),
+    (let (m0,b0) as ano return (ano = a -> option B) := a in
+     fun Heq : (m0,b0) = a => T m0 b0 Heq) eq_refl = Some X.
+Proof.
+  intros. subst. simpl in *.  auto. 
+Qed.
+
+Lemma constr_match:
+  forall {A B: Type} (a: option A)
+    x (EQ: a = Some x)
+    (T: forall x (pf: Some x = a), option B)
+    X
+    (EQ: T _ (eq_sym EQ) = Some X),
+    (match a as ano return (ano = a -> option B) with
+       Some m1 =>
+       fun Heq : Some m1 = a => T m1 Heq
+     | None => fun _ => None
+     end) eq_refl = Some X.
+Proof.
+  intros. subst. simpl in *.  auto. 
+Qed.
+
+
+Lemma destr_dep_let:
+  forall {A1 A2 B: Type} (a: A1*A2) (bres: B) (T: forall m b (p: (m,b) = a), option B),
+    (let (m,b) as ano return (ano = a -> option B) := a in
+     fun Heq : (m,b) = a => T _ _ Heq) eq_refl = Some bres ->
+    forall (P: B -> Prop),
+      (forall m b (pf: (m, b) = a) x, T _ _ pf = Some x -> P x) ->
+      P bres.
+Proof.
+  intros. destruct a. apply H0 in H; auto.
+Qed.
+
+Lemma alloc_variables_record_spec:
+  forall f m sz e m',
+    alloc_variables_record f m sz = Some (e,m') ->
+    list_norepet (var_names (fn_params f) ++ var_names (fn_vars f)) /\
+    exists m1 fa,
+      alloc_variables ge empty_env m (f.(fn_params) ++ f.(fn_vars)) e m1 /\
+      frame_adt_blocks fa = blocks_with_info ge e /\
+      frame_adt_size fa = Z.max 0 sz /\
+      Mem.record_stack_blocks m1 fa = Some m'.
+Proof.
+  unfold alloc_variables_record.
+  intros f m sz e m' AV.
+  destr_in AV.
+  split; auto. 
+  change ((fun em =>
+            exists (m1 : mem) (fa : frame_adt),
+              alloc_variables ge empty_env m (fn_params f ++ fn_vars f) (fst em) m1 /\
+              frame_adt_blocks fa = blocks_with_info ge (fst em) /\
+              frame_adt_size fa = Z.max 0 sz /\ Mem.record_stack_blocks m1 fa = Some (snd em)) (e,m')).
+  eapply (destr_dep_let (B:=env*mem) (do_alloc_variables empty_env m (fn_params f ++ fn_vars f))).
+  apply AV. clear AV.
+  intros.
+  simpl in H. destr_in H. inv H.
+  exploit do_alloc_variables_sound. rewrite <- pf. simpl.
+  intro AV. rewrite <- Heqo.
+  eexists b, _; repeat split; eauto.
+Qed.
+
 Function sem_bind_parameters (w: world) (e: env) (m: mem) (l: list (ident * type)) (lv: list val)
                           {struct l} : option mem :=
   match l, lv  with
@@ -2040,7 +2279,6 @@ Definition do_step (w: world) (s: state) : list transition :=
         | Kreturn k =>
             do v' <- sem_cast v ty f.(fn_return) m;
               do m' <- Mem.free_list m (blocks_of_env ge e);
-              do m' <- Mem.unrecord_stack_block m';
             ret "step_return_2" (Returnstate v' (call_cont k) m')
         | Kswitch1 sl k =>
             do n <- sem_switch_arg v ty;
@@ -2093,13 +2331,11 @@ Definition do_step (w: world) (s: state) : list transition :=
 
   | State f (Sreturn None) k e m =>
     do m' <- Mem.free_list m (blocks_of_env ge e);
-      do m' <- Mem.unrecord_stack_block m';
       ret "step_return_0" (Returnstate Vundef (call_cont k) m')
   | State f (Sreturn (Some x)) k e m =>
       ret "step_return_1" (ExprState f x (Kreturn k) e m)
   | State f Sskip ((Kstop | Kcall _ _ _ _ _) as k) e m =>
     do m' <- Mem.free_list m (blocks_of_env ge e);
-      do m' <- Mem.unrecord_stack_block m';
       ret "step_skip_call" (Returnstate Vundef k m')
 
   | State f (Sswitch x sl) k e m =>
@@ -2118,11 +2354,12 @@ Definition do_step (w: world) (s: state) : list transition :=
       end
 
   | Callstate (Internal f) vargs k m sz =>
-    check (list_norepet_dec ident_eq (var_names (fn_params f) ++ var_names (fn_vars f)));
-      let (e,m1) := do_alloc_variables empty_env m (f.(fn_params) ++ f.(fn_vars)) in
-      do m1 <- Mem.record_stack_blocks_none m1 (map fst (map fst (blocks_of_env ge e))) sz;
-        do m2 <- sem_bind_parameters w e m1 f.(fn_params) vargs;
+    match alloc_variables_record f m (Z.max 0 sz) with
+      Some (e,m1) =>
+      do m2 <- sem_bind_parameters w e m1 f.(fn_params) vargs;
         ret "step_internal_function" (State f f.(fn_body) k e m2)
+    | None => nil
+    end
   | Callstate (External ef _ _ _) vargs k m _ =>
       match do_external ef w vargs m with
       | None => nil
@@ -2130,6 +2367,7 @@ Definition do_step (w: world) (s: state) : list transition :=
       end
 
   | Returnstate v (Kcall f e C ty k) m =>
+    do m <- Mem.unrecord_stack_block m ;
       ret "step_returnstate" (ExprState f (C (Eval v ty)) k e m)
 
   | _ => nil
@@ -2187,16 +2425,18 @@ Proof with try (left; right; econstructor; eauto; fail).
   (* rred *)
   destruct RD. left; left; apply step_rred; auto.
   (* callred *)
-  destruct RD; subst m'. left; left; apply step_call; eauto.
+  destruct RD; subst m'. left; left; eapply step_call; eauto.
   (* stuck rred *)
   exploit not_imm_safe_t; eauto. intros [R | R]; eauto.
 (* callstate *)
   destruct fd; myinv.
   (* internal *)
-  destruct (do_alloc_variables empty_env m (fn_params f ++ fn_vars f)) as [e m1] eqn:?.
-  myinv. left; right; eapply step_internal_function with m1 m0. auto.
-  change e with (fst (e,m1)). change m1 with (snd (e,m1)) at 2. rewrite <- Heqp.
-  apply do_alloc_variables_sound. eapply Mem.record_stack_blocks_none_correct; eauto.
+  destruct p.
+  (* destruct (do_alloc_variables empty_env m (fn_params f ++ fn_vars f)) as [e m1] eqn:?. *)
+  myinv. left; right.
+  exploit alloc_variables_record_spec; eauto.
+  intros (lnr & m2 & fa & AV & fablocks & fasize & RSB).
+  eapply step_internal_function. auto. eauto. eauto. rewrite fasize. rewrite Z.max_r. auto. apply Z.le_max_l. eauto. 
   eapply sem_bind_parameters_sound; eauto.
   (* external *)
   destruct p as [[[w' tr] v] m']. myinv. left; right; constructor.
@@ -2218,6 +2458,35 @@ Proof.
   destruct (H0 a0 _ _ _ H9) as [[A B] | A]. subst. inv H8; auto. auto.
   destruct (H0 a0 _ _ _ H9) as [[A B] | A]. subst. inv H8; auto. auto.
   destruct (H0 a0 _ _ _ H8) as [[A B] | A]. subst. destruct a0; auto. elim H9. constructor. auto.
+Qed.
+
+Lemma frame_adt_eq:
+  forall fa1 fa2,
+    frame_adt_blocks fa1 = frame_adt_blocks fa2 ->
+    frame_adt_size fa1 = frame_adt_size fa2 ->
+    fa1 = fa2.
+Proof.
+  destruct fa1, fa2. simpl. intros A B.
+  subst. f_equal; apply proof_irr.
+Qed.
+
+Lemma alloc_variables_record_complete:
+  forall f m e m1 fa m1',
+    list_norepet (var_names (fn_params f) ++ var_names (fn_vars f)) ->
+    alloc_variables ge empty_env m (fn_params f ++ fn_vars f) e m1 ->
+    frame_adt_blocks fa = blocks_with_info ge e ->
+    Mem.record_stack_blocks m1 fa = Some m1' ->
+    alloc_variables_record f m (frame_adt_size fa) = Some (e,m1').
+Proof.
+  intros.
+  unfold alloc_variables_record.
+  destr.
+  Focus 2. exfalso; apply n; auto.
+  eapply constr_let.
+  erewrite (frame_adt_eq fa) in H2.
+  rewrite H2. eauto. rewrite H1; reflexivity. simpl. rewrite Z.max_r; auto. destruct fa; auto.
+  Unshelve.
+  eapply do_alloc_variables_complete. eauto.
 Qed.
 
 Theorem do_step_complete:
@@ -2252,8 +2521,8 @@ Proof with (unfold ret; eauto with coqlib).
   unfold do_step; rewrite NOTVAL.
   exploit callred_topred; eauto. instantiate (1 := w). instantiate (1 := e).
   intros (rule & STEP). exists rule.
-  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) m (fn_stack_requirements i)))
-    with (expr_final_state f k e (C, Callred rule fd vargs ty m i)).
+  change (TR rule E0 (Callstate fd vargs (Kcall f e C ty k) (Mem.push_new_stage m) (fn_stack_requirements i)))
+    with (expr_final_state f k e (C, Callred rule fd vargs ty (Mem.push_new_stage m) i)).
   apply in_map.
   generalize (step_expr_context e w _ _ _ H1 a m). unfold reducts_incl.
   intro. replace C with (fun x => C x). apply H2.
@@ -2280,18 +2549,19 @@ Proof with (unfold ret; eauto with coqlib).
   rewrite H0...
   rewrite H0...
   destruct H0; subst x...
+  rewrite H0...
   rewrite H0... rewrite H1...
-  rewrite H0; rewrite H1, H2...
-  rewrite H1, H2. red in H0. destruct k; try contradiction...
+  rewrite H1. red in H0. destruct k; try contradiction...
   rewrite H0...
   destruct H0; subst x...
   rewrite H0...
 
   (* Call step *)
-  rewrite pred_dec_true; auto. rewrite (do_alloc_variables_complete _ _ _ _ _ H1).
-  rewrite <- Mem.record_stack_blocks_none_correct in H2. rewrite H2.
-  rewrite (sem_bind_parameters_complete _ _ _ _ _ _ H3)...
+  rewrite <- H3. erewrite alloc_variables_record_complete; eauto.
+  rewrite (sem_bind_parameters_complete _ _ _ _ _ _ H5)...
   exploit do_ef_external_complete; eauto. intro EQ; rewrite EQ. auto with coqlib.
+
+  rewrite H0...
 Qed.
 
 End EXEC.
@@ -2306,7 +2576,7 @@ Definition do_initial_state (p: program): option (genv * state) :=
   do b <- Genv.find_symbol ge p.(prog_main);
   do f <- Genv.find_funct_ptr ge b;
   check (type_eq (type_of_fundef f) (Tfunction Tnil type_int32s cc_default));
-  Some (ge, Callstate f nil Kstop m0 (fn_stack_requirements (prog_main p))).
+  Some (ge, Callstate f nil Kstop (Mem.push_new_stage m0) (fn_stack_requirements (prog_main p))).
 
 Definition at_final_state (S: state): option int :=
   match S with

@@ -231,22 +231,22 @@ Inductive step: state -> trace -> state -> Prop :=
       find_function ros rs = Some fd ->
       funsig fd = sig ->
       step (Block s f sp (Lcall sig ros :: bb) rs m)
-        E0 (Callstate (Stackframe f sp rs bb :: s) fd rs m (fn_stack_requirements id))
-  | exec_Ltailcall: forall s f sp sig ros bb rs m fd rs' m' m'' id (IFI: ros_is_function ros rs' id),
+        E0 (Callstate (Stackframe f sp rs bb :: s) fd rs (Mem.push_new_stage m) (fn_stack_requirements id))
+  | exec_Ltailcall: forall s f sp sig ros bb rs m fd rs' m' id (IFI: ros_is_function ros rs' id),
       rs' = return_regs (parent_locset s) rs ->
       find_function ros rs' = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stacksize) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Ltailcall sig ros :: bb) rs m)
-        E0 (Callstate s fd rs' m'' (fn_stack_requirements id))
-  | exec_Lbuiltin: forall s f sp ef args res bb rs m vargs t vres rs' m',
+        E0 (Callstate s fd rs' m' (fn_stack_requirements id))
+  | exec_Lbuiltin: forall s f sp ef args res bb rs m vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
-      external_call ef ge vargs m t vres m' ->
+      external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
+      Mem.unrecord_stack_block m' = Some m'' ->
       rs' = Locmap.setres res vres (undef_regs (destroyed_by_builtin ef) rs) ->
       forall BUILTIN_ENABLED : builtin_enabled ef,
         step (Block s f sp (Lbuiltin ef args res :: bb) rs m)
-             t (Block s f sp bb rs' m')
+             t (Block s f sp bb rs' m'')
   | exec_Lbranch: forall s f sp pc bb rs m,
       step (Block s f sp (Lbranch pc :: bb) rs m)
         E0 (State s f sp pc rs m)
@@ -262,14 +262,13 @@ Inductive step: state -> trace -> state -> Prop :=
       rs' = undef_regs (destroyed_by_jumptable) rs ->
       step (Block s f sp (Ljumptable arg tbl :: bb) rs m)
         E0 (State s f sp pc rs' m)
-  | exec_Lreturn: forall s f sp bb rs m m' m'',
+  | exec_Lreturn: forall s f sp bb rs m m',
       Mem.free m sp 0 f.(fn_stacksize) = Some m' ->
-      Mem.unrecord_stack_block m' = Some m'' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Lreturn :: bb) rs m)
-        E0 (Returnstate s (return_regs (parent_locset s) rs) m'')
+        E0 (Returnstate s (return_regs (parent_locset s) rs) m')
   | exec_function_internal: forall s f rs m m' m'' sp rs' sz,
       Mem.alloc m 0 f.(fn_stacksize) = (m', sp) ->
-      Mem.record_stack_blocks m' (sp::nil, None, sz) m'' ->
+      Mem.record_stack_blocks m' (make_singleton_frame_adt sp (fn_stacksize f) sz) = Some m'' ->
       rs' = undef_regs destroyed_at_function_entry (call_regs rs) ->
       step (Callstate s (Internal f) rs m sz)
         E0 (State s f (Vptr sp Ptrofs.zero) f.(fn_entrypoint) rs' m'')
@@ -279,9 +278,10 @@ Inductive step: state -> trace -> state -> Prop :=
       rs' = Locmap.setpair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
       step (Callstate s (External ef) rs m sz)
          t (Returnstate s rs' m')
-  | exec_return: forall f sp rs1 bb s rs m,
+  | exec_return: forall f sp rs1 bb s rs m m',
+      Mem.unrecord_stack_block m = Some m' ->
       step (Returnstate (Stackframe f sp rs1 bb :: s) rs m)
-        E0 (Block s f sp bb rs m).
+        E0 (Block s f sp bb rs m').
 
 End RELSEM.
 
@@ -291,13 +291,15 @@ End RELSEM.
   by the calling conventions. *)
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall b f m0,
+  | initial_state_intro: forall b f m0 m1 b1 m2,
       let ge := Genv.globalenv p in
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some b ->
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
-      initial_state p (Callstate nil f (Locmap.init Vundef) m0 (fn_stack_requirements (prog_main p))).
+      Mem.alloc m0 0 0 = (m1,b1) ->
+      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      initial_state p (Callstate nil f (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m retcode,
@@ -324,3 +326,71 @@ Fixpoint successors_block (b: bblock) : list node :=
   | Lreturn :: _ => nil
   | instr :: b' => successors_block b'
   end.
+
+(** Invariant of RTL programs  *)
+
+Definition block_of_stackframe s: option (block * Z) :=
+  match s with
+    Stackframe f (Vptr sp _) _ _ => Some (sp, fn_stacksize f)
+  | _ => None
+  end.
+
+Section STACKINV.
+  Context `{extcallops: ExternalCalls}.
+
+  Inductive stack_inv : state -> Prop :=
+  | stack_inv_regular: forall s f sp pc rs m o
+                         (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (State s f (Vptr sp o) pc rs m)
+  | stack_inv_block: forall s f sp pc rs m o
+                       (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+      stack_inv (Block s f (Vptr sp o) pc rs m)
+  | stack_inv_call: forall s fd args m sz
+                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
+                      (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
+      stack_inv (Callstate s fd args m sz)
+  | stack_inv_return: forall s res m 
+                        (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
+      stack_inv (Returnstate s res m).
+
+  Variable fn_stack_requirements: ident -> Z.
+  Variable p: program.
+  Let ge := Genv.globalenv p.
+  Variable init_ls: locset.
+
+  Lemma stack_inv_inv:
+    forall S1 t S2,
+      step fn_stack_requirements init_ls ge S1 t S2 ->
+      stack_inv S1 -> stack_inv S2.
+  Proof.
+    destruct 1; simpl; intros SI;
+      inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
+        try solve [inv MSA1; eauto].
+    - constructor. red. easy.
+    - erewrite <- Mem.free_stack_blocks by eauto.
+      eapply Mem.noperm_top.
+      rewrite_stack_blocks. inv MSA1.
+      intros b IFR o k p0 P.
+      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+      eapply Mem.perm_free_2 in P; eauto.
+      exploit Mem.agree_perms_mem.
+      rewrite <- H. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+      eapply Mem.perm_free_3 in P; eauto.
+      rewrite SIZE; auto.
+    - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
+      rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
+    - inv MSA1. repeat destr_in H1. econstructor.
+      rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
+  Qed.
+
+  Lemma stack_inv_initial:
+    forall S
+      (INIT: initial_state fn_stack_requirements p S),
+      stack_inv S.
+  Proof.
+    intros; inv INIT; econstructor; rewrite_stack_blocks.
+    constructor; red; easy.
+    constructor.
+  Qed.
+
+End STACKINV.

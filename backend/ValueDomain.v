@@ -3669,7 +3669,7 @@ Qed.
 
 Lemma romatch_record:
   forall m m' fi rm,
-  Mem.record_stack_blocks m fi m' ->
+  Mem.record_stack_blocks m fi = Some m' ->
   romatch m rm ->
   romatch m' rm.
 Proof.
@@ -3683,6 +3683,23 @@ Proof.
   rewrite Mem.loadbytes_empty in H2 by omega. inv H2.
   rewrite Mem.loadbytes_empty; auto. omega.
   intros. eapply Mem.record_stack_block_perm; eauto.
+Qed.
+
+Lemma romatch_push:
+  forall m rm,
+  romatch m rm ->
+  romatch (Mem.push_new_stage m) rm.
+Proof.
+  intros. apply romatch_ext with m; auto.
+  intros.   destruct (zlt 0 n).
+  erewrite <- Mem.loadbytes_unchanged_on_1 with (P:=fun _ _ => True). eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on; eauto.
+  red. rewrite <- Mem.push_new_stage_nextblock.
+  eapply Mem.loadbytes_range_perm in H1.
+  specialize (H1 ofs). eapply Mem.perm_valid_block. apply H1. omega. auto.
+  rewrite Mem.loadbytes_empty in H1 by omega. inv H1.
+  rewrite Mem.loadbytes_empty; auto. omega.
+  intros. eapply Mem.push_new_stage_perm; eauto.
 Qed.
 
 Lemma romatch_alloc:
@@ -4107,7 +4124,7 @@ Qed.
 
 Lemma mmatch_record:
   forall m m' fi rm,
-  Mem.record_stack_blocks m fi m' ->
+  Mem.record_stack_blocks m fi = Some m' ->
   mmatch m rm ->
   mmatch m' rm.
 Proof.
@@ -4121,6 +4138,23 @@ Proof.
   rewrite Mem.loadbytes_empty in H3 by omega. inv H3.
   rewrite Mem.loadbytes_empty; auto. omega.
   rewrite (Mem.record_stack_block_nextblock _ _ _ H); xomega.
+Qed.
+
+Lemma mmatch_push:
+  forall m rm,
+  mmatch m rm ->
+  mmatch (Mem.push_new_stage m) rm.
+Proof.
+  intros. apply mmatch_ext with m; auto.
+  intros.   destruct (zlt 0 n).
+  erewrite <- Mem.loadbytes_unchanged_on_1 with (P:=fun _ _ => True). eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on; eauto.
+  red. erewrite <- Mem.push_new_stage_nextblock; eauto.
+  eapply Mem.loadbytes_range_perm in H2.
+  specialize (H2 ofs). eapply Mem.perm_valid_block. apply H2. omega. auto.
+  rewrite Mem.loadbytes_empty in H2 by omega. inv H2.
+  rewrite Mem.loadbytes_empty; auto. omega.
+  rewrite Mem.push_new_stage_nextblock; xomega.
 Qed.
 
 Lemma mmatch_top':

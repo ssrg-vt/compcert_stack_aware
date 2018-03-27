@@ -1434,16 +1434,22 @@ Qed.
 
 (* PW: Custom tactics *)
 
+Ltac clean_destr :=
+  match goal with
+  | H: _ = left _ |- _ => clear H
+  | H: _ = right _ |- _ => clear H
+  end.
+
 Ltac destr :=
   match goal with
     |- context [match ?a with _ => _ end] => destruct a eqn:?; try intuition congruence
-  end.
+  end; repeat clean_destr.
 
 Ltac destr_in H :=
   match type of H with
     context [match ?a with _ => _ end] => destruct a eqn:?; try intuition congruence
   | _ => inv H
-  end.
+  end; repeat clean_destr.
 
 Ltac autospecialize H :=
   match type of H with
@@ -1485,3 +1491,30 @@ Proof.
   rewrite andb_true_iff in Heqb. destruct Heqb. repeat destr. inv H0. inv H.
   repeat destr. simpl in Heqb. congruence.
 Qed.
+
+Lemma length_tl:
+  forall {A} (l1 l2: list A),
+    length l1 = length l2 ->
+    length (tl l1) = length (tl l2).
+Proof.
+  destruct l1, l2; simpl in * ; try congruence.
+Qed.
+
+(* A richer version of the classic [Forall_impl] which includes the hypothesis
+  that the element is in the list. *)
+Lemma Forall_impl:
+  forall {A} (P Q: A -> Prop) l (IMPL: forall a, In a l -> P a -> Q a)
+    (FP: Forall P l), Forall Q l.
+Proof.
+  induction l; simpl; intros; inv FP; constructor; auto.
+Qed.
+
+Lemma list_forall2_iff:
+  forall {A B P Q}
+    (EQ: forall a b, P a b <-> Q a b)
+    (la: list A) (lb: list B),
+    list_forall2 P la lb <-> list_forall2 Q la lb.
+Proof.
+  intros; split; induction 1; econstructor; eauto; apply EQ; auto.
+Qed.
+  
