@@ -4,7 +4,6 @@ Require Import Asm.
 Require Import Integers.
 Require Import List.
 Require Import ZArith.
-(* Require Memimpl. *)
 Require Import Memtype.
 Require Import Memory.
 Require Import Archi.
@@ -15,23 +14,17 @@ Require Import Events.
 Require Import Values.
 Require Import Conventions1.
 Require Import AsmFacts.
+Require Import RawAsm.
 
 Section WITHMEMORYMODEL.
   
   Context `{memory_model: Mem.MemoryModel }.
   Existing Instance inject_perm_upto_writable.
 
-  Definition frame_info_mono: frame_info :=
-    {|
-      frame_size := Mem.stack_limit;
-      frame_perm := fun o => Public;
-      frame_size_pos := proj1 Mem.stack_limit_range;
-    |}.
-
-  Existing Instance mem_accessors_default.
-
   Context `{external_calls_ops : !ExternalCallsOps mem }.
   Context `{!EnableBuiltins mem}.
+
+  Existing Instance mem_accessors_default.
   Existing Instance symbols_inject_instance.
   Context `{external_calls_props : !ExternalCallsProps mem
                                     (memory_model_ops := memory_model_ops)
@@ -39,20 +32,8 @@ Section WITHMEMORYMODEL.
 
   Variable prog: Asm.program.
   Let ge := Genv.globalenv prog.
-  Definition bstack: block := Genv.genv_next ge.
+  Definition bstack := RawAsm.bstack ge.
   Section PRESERVATION.
-
-  Definition current_offset (v: val) :=
-    match v with
-      Vptr stk ofs => Ptrofs.unsigned ofs
-    | _ => Mem.stack_limit
-    end.
-
-  Definition offset_after_alloc (p: Z) fi :=
-    (p - align (frame_size fi) 8).
-
-  Definition offset_after_free (p: Z) sz :=
-    (p + align (Z.max 0 sz) 8).
 
   Variable binit_sp: block.
   Definition init_sp: val := Vptr binit_sp Ptrofs.zero.
@@ -79,42 +60,8 @@ Section WITHMEMORYMODEL.
     inversion 1; auto.
   Qed.
 
-  Definition exec_instr {F V} (ge: Genv.t F V) f i' rs (m: mem) :=
-    match i' with
-    | (i,isz) =>
-    match i with
-    | Pallocframe fi ofs_ra =>
-      let curofs := current_offset (rs RSP) in
-      let sp := Vptr bstack (Ptrofs.repr (offset_after_alloc curofs fi)) in
-        match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
-        | None => Stuck
-        | Some m2 =>
-          Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) (Ptrofs.repr (si_size isz))) m2
-        end
-    | Pfreeframe sz ofs_ra =>
-      match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
-      | None => Stuck
-      | Some ra =>
-        let curofs := current_offset (rs RSP) in
-        let sp := Vptr bstack (Ptrofs.repr (offset_after_free curofs sz)) in
-        Next (nextinstr (rs#RSP <- sp #RA <- ra) (Ptrofs.repr (si_size isz))) m
-      end
-    | Pload_parent_pointer rd z =>
-      let curofs := current_offset (rs RSP) in
-      let sp := Vptr bstack (Ptrofs.repr (offset_after_free curofs z)) in
-      Next (nextinstr (rs#rd <- sp) (Ptrofs.repr (si_size isz))) m
-    | Pcall_s id sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
-    | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (rs r)) m
-    | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
-    | _ => Asm.exec_instr Vnullptr ge f i' rs m
-    end
-    end.
-
   Definition is_unchanged (i:instr_with_info) :=
-    match i with
-    | (i,_) =>
+    let '(i,_) := i in
     match i with
       Pallocframe _ _
     | Pfreeframe _ _
@@ -123,8 +70,6 @@ Section WITHMEMORYMODEL.
     | Pcall_r _ _
     | Pret => false
     | _ => true
-(* >>>>>>> origin/newstackadt2 *)
-    end
     end.
 
   Lemma is_unchanged_exec:
@@ -134,40 +79,6 @@ Section WITHMEMORYMODEL.
   Proof.
     destruct i. destruct i; simpl; intros; try reflexivity; try congruence.
   Qed.
-  
-  Inductive step (ge: Genv.t Asm.fundef unit) : state -> trace -> state -> Prop :=
-  | exec_step_internal:
-      forall b ofs f i rs m rs' m',
-        rs PC = Vptr b ofs ->
-        Genv.find_funct_ptr ge b = Some (Internal f) ->
-        find_instr (Ptrofs.unsigned ofs) (fn_code f) = Some i ->
-        exec_instr ge f i rs m = Next rs' m' ->
-        step ge (State rs m) E0 (State rs' m')
-  | exec_step_builtin:
-      forall b ofs f ef args res rs m vargs t vres rs' m' sz,
-        rs PC = Vptr b ofs ->
-        Genv.find_funct_ptr ge b = Some (Internal f) ->
-        find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res,sz) ->
-        eval_builtin_args ge rs (rs RSP) m args vargs ->
-        external_call ef ge vargs m t vres m' ->
-        forall BUILTIN_ENABLED: builtin_enabled ef,
-          rs' = nextinstr_nf
-                  (set_res res vres
-                           (undef_regs (map preg_of (destroyed_by_builtin ef)) rs))
-                  (Ptrofs.repr (si_size sz)) ->
-          step ge (State rs m) t (State rs' m')
-  | exec_step_external:
-      forall b ef args res rs m t rs' m',
-        rs PC = Vptr b Ptrofs.zero ->
-        Genv.find_funct_ptr ge b = Some (External ef) ->
-        extcall_arguments rs m (ef_sig ef) args ->
-        forall (SP_TYPE: Val.has_type (rs RSP) Tptr)
-          (RA_TYPE: Val.has_type (rs RA) Tptr)
-          (SP_NOT_VUNDEF: rs RSP <> Vundef)
-          (RA_NOT_VUNDEF: rs RA <> Vundef), 
-          external_call ef ge args m t res m' ->
-          rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
-          step ge (State rs m) t (State rs' m').
  
   Definition no_inject_below j m thr:=
     forall b delta o k p,
@@ -223,17 +134,6 @@ Section WITHMEMORYMODEL.
         j b' = Some (bstack, delta') ->
         Mem.perm m b' o k p ->
         ~ ( delta + frame_size fi <= o + delta' < delta + align (frame_size fi) 8).
-
-  (* Fixpoint agree_sp_source rs (s: stack_adt) := *)
-  (*   match s with *)
-  (*     nil => rs # RSP = init_sp *)
-  (*   | (fr::_)::r => *)
-  (*     match frame_adt_blocks fr with *)
-  (*     | (b,fi)::nil => rs # RSP = Vptr b Ptrofs.zero *)
-  (*     | _ => False *)
-  (*     end *)
-  (*   | nil::r => agree_sp_source rs r *)
-  (*   end. *)
   
   Inductive match_states: meminj -> Z -> state -> state -> Prop :=
   | match_states_intro:
@@ -243,7 +143,6 @@ Section WITHMEMORYMODEL.
         (RINJ: forall r, Val.inject j (rs # r) (rs' # r))
         (VB: Mem.valid_block m' bstack)
         (AGSP: agree_sp m rs')
-        (* (AGSP1: agree_sp_source rs (Mem.stack_adt m)) *)
         (SPAL: sp_aligned rs')
         (PBS: perm_bstack m')
         (PBSL: perm_bstack_stack_limit m')
@@ -277,17 +176,6 @@ Section WITHMEMORYMODEL.
     induction 2; econstructor; eauto.
   Qed.
 
-  Definition is_ptr v :=
-    match v with
-      Vptr _ _ => True
-    | _ => False
-    end.
-
-  Lemma is_ptr_dec v: {is_ptr v} + {~ is_ptr v}.
-  Proof.
-    destruct v; simpl; auto.
-  Qed.
-
   Lemma perm_stack_inv:
     forall j (P P': perm_type) 
       l (IS: inject_perm_stack j P l)
@@ -313,29 +201,6 @@ Section WITHMEMORYMODEL.
         /\ Mem.inject j g m1' m2'
         /\ (forall r, Val.inject j (rs1' # r) (rs2' # r)).
   (* should be proved already somewhere *)
-
-  (* Lemma free_inject: *)
-  (*   forall j g m1 b lo hi m2 m3 m1', *)
-  (*     Mem.inject j g m1 m1' -> *)
-  (*     Mem.free m1 b lo hi = Some m2 -> *)
-  (*     (forall o k p, Mem.perm m1 b o k p -> lo <= o < hi) -> *)
-  (*     (forall b0, is_stack_top (Mem.stack_adt m2) b0 -> b0 = b) -> *)
-  (*     Mem.unrecord_stack_block m2 = Some m3 -> *)
-  (*     g 1%nat = Some O -> *)
-  (*     length (Mem.stack_adt m1') = 1%nat -> *)
-  (*     no_stack m1' -> *)
-  (*     Mem.inject j (fun n => g (S n)) m3 m1'. *)
-  (* Proof. *)
-  (*   intros j g m1 b lo hi m2 m3 m1' INJ FREE PERMRNG IST USB G1 LST NS. *)
-  (*   eapply Mem.unrecord_stack_block_inject_left_zero. *)
-  (*   eapply Mem.free_left_inject. eauto. eauto. eauto. *)
-  (*   intros. eapply stack_inject_range in H. 2: eapply Mem.inject_stack_adt; eauto. *)
-  (*   rewrite LST in H. omega. *)
-  (*   intros. *)
-  (*   apply IST in H. subst. intros PERM. *)
-  (*   eapply Mem.perm_free in PERM. 2: eauto. destruct PERM. apply H. split; eauto. *)
-  (*   auto. *)
-  (* Qed. *)
   
   Lemma ZEQ: forall a b,
       proj_sumbool (zeq a b) = true -> a = b.
@@ -794,7 +659,7 @@ Section WITHMEMORYMODEL.
         unfold Genv.find_def.
         destruct (Maps.PTree.get bstack (Genv.genv_defs ge)) eqn:EQdef; auto.
         apply Genv.genv_defs_range in EQdef.
-        unfold bstack in EQdef. xomega.
+        unfold bstack, RawAsm.bstack in EQdef. xomega.
         rewrite EQ2 in H2.
         eauto.
         auto.
@@ -1021,7 +886,7 @@ Section WITHMEMORYMODEL.
        edestruct alloc_inject as (j' & JSPEC & INCR & m4' & STORE2 & MS') ; eauto.
        apply Ptrofs.unsigned_range_2.
        simpl in *.
-       rewrite Ptrofs.repr_unsigned in STORE2. rewrite STORE2.
+       rewrite Ptrofs.repr_unsigned in STORE2. setoid_rewrite STORE2.
        set (newostack := offset_after_alloc (current_offset (rs2 RSP)) frame).
        fold newostack in STORE2, JSPEC, MS'.
        exists j',  newostack; eexists; eexists; split; eauto.
@@ -1954,19 +1819,6 @@ Section WITHMEMORYMODEL.
 End PRESERVATION.
 
 
-  Inductive mono_initial_state {F V} (prog: program F V) (rs: regset) m: state -> Prop :=
-  |mis_intro:
-     forall m1 bstack m2 m3
-       (MALLOC: Mem.alloc m 0 (Mem.stack_limit) = (m1,bstack))
-       (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
-       (MRSB: Mem.record_stack_blocks (Mem.push_new_stage m2) (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
-       let ge := Genv.globalenv prog in
-       let rs0 :=
-           rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero)
-              #RA <- Vnullptr
-              #RSP <- (Vptr bstack (Ptrofs.repr Mem.stack_limit)) in
-         mono_initial_state prog rs m (State rs0 m3).
-
   Lemma repr_stack_limit:
     Ptrofs.unsigned (Ptrofs.repr (Mem.stack_limit)) = Mem.stack_limit.
   Proof.
@@ -1978,7 +1830,7 @@ End PRESERVATION.
     Asm.initial_state prog s ->
     Genv.init_mem prog = Some m0 ->
     exists s' j ostack, match_states (Genv.genv_next ge) j ostack s s' /\
-                   mono_initial_state prog (Pregmap.init Vundef) m0 s'.
+                   RawAsm.initial_state prog (Pregmap.init Vundef) m0 s'.
   Proof.
     inversion 1. subst.
     rename H into INIT.
@@ -2051,7 +1903,7 @@ End PRESERVATION.
         split; simpl; intros; rewrite Z.max_r in H0; omega.
       - repeat rewrite_stack_blocks. easy.
       - red. intros b [A|[]].
-        subst. unfold bstack; simpl.
+        subst. unfold bstack, RawAsm.bstack; simpl.
         red. rewnb. fold ge. xomega.
       - intros b fi [A|[]]; inv A. intros o k p.
         rewrite_perms. intro PERM.
@@ -2093,7 +1945,7 @@ End PRESERVATION.
         reflexivity.
       + unfold Vnullptr; constructor.
       + econstructor. eauto. rewrite Ptrofs.add_zero_l. auto.
-    - red; unfold bstack; rewnb. fold ge. xomega.
+    - red; unfold bstack, RawAsm.bstack; rewnb. fold ge. xomega.
     - red. rewrite Pregmap.gss. inversion 1; subst.
       repeat rewrite_stack_blocks. simpl. rewrite repr_stack_limit. change (size_frames nil) with 0; omega.
     - red. rewrite Pregmap.gss. inversion 1; subst.
@@ -2163,14 +2015,11 @@ End PRESERVATION.
     generalize (RINJ PC). rewrite H3. unfold Vnullptr. destruct ptr64; inversion 1; auto.
     generalize (RINJ RAX). rewrite H5. unfold Vnullptr. destruct ptr64; inversion 1; auto.
   Qed.
-
-  Definition mono_semantics (p: Asm.program) rs m :=
-    Semantics step (mono_initial_state p rs m) final_state (Genv.globalenv p).
   
   Theorem transf_program_correct m:
     asm_prog_no_rsp ge ->
     Genv.init_mem prog = Some m ->
-    forward_simulation (Asm.semantics (Vptr (Genv.genv_next ge) Ptrofs.zero) prog) (mono_semantics prog (Pregmap.init Vundef) m).
+    forward_simulation (Asm.semantics (Vptr (Genv.genv_next ge) Ptrofs.zero) prog) (RawAsm.semantics prog (Pregmap.init Vundef) m).
   Proof.
     intros APNR IM.
     eapply forward_simulation_step with (fun s1 s2 => exists j o, match_states (Genv.genv_next ge) j o s1 s2).

@@ -27,6 +27,7 @@ Require LTL.
 Require Linear.
 Require Mach.
 Require Asm.
+Require RawAsm.
 (** Translation passes. *)
 Require SimplExpr.
 Require SimplLocals.
@@ -70,7 +71,7 @@ Require Debugvarproof.
 Require Stackingproof.
 Require Mach2Mach2.
 Require Asmgenproof.
-Require RawAsmgen.
+Require RawAsmproof.
 (** Command-line flags. *)
 Require Import Compopts.
 
@@ -399,45 +400,6 @@ Proof.
     apply Globalenvs.Genv.find_funct_ptr_iff in H4. congruence.
 Qed.
 
-Lemma mono_semantics_determinate:
-  forall p m rs,
-    determinate (RawAsmgen.mono_semantics p p rs m).
-Proof.
-  Ltac Equalities :=
-    match goal with
-    | [ H1: ?a = ?b, H2: ?a = ?c |- _ ] =>
-      rewrite H1 in H2; inv H2; Equalities
-    | _ => idtac
-    end.
-  intros; constructor; simpl; intros.
-  - (* determ *)
-    inv H; inv H0; Equalities.
-    + split. constructor. auto.
-    + discriminate.
-    + discriminate.
-    + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0.
-      exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
-      split. auto. intros. destruct B; auto. subst. auto.
-    + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
-      exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
-      split. auto. intros. destruct B; auto. subst. auto.
-  - (* trace length *)
-    red; intros; inv H; simpl.
-    omega.
-    eapply Events.external_call_trace_length; eauto.
-    eapply Events.external_call_trace_length; eauto.
-  - (* initial states *)
-    inv H; inv H0.
-    assert (m1 = m0 /\ bstack = bstack0) by intuition congruence. destruct H; subst.
-    assert (m2 = m4) by congruence. subst.
-    f_equal. congruence.
-  - (* final no step *)
-    assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
-    { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
-    inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
-  - (* final states *)
-    inv H; inv H0. congruence.
-Qed.
 
 Lemma fn_stack_requirements_pos:
   forall p i, 0 <= fn_stack_requirements p i.
@@ -546,10 +508,10 @@ Qed.
 Theorem cstrategy_semantic_preservation_raw:
   forall p tp,
     match_prog p tp ->
-    forall (NORSP:     RawAsmgen.asm_prog_no_rsp (Globalenvs.Genv.globalenv tp)) m
+    forall (NORSP: RawAsmproof.asm_prog_no_rsp (Globalenvs.Genv.globalenv tp)) m
       (IM: Globalenvs.Genv.init_mem tp = Some m),
-      forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)
-  /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m).
+      forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m)
+  /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m).
 Proof.
   intros p tp M NORSP m IM.
   set( init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)))).
@@ -558,16 +520,16 @@ Proof.
     eapply cstrategy_semantic_preservation; eauto.
   }
   assert (G: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p)
-                                (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)).
+                                (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m)).
   {
     eapply compose_forward_simulations. apply F.
-    eapply RawAsmgen.transf_program_correct; auto.
+    eapply RawAsmproof.transf_program_correct; auto.
   }
   split. auto.
   apply forward_to_backward_simulation.
-  apply factor_forward_simulation. auto. eapply sd_traces. eapply mono_semantics_determinate.
+  apply factor_forward_simulation. auto. eapply sd_traces. eapply RawAsm.semantics_determinate.
   apply atomic_receptive. apply Cstrategy.semantics_strongly_receptive.
-  apply mono_semantics_determinate.
+  apply RawAsm.semantics_determinate.
 Qed.
 
 Theorem cstrategy_semantic_preservation_raw':
@@ -575,8 +537,8 @@ Theorem cstrategy_semantic_preservation_raw':
     match_prog p tp ->
     forall m,
       Globalenvs.Genv.init_mem tp = Some m ->
-      forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)
-      /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m).
+      forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m)
+      /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m).
 Proof.
   intros p tp M m IM.
   eapply cstrategy_semantic_preservation_raw; eauto.
@@ -614,11 +576,11 @@ Theorem c_semantic_preservation_raw:
     match_prog p tp ->
     forall m,
       Globalenvs.Genv.init_mem tp = Some m ->
-  backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m).
+  backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m).
 Proof.
   intros.
   apply compose_backward_simulation with (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)).
-  eapply sd_traces; eapply mono_semantics_determinate.
+  eapply sd_traces; eapply RawAsm.semantics_determinate.
   apply factor_backward_simulation.
   apply Cstrategy.strategy_simulation.
   apply Csem.semantics_single_events.
@@ -652,7 +614,7 @@ Theorem transf_c_program_correct_raw:
     transf_c_program p = OK tp ->
     forall m,
       Globalenvs.Genv.init_mem tp = Some m ->
-      backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m).
+      backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef) m).
 Proof.
   intros. apply c_semantic_preservation_raw. apply transf_c_program_match; auto. auto.
 Qed.
