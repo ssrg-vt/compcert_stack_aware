@@ -480,6 +480,8 @@ let set_al sg =
 
 let expand_instruction instr =
   match instr with
+  (instr,isz) ->
+  match instr with
   | Pallocframe (f, ofs_ra) ->
 let sz = StackADT.frame_size f in
      if Archi.ptr64 then begin

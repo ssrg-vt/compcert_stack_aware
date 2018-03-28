@@ -752,6 +752,9 @@ module Target(System: SYSTEM):TARGET =
               assert false
           end
 
+    let print_instr_with_info oc (i,_) =
+      print_instruction oc i
+
     let print_literal64 oc (lbl, n) =
       fprintf oc "%a:	.quad	0x%Lx\n" label lbl n
     let print_literal32 oc (lbl, n) =
@@ -822,7 +825,7 @@ module Target(System: SYSTEM):TARGET =
 
     let print_instructions oc fn =
       current_function_sig := fn.fn_sig;
-      List.iter (print_instruction oc) fn.fn_code
+      List.iter (print_instr_with_info oc) fn.fn_code
 
     let print_optional_fun_info _ = ()
 

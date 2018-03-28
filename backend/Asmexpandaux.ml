@@ -20,9 +20,9 @@ open Camlcoq
 
 (* Buffering the expanded code *)
 
-let current_code = ref ([]: instruction list)
+let current_code = ref ([]: instr_with_info list)
 
-let emit i = current_code := i :: !current_code
+let emit i = current_code := (i, instr_size_map i) :: !current_code
 
 (* Generation of fresh labels *)
 
@@ -39,7 +39,7 @@ let new_label () =
         List.fold_left
           (fun next instr ->
             match instr with
-            | Plabel l -> if P.lt l next then next else P.succ l
+            | Plabel l,_ -> if P.lt l next then next else P.succ l
             | _ -> next)
           P.one (!current_function).fn_code
   in
@@ -104,12 +104,12 @@ let expand_debug id sp preg simple l =
     | Some lbl -> lbl in
   let rec  aux lbl scopes = function
     | [] -> ()
-    | (Pbuiltin(EF_debug (kind,txt,_x),args,_) as i)::rest ->
+    | (Pbuiltin(EF_debug (kind,txt,_x),args,_) as i,isz)::rest ->
         let kind = (P.to_int kind) in
         begin
           match kind with
           | 1->
-              emit i;aux lbl scopes rest
+              emit (i);aux lbl scopes rest
           | 2 ->
               aux  lbl scopes rest
           | 3 ->
@@ -141,16 +141,16 @@ let expand_debug id sp preg simple l =
           | _ ->
               aux None scopes rest
         end
-    | (Plabel lbl)::rest -> simple (Plabel lbl); aux (Some lbl) scopes rest
+    | (Plabel lbl,isz)::rest -> simple (Plabel lbl,isz); aux (Some lbl) scopes rest
     | i::rest -> simple i; aux None scopes rest in
   (* We need to move all closing debug annotations before the last real statement *)
   let rec move_debug acc bcc = function
-    | (Pbuiltin(EF_debug (kind,_,_),_,_) as i)::rest ->
+    | (Pbuiltin(EF_debug (kind,_,_),_,_) as i,isz)::rest ->
         let kind = (P.to_int kind) in
         if kind = 1 then
-          move_debug acc (i::bcc) rest (* Do not move debug line *)
+          move_debug acc ((i,isz)::bcc) rest (* Do not move debug line *)
         else
-          move_debug (i::acc) bcc rest (* Move the debug annotations forward *)
+          move_debug ((i,isz)::acc) bcc rest (* Move the debug annotations forward *)
     | b::rest -> List.rev ((List.rev (b::bcc)@List.rev acc)@rest) (* We found the first non debug location *)
     | [] -> List.rev acc (* This actually can never happen *) in
   aux None [] (move_debug [] [] (List.rev l))

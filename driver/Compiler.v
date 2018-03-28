@@ -120,8 +120,7 @@ Definition partial_if {A: Type}
 
 Local Existing Instance ValueAnalysis.romem_for_wp_instance.
 
-Axiom instr_size_map : Asm.instruction -> Z.
-Axiom instr_size_non_zero : forall i, instr_size_map i > 0.
+Axiom instr_size_non_zero : forall i, Asm.instr_size_map i > 0.
 
 Definition transf_rtl_program (f: RTL.program) : res Asm.program :=
    OK f
@@ -150,7 +149,7 @@ Definition transf_rtl_program (f: RTL.program) : res Asm.program :=
   @@@ partial_if Compopts.debug (time "Debugging info for local variables" Debugvar.transf_program)
   @@@ time "Mach generation" Stacking.transf_program
    @@ print print_Mach
-   @@@ time "Asm generation" (Asmgen.transf_program instr_size_map instr_size_non_zero).
+   @@@ time "Asm generation" (Asmgen.transf_program Asm.instr_size_map instr_size_non_zero).
 
 Definition transf_cminor_program (p: Cminor.program) : res Asm.program :=
    OK p
@@ -250,7 +249,7 @@ Definition CompCert's_passes :=
   ::: mkpass CleanupLabelsproof.match_prog
   ::: mkpass (match_if Compopts.debug Debugvarproof.match_prog)
   ::: mkpass Stackingproof.match_prog
-  ::: mkpass (Asmgenproof.match_prog instr_size_map instr_size_non_zero)
+  ::: mkpass (Asmgenproof.match_prog Asm.instr_size_map instr_size_non_zero)
   ::: pass_nil _.
 
 (** Composing the [match_prog] relations above, we obtain the relation
@@ -506,9 +505,9 @@ Ltac DestructM :=
   eapply compose_forward_simulations.
     replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p20).
   eapply Stackingproof.transf_program_correct with
-      (return_address_offset := Asmgenproof0.return_address_offset instr_size_map instr_size_non_zero);
+      (return_address_offset := Asmgenproof0.return_address_offset Asm.instr_size_map instr_size_non_zero);
     try assumption.
-    exact (Asmgenproof.return_address_exists instr_size_map instr_size_non_zero).
+    exact (Asmgenproof.return_address_exists Asm.instr_size_map instr_size_non_zero).
     {
       clear - M19 MM.
       subst.

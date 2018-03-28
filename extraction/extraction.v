@@ -21,7 +21,7 @@ Require Selection.
 Require RTLgen.
 Require Inlining.
 Require ValueDomain.
-(* Require Tailcall. *)
+Require Tailcall.
 Require Allocation.
 Require Bounds.
 Require Ctypes.
@@ -33,8 +33,8 @@ Require Cexecimpl.
 Require cparser.Parser.
 Require Initializers.
 Require Int31.
-Require RockSaltAsm.
-Require RockSaltAsmGen.
+(* Require RockSaltAsm. *)
+(* Require RockSaltAsmGen. *)
 
 (* Standard lib *)
 Require Import ExtrOcamlBasic.
@@ -171,7 +171,7 @@ Cd "extraction".
 
 Separate Extraction
    Compiler.transf_c_program Compiler.transf_cminor_program 
-   Compiler.transf_c_program_ex Compiler.transf_cminor_program_ex
+   (* Compiler.transf_c_program_ex Compiler.transf_cminor_program_ex *)
    Cexecimpl.do_initial_state Cexecimpl.do_step Cexecimpl.at_final_state
    Cexecimpl.step_expr Cexecimpl.init_mem Cexecimpl.state
    Ctypes.merge_attributes Ctypes.remove_attributes Ctypes.build_composite_env
@@ -192,4 +192,4 @@ Separate Extraction
    Floats.Float32.from_parsed Floats.Float.from_parsed
    Globalenvs.Senv.invert_symbol
    Parser.translation_unit_file StackADT.empty_frame Coqlib.sum_left_map
-   RockSaltAsmGen.transf_program Compiler.printable_oracle.
+   (* RockSaltAsmGen.transf_program *) Compiler.printable_oracle.
