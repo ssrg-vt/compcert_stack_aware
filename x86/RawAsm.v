@@ -24,41 +24,26 @@ Section WITHGE.
 
   Definition bstack: block := Genv.genv_next ge.
 
-  Definition current_offset (v: val) :=
-    match v with
-      Vptr stk ofs => Ptrofs.unsigned ofs
-    | _ => Mem.stack_limit
-    end.
-
-  Definition offset_after_alloc (p: Z) fi :=
-    (p - align (frame_size fi) 8).
-
-  Definition offset_after_free (p: Z) sz :=
-    (p + align (Z.max 0 sz) 8).
-
   Definition exec_instr f i' rs (m: mem) :=
     match i' with
     | (i,isz) =>
     match i with
     | Pallocframe fi ofs_ra =>
-      let curofs := current_offset (rs RSP) in
-      let sp := Vptr bstack (Ptrofs.repr (offset_after_alloc curofs fi)) in
-        match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
-        | None => Stuck
-        | Some m2 =>
-          Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) (Ptrofs.repr (si_size isz))) m2
-        end
+      let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (align (frame_size fi) 8))) in
+      match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
+      | None => Stuck
+      | Some m2 =>
+        Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) (Ptrofs.repr (si_size isz))) m2
+      end
     | Pfreeframe sz ofs_ra =>
       match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
       | None => Stuck
       | Some ra =>
-        let curofs := current_offset (rs RSP) in
-        let sp := Vptr bstack (Ptrofs.repr (offset_after_free curofs sz)) in
+        let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 sz) 8)) in
         Next (nextinstr (rs#RSP <- sp #RA <- ra) (Ptrofs.repr (si_size isz))) m
       end
     | Pload_parent_pointer rd z =>
-      let curofs := current_offset (rs RSP) in
-      let sp := Vptr bstack (Ptrofs.repr (offset_after_free curofs z)) in
+      let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 z) 8)) in
       Next (nextinstr (rs#rd <- sp) (Ptrofs.repr (si_size isz))) m
     | Pcall_s id sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
