@@ -101,7 +101,7 @@ BACKEND=\
   AsmFacts.v RawAsm.v RawAsmproof.v \
   Sect.v \
   FlatAsm.v FlatAsmGlobenv.v FlatAsmGlobdef.v FlatAsmBuiltin.v \
-  # FlatAsmgen.v FlatAsmgenproof.v 
+  FlatAsmgen.v FlatAsmgenproof.v 
 
 
 # C front-end modules (in cfrontend/)

@@ -378,6 +378,8 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     OK (Pallocframe fi ofs_ra)
   | Asm.Pfreeframe sz ofs_ra =>
     OK (Pfreeframe sz ofs_ra)
+  | Asm.Pload_parent_pointer rd z =>
+    OK (Pload_parent_pointer rd z)
   | Asm.Pbuiltin ef args res =>
     do args' <- transl_builtin_args args;
     OK (Pbuiltin ef args' res)
