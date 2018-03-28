@@ -254,9 +254,6 @@ Definition match_find_funct (j:meminj) :=
 Definition glob_block_valid (m:mem) := 
   forall b g, Genv.find_def ge b = Some g -> Mem.valid_block m b.
 
-(* Definition stack_block_inject (j:meminj) : Prop := *)
-(*   j (Genv.genv_next ge) = Some (mem_block, 0). *)
-
 Inductive match_states: state -> state -> Prop :=
 | match_states_intro: forall (j:meminj) (rs: regset) (m: mem) (rs': regset) (m':mem)
                         (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE)
@@ -269,7 +266,6 @@ Inductive match_states: state -> state -> Prop :=
                         (RSINJ: regset_inject j rs rs')
                         (GBVALID: glob_block_valid m)
                         (GMUNDEF: gid_map_for_undef_syms gm),
-                        (* (SBINJ:stack_block_inject j), *)
     match_states (State rs m) (State rs' m').
 
 
@@ -910,7 +906,6 @@ Lemma exec_load_step: forall j rs1 rs2 m1 m2 rs1' m1' gm lm sz chunk rd a1 a2
                           (RSINJ: regset_inject j rs1 rs2)
                           (GBVALID: glob_block_valid m1)
                           (GMUNDEF: gid_map_for_undef_syms gm),
-                          (* (SBINJ:stack_block_inject j), *)
     Asm.exec_load ge chunk m1 a1 rs1 rd sz = Next rs1' m1' ->
     transl_addr_mode gm a1 = OK a2 ->
     exists rs2' m2',
@@ -952,7 +947,6 @@ Lemma exec_store_step: forall j rs1 rs2 m1 m2 rs1' m1' gm lm sz chunk r a1 a2 dr
                          (RSINJ: regset_inject j rs1 rs2)
                          (GBVALID: glob_block_valid m1)
                          (GMUNDEF: gid_map_for_undef_syms gm),
-                         (* (SBINJ:stack_block_inject j), *)
     Asm.exec_store ge chunk m1 a1 rs1 r dregs sz = Next rs1' m1' ->
     transl_addr_mode gm a1 = OK a2 ->
     exists rs2' m2',
@@ -1805,7 +1799,6 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f
                         (RSINJ: regset_inject j rs1 rs2)
                         (GBVALID: glob_block_valid m1)
                         (GMUNDEF: gid_map_for_undef_syms gm),
-                        (* (SBINJ:stack_block_inject j), *)
     rs1 PC = Vptr b ofs ->
     Genv.find_symbol ge id = Some b ->
     Genv.find_funct_ptr ge b = Some (Internal f) ->
