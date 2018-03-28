@@ -374,10 +374,10 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
     | Some ofs => OK (Plabel (code_label ofs))
     end
-  | Asm.Pallocframe fi ofs_ra ofs_link =>
-    OK (Pallocframe fi ofs_ra ofs_link)
-  | Asm.Pfreeframe sz ofs_ra ofs_link =>
-    OK (Pfreeframe sz ofs_ra ofs_link)
+  | Asm.Pallocframe fi ofs_ra =>
+    OK (Pallocframe fi ofs_ra)
+  | Asm.Pfreeframe sz ofs_ra =>
+    OK (Pfreeframe sz ofs_ra)
   | Asm.Pbuiltin ef args res =>
     do args' <- transl_builtin_args args;
     OK (Pbuiltin ef args' res)
