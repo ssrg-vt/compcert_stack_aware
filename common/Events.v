@@ -744,6 +744,19 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
     /\ inject_incr f f'
     /\ inject_separated f f' m1 m1';
 
+  ec_unchanged_on:
+    forall ge m1 m2
+      (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
+      (SH: same_head (Mem.stack_adt m1) (Mem.stack_adt m2))
+      (NB: Mem.nextblock m1 = Mem.nextblock m2)
+      args res t m1'
+      (SEM1: sem ge args m1 res t m1'),
+    exists m2',
+      sem ge args m2 res t m2'
+      /\ Mem.unchanged_on (fun _ _ => True) m1' m2'
+      /\ Mem.nextblock m1' = Mem.nextblock m2';
+
+  
 (** External calls produce at most one event. *)
   ec_trace_length:
     forall ge vargs m t vres m',
@@ -884,6 +897,10 @@ Proof.
   exploit volatile_load_inject; eauto. intros [v' [A B]].
   exists f; exists v'; exists m1'; intuition. constructor; auto.
   red; intros. congruence.
+- inv SEM1. inv H.
+  + eexists; split; econstructor. constructor; auto. auto. auto.
+  + eexists; split; econstructor. constructor; auto.
+    eapply Mem.load_unchanged_on; eauto. simpl; auto. auto. auto.
 (* trace length *)
 - inv H; inv H0; simpl; omega.
 (* receptive *)
@@ -1051,6 +1068,16 @@ Proof.
   inv H0. inv H2. inv H7. inv H8. inversion H5; subst.
   exploit volatile_store_inject; eauto. intros [m2' [A [B [C D]]]].
   exists f; exists Vundef; exists m2'; intuition. constructor; auto. red; intros; congruence.
+- inv SEM1. inv H.
+  eexists; split. econstructor. constructor; eauto. split; auto.
+  edestruct (Mem.store_unchanged_on_1 _ chunk _ _ _ _ _ _ UNCH (or_introl SH) (fun _ _ => I) H1)
+            as (m2' & STORE2 & UNCH').
+  eexists; split. econstructor. constructor; eauto.
+  red. destr. red in H2.
+  erewrite same_head_get_frame_info in H2; eauto.
+  intros. eapply Mem.stack_norepet. split; auto.
+  apply Mem.nextblock_store in STORE2.
+  apply Mem.nextblock_store in H1. congruence.
 (* trace length *)
 - inv H; inv H0; simpl; omega.
 (* receptive *)
@@ -1143,6 +1170,19 @@ Proof.
   red; intros. destruct (eq_block b1 b).
   subst b1. rewrite C in H2. inv H2. eauto with mem.
   rewrite D in H2 by auto. congruence.
+- inv SEM1.
+  destruct (Mem.alloc m2 (- size_chunk Mptr) (Ptrofs.unsigned sz)) as (m2' & b') eqn:ALLOC'.
+  assert (b = b').
+  {
+    apply Mem.alloc_result in H. apply Mem.alloc_result in ALLOC'. congruence.
+  } subst.
+  exploit Mem.unchanged_on_alloc. apply UNCH. exact H. exact ALLOC'. intro UNCHALLOC.
+  edestruct (fun sh => Mem.store_unchanged_on_1 _ Mptr _ _ _ _ _ _ UNCHALLOC sh (fun _ _ => I) H0)
+    as (m3' & STORE2 & UNCH').
+  left. rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H), (Mem.alloc_stack_blocks _ _ _ _ _ ALLOC'). auto.
+  eexists; split. econstructor; eauto. split; auto.
+  apply Mem.nextblock_alloc in H. apply Mem.nextblock_store in H0.
+  apply Mem.nextblock_alloc in ALLOC'. apply Mem.nextblock_store in STORE2. congruence.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1197,7 +1237,6 @@ Inductive extcall_free_sem (ge: Senv.t):
       Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz) = Some m' ->
       ~ in_stack (Mem.stack_adt m) b ->
       extcall_free_sem ge (Vptr b lo :: nil) m E0 Vundef m'.
-
 
 (* Lemma extcall_free_ok: *)
 (*   extcall_properties extcall_free_sem *)
@@ -1415,6 +1454,15 @@ Proof.
   omega.
   split. apply inject_incr_refl.
   red; intros; congruence.
+- intros.
+  inv SEM1.
+  exploit Mem.loadbytes_unchanged_on; eauto. simpl; auto. intros LB.
+  exploit Mem.storebytes_unchanged_on_1; eauto. simpl; auto. intros (m2' & SB & UNCH').
+  exists m2'; split; eauto. econstructor; eauto.
+  eapply public_stack_access_same_head; eauto.
+  eapply Mem.stack_norepet. split; auto.
+  apply Mem.nextblock_storebytes in SB.
+  apply Mem.nextblock_storebytes in H6. congruence.
 - (* trace length *)
   intros; inv H. simpl; omega.
 - (* receptive *)
@@ -1472,6 +1520,7 @@ Proof.
   econstructor; eauto.
   eapply eventval_list_match_inject; eauto.
   red; intros; congruence.
+- inv SEM1. eexists; split. econstructor; eauto. auto.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1522,6 +1571,7 @@ Proof.
   econstructor; eauto.
   eapply eventval_match_inject; eauto.
   red; intros; congruence.
+- inv SEM1; inv H; eexists; repeat econstructor; eauto.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1568,6 +1618,7 @@ Proof.
   exists f; exists Vundef; exists m1'; intuition.
   econstructor; eauto.
   red; intros; congruence.
+- inv SEM1. eexists; repeat econstructor; eauto.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)

@@ -3288,5 +3288,138 @@ Proof.
   induction s; constructor; eauto using list_forall2_refl.
 Qed.
 
+Definition same_head (m m': stack_adt) :=
+  list_forall2
+    (fun tf1 tf2 =>
+       match tf1, tf2 with
+       | _, nil => True
+       | a::r, b::nil => a = b
+       | _, _ => False
+       end)
+    m m'.
+
+Lemma same_head_get_frame_info:
+  forall s1 s2 (SH: same_head s1 s2)
+    (ND: nodup s1)
+    b f (GFI: get_frame_info s2 b = Some f),
+    get_frame_info s1 b = Some f.
+Proof.
+  induction 1; simpl; intros; eauto.
+  inv ND.
+  repeat destr_in H.
+  - destr. eauto.
+  - destr_in GFI. easy.
+    rewrite pred_dec_false. eauto.
+    intro IFR; eapply H3 in IFR; eauto. apply IFR.
+    eapply get_frame_info_in_stack; eauto.
+  - destr_in GFI; eauto.
+    + rewrite pred_dec_true.
+      simpl in *.
+      destr_in GFI.
+      rewrite in_frames_cons in *. destruct i; auto; easy.
+    + rewrite pred_dec_false. eauto.
+      intro IFR.
+      eapply H3 in IFR; eauto. apply IFR.
+      eapply get_frame_info_in_stack; eauto.
+Qed.
+
+Lemma same_head_in_impl:
+  forall s1 s2, same_head s1 s2 -> forall b, in_stack s2 b -> in_stack s1 b.
+Proof.
+  induction 1; simpl; intros; rewrite ? in_stack_cons in *; eauto.
+  repeat destr_in H.
+  - destruct H1. easy. apply IHlist_forall2 in H; auto.
+  - rewrite in_frames_cons in *.
+    destruct H1; auto.
+    destruct H; auto.
+  - rewrite in_frames_cons in *.
+    destruct H1; auto.
+    destruct H; auto.
+    easy.
+Qed.
+
+Lemma public_stack_access_same_head:
+  forall s1 (ND: nodup s1) s2 (SH: same_head s1 s2) b lo hi
+         (PSA: public_stack_access s1 b lo hi),
+    public_stack_access s2 b lo hi.
+Proof.
+  intros. red. destr. red in PSA.
+  erewrite same_head_get_frame_info in PSA; eauto.
+Qed.
+
+Definition stack_top_is_new s :=
+  top_tframe_prop (fun tf => tf = nil) s.
+
+Lemma is_stack_top_same_head:
+  forall P s1 (WF: wf_stack P inject_id s1) (ND: nodup s1) s2 (SH: same_head s1 s2) b
+         o k p (PERM: P b o k p)
+         (IST: is_stack_top s1 b),
+    is_stack_top s2 b \/ ~ in_stack s2 b.
+Proof.
+  intros.
+  inv SH. easy.
+  repeat destr_in H.
+  - right. intro IS. rewrite in_stack_cons in IS. destruct IS as [IFR|IS]. easy.
+    eapply same_head_in_impl in IS; eauto.
+    inv ND.
+    eapply H3 in IS; eauto.
+  - red in IST. simpl in IST.
+    left. assert (in_frame f0 b).
+    {
+      red. unfold get_frames_blocks in IST.  simpl in IST.
+      rewrite in_app in IST. destruct IST; auto.
+      rewrite concat_In in H. destruct H as (lb & INlb & INblocs).
+      exfalso. inv WF.
+      red in H2. simpl in H2.
+      eapply H2; eauto. unfold inject_id; congruence.
+      red. unfold get_frames_blocks. rewrite concat_In.  eexists; split. 2: apply INblocs. eauto.
+    }
+    red; simpl. unfold get_frames_blocks.
+    simpl. rewrite in_app. left; auto.
+Qed.
+
+Lemma stack_access_same_head:
+  forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 (SH: same_head s1 s2) b lo hi k p
+         (R: forall o, (lo <= o < hi)%Z -> P b o k p)
+         (SA: stack_access s1 b lo hi),
+    stack_access s2 b lo hi.
+Proof.
+  intros.
+  destruct (zlt lo hi).
+  destruct SA as [IST|PSA].
+  edestruct is_stack_top_same_head; eauto. apply (R lo). omega. left; auto.
+  right; red; destr. eapply get_frame_info_in_stack in Heqo; congruence.
+  right; eapply public_stack_access_same_head; eauto.
+  eapply lo_ge_hi_stack_access; eauto.
+Qed.
+
+Lemma stack_access_same_head_or_not_in_stack:
+  forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 b
+         (SH: same_head s1 s2 \/ ~ in_stack s2 b) lo hi k p
+         (R: forall o, (lo <= o < hi)%Z -> P b o k p)
+         (SA: stack_access s1 b lo hi),
+    stack_access s2 b lo hi.
+Proof.
+  intros.
+  destruct SH as [SH | NIS].
+  eapply stack_access_same_head; eauto.
+  right. red. destr. apply get_frame_info_in_stack in Heqo. congruence.          
+Qed.
+
+Lemma same_head_size:
+  forall s1 s2,
+    same_head s1 s2 ->
+    (size_stack s2 <= size_stack s1)%Z.
+Proof.
+  induction 1; simpl; intros; rewrite ? size_stack_cons. omega.
+  repeat destr_in H.
+  - omega.
+  - generalize (size_frames_pos (f::l)).
+    change (size_frames nil) with 0%Z. omega.
+  - apply Z.add_le_mono. auto.
+    rewrite ! size_frames_cons.
+    apply Z.max_le_compat_l. apply size_frames_pos.
+Qed.
+
 
 End INJ.
