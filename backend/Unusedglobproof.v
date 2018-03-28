@@ -1192,7 +1192,7 @@ Proof.
     {
       red. simpl.
       intros ? ? ? ? ? [A|[]]; inv A. simpl.
-      eapply Mem.perm_alloc_3; eauto.
+      rewrite_perms. rewrite peq_true. intros; rewrite Z.max_r; omega.
     }
     {
       unfold in_frame; simpl.

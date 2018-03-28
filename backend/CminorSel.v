@@ -651,6 +651,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
       rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
       eapply Mem.perm_free_3 in P; eauto.
       rewrite SIZE; auto.
+      intros RNG; rewrite Zmax_spec in RNG. destr_in RNG; omega.
     - erewrite find_label_funs_of_cont by eauto.
       rewrite funs_of_call_cont.  auto.
     - apply Mem.alloc_stack_blocks in H. clear H0.

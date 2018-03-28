@@ -1008,8 +1008,6 @@ Definition loc_external_result (sg: signature) : rpair preg :=
 Inductive state {memory_model_ops: Mem.MemoryModelOps mem}: Type :=
   | State: regset -> mem -> state.
 
-Require Import EraseArgs.
-
 Inductive step: state -> trace -> state -> Prop :=
   | exec_step_internal:
       forall b ofs f i rs m rs' m',

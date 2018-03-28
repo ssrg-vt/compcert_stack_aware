@@ -1516,7 +1516,6 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
    forall f g m1 m2 m3,
      extends m1 m2 -> inject f g m2 m3 -> inject f g m1 m3;
 
- (* Needed by EraseArgs. *)
  extends_extends_compose {injperm: InjectPerm}:
    forall m1 m2 m3,
      extends m1 m2 -> extends m2 m3 -> extends m1 m3;
@@ -2131,6 +2130,76 @@ wf_stack_mem:
      (forall b f1 i1, g i1 = Some O -> f1 @ stack_adt m1 : i1 -> in_frames f1 b -> forall o k p, ~ perm m1 b o k p) ->
      record_stack_blocks m2 fi = Some m2' ->
      inject j g m1 m2';
+
+
+ store_unchanged_on_1:
+    forall P chunk m m' b ofs v m1
+      (UNCH: Mem.unchanged_on P m m')
+      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
+      (PERMALL: forall b o, P b o)
+      (STORE: Mem.store chunk m b ofs v = Some m1),
+    exists m1',
+      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1';
+
+ storebytes_unchanged_on_1:
+    forall P m m' b ofs v m1
+      (UNCH: Mem.unchanged_on P m m')
+      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
+      (PERMALL: forall b o, P b o)
+      (STORE: Mem.storebytes m b ofs v = Some m1),
+    exists m1',
+      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1';
+
+ 
+ valid_pointer_unchanged:
+  forall m1 m2,
+    Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+    Mem.nextblock m1 = Mem.nextblock m2 ->
+    Mem.valid_pointer m1 = Mem.valid_pointer m2;
+
+ push_new_stage_strong_unchanged_on:
+    forall m1 m2 P,
+      Mem.unchanged_on P m1 m2 ->
+      Mem.unchanged_on P (Mem.push_new_stage m1) (Mem.push_new_stage m2);
+
+ unchanged_on_free:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      forall b lo hi m1',
+        Mem.free m1 b lo hi = Some m1' ->
+        exists m2',
+          Mem.free m2 b lo hi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2';
+
+ unchanged_on_unrecord:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      length (stack_adt m1) = length (stack_adt m2) ->
+      forall m1',
+        Mem.unrecord_stack_block m1 = Some m1' ->
+        exists m2',
+          Mem.unrecord_stack_block m2 = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2';
+
+ unchanged_on_record:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      nextblock m1 = nextblock m2 ->
+      same_head ((stack_adt m1)) ((stack_adt m2)) ->
+      forall m1' fi,
+        Mem.record_stack_blocks m1 fi = Some m1' ->
+        exists m2',
+          Mem.record_stack_blocks m2 fi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2';
+
+ unrecord_push_unchanged:
+    forall m1 m2 m2',
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      Mem.unrecord_stack_block m2 = Some m2' ->
+      Mem.unchanged_on (fun _ _ => True) m1 (Mem.push_new_stage m2');
+
+ unchanged_on_alloc:
+   forall m1 m2 (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
+     lo hi m1' b (ALLOC1: Mem.alloc m1 lo hi = (m1', b))
+     m2' (ALLOC2: Mem.alloc m2 lo hi = (m2', b)),
+     Mem.unchanged_on (fun _ _ => True) m1' m2';
  
 }.
 

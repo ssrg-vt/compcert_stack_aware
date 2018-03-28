@@ -1309,7 +1309,7 @@ Proof.
     erewrite Mem.alloc_stack_blocks in IFF'; eauto.
     eapply Mem.in_frames_valid in IFF'. eapply Mem.fresh_block_alloc in A. congruence.
   + intros b fi o k0 p [AA|[]] P; inv AA.
-    eapply Mem.perm_alloc_3 with (k:= k0) (p0 := p); eauto.
+    revert P; rewrite_perms. rewrite peq_true. simpl. intros; rewrite Z.max_r; omega.
   + inv SI. inv TOPNOPERM.
     rewrite_stack_blocks. rewrite <- H1. constructor.
     red in H2. red.

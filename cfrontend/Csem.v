@@ -159,7 +159,7 @@ Definition blocks_of_env (e: env) : list (block * Z * Z) :=
   List.map block_of_binding (PTree.elements e).
 
 Definition blocks_with_info (e: env) : list (block * frame_info) :=
-  map (fun x => let '(b, lo, hi) := x in (b,{| frame_size := hi; frame_perm := fun o => Public |})) (blocks_of_env e).
+  map (fun x => let '(b, lo, hi) := x in (b, public_frame_info hi)) (blocks_of_env e).
 
 (** Selection of the appropriate case of a [switch], given the value [n]
   of the selector expression. *)

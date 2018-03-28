@@ -14,7 +14,7 @@
 
 Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Globalenvs Smallstep.
-Require Import Locations Stacklayout Conventions EraseArgs.
+Require Import Locations Stacklayout Conventions.
 
 (** * Abstract syntax *)
 

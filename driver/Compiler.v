@@ -68,6 +68,7 @@ Require Linearizeproof.
 Require CleanupLabelsproof.
 Require Debugvarproof.
 Require Stackingproof.
+Require Mach2Mach2.
 Require Asmgenproof.
 Require RawAsmgen.
 (** Command-line flags. *)
@@ -439,6 +440,14 @@ Proof.
     inv H; inv H0. congruence.
 Qed.
 
+Lemma fn_stack_requirements_pos:
+  forall p i, 0 <= fn_stack_requirements p i.
+Proof.
+  unfold fn_stack_requirements.
+  intros. repeat destr; try omega.
+  simpl. apply StackADT.frame_size_pos.
+Qed.
+
 Theorem cstrategy_semantic_preservation:
   forall p tp,
     match_prog p tp ->
@@ -446,116 +455,94 @@ Theorem cstrategy_semantic_preservation:
   forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics init_sp tp)
   /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (Asm.semantics init_sp tp).
 Proof.
-(*   intros p tp M. unfold match_prog, pass_match in M; simpl in M. *)
-(* Ltac DestructM := *)
-(*   match goal with *)
-(*     [ H: exists p, _ /\ _ |- _ ] =>  *)
-(*       let p := fresh "p" in let M := fresh "M" in let MM := fresh "MM" in *)
-(*       destruct H as (p & M & MM); clear H *)
-(*   end. *)
-(*   repeat DestructM. *)
-(*   intros init_sp. *)
-(*   assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics init_sp tp)). *)
-(*   { *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply SimplExprproof.transl_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply SimplLocalsproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Cshmgenproof.transl_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Cminorgenproof.transl_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Selectionproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply RTLgenproof.transf_program_correct; eassumption. *)
-(* <<<<<<< HEAD *)
-(*   (* eapply compose_forward_simulations. *) *)
-(*   (*   eapply match_if_simulation. eassumption. exact Tailcallproof.transf_program_correct. *) *)
-(*   (* eapply compose_forward_simulations. *) *)
-(*   (*   eapply Inliningproof.transf_program_correct; eassumption. *) *)
-(* ======= *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. intros; eapply Tailcallproof.transf_program_correct; eauto. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. eapply Inliningproof.transf_program_correct; eassumption. *)
-(* >>>>>>> origin/newstackadt2 *)
-(*   eapply compose_forward_simulations. eapply Renumberproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. apply Constpropproof.transf_program_correct. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. apply Renumberproof.transf_program_correct. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. intros; eapply CSEproof.transf_program_correct; assumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. intros; eapply Deadcodeproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Unusedglobproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Allocproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Tunnelingproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply Linearizeproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply CleanupLabelsproof.transf_program_correct; eassumption. *)
-(*   eapply compose_forward_simulations. *)
-(*     eapply match_if_simulation. eassumption. apply Debugvarproof.transf_program_correct. *)
-(*   eapply compose_forward_simulations. *)
-(* <<<<<<< HEAD *)
-(*     replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p18). *)
-(*     eapply Stackingproof.transf_program_correct with  *)
-(*         (return_address_offset := Asmgenproof0.return_address_offset instr_size_map instr_size_non_zero);  *)
-(*       try assumption. *)
-(*     exact (Asmgenproof.return_address_exists instr_size_map instr_size_non_zero). *)
-(*     { *)
-(*       clear - M17 MM. *)
-(* ======= *)
-(*     replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p20). *)
-(*     eapply Stackingproof.transf_program_correct with (return_address_offset := Asmgenproof0.return_address_offset); try assumption. *)
-(*     exact Asmgenproof.return_address_exists. *)
-(*     { *)
-(*       clear - M19 MM. *)
-(* >>>>>>> origin/newstackadt2 *)
-(*       subst. *)
-(*       unfold Stackingproof.fn_stack_requirements, fn_stack_requirements. *)
-(*       apply Axioms.extensionality. *)
-(*       intros i. *)
-(*       erewrite Asmgenproof.symbols_preserved; eauto. *)
-(* <<<<<<< HEAD *)
-(*       destruct (Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv p18) i) eqn:?; auto. *)
-(*       destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p18) b) eqn:?; auto. *)
-(* ======= *)
-(*       destruct (Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv p20) i) eqn:?; auto. *)
-(*       destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p20) b) eqn:?; auto. *)
-(* >>>>>>> origin/newstackadt2 *)
-(*       eapply Asmgenproof.functions_translated in Heqo0. *)
-(*       destruct Heqo0 as (tf & FFP & TF); rewrite FFP. *)
-(*       destruct f; simpl in *; monadInv TF; auto. *)
-(*       unfold Asmgen.transf_function in EQ. monadInv EQ. destr_in EQ1. inv EQ1. *)
-(*       unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto. eassumption. *)
-(*       eapply match_program_no_more_functions in Heqo0; eauto. rewrite Heqo0. auto. *)
-(*     } *)
-(* <<<<<<< HEAD *)
-(*     subst. eapply Asmgenproof.transf_program_correct; eauto.  *)
-(* ======= *)
-(*     subst. unfold init_sp. *)
-(*     replace (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) *)
-(*       with (Asmgenproof.init_sp_block p20). *)
-(*     eapply Asmgenproof.transf_program_correct. eassumption. *)
-(* >>>>>>> origin/newstackadt2 *)
-(*     eapply Stackingproof.stacking_frame_correct; eauto. *)
-(*     unfold Asmgenproof.init_sp_block. *)
-(*     eapply Globalenvs.Genv.senv_transf_partial in M19. *)
-(*     destruct M19 as (NB & _). simpl in NB. auto. *)
-(*   } *)
-(*   split. auto. *)
-(*   apply forward_to_backward_simulation. *)
-(*   apply factor_forward_simulation. auto. eapply sd_traces. eapply Asm.semantics_determinate. *)
-(*   apply atomic_receptive. apply Cstrategy.semantics_strongly_receptive. *)
-(*   apply Asm.semantics_determinate. *)
-(* Qed. *)
-Admitted.
+  intros p tp M. unfold match_prog, pass_match in M; simpl in M.
+Ltac DestructM :=
+  match goal with
+    [ H: exists p, _ /\ _ |- _ ] => 
+      let p := fresh "p" in let M := fresh "M" in let MM := fresh "MM" in
+      destruct H as (p & M & MM); clear H
+  end.
+  repeat DestructM.
+  intros init_sp.
+  assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics init_sp tp)).
+  {
+  eapply compose_forward_simulations.
+    eapply SimplExprproof.transl_program_correct; try eassumption. apply fn_stack_requirements_pos.
+  eapply compose_forward_simulations.
+    eapply SimplLocalsproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Cshmgenproof.transl_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Cminorgenproof.transl_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Selectionproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply RTLgenproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. intros; eapply Tailcallproof.transf_program_correct; eauto.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. eapply Inliningproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations. eapply Renumberproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. apply Constpropproof.transf_program_correct.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. apply Renumberproof.transf_program_correct.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. intros; eapply CSEproof.transf_program_correct; assumption.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. intros; eapply Deadcodeproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Unusedglobproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Allocproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Tunnelingproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply Linearizeproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply CleanupLabelsproof.transf_program_correct; eassumption.
+  eapply compose_forward_simulations.
+    eapply match_if_simulation. eassumption. apply Debugvarproof.transf_program_correct.
+  eapply compose_forward_simulations.
+    replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p20).
+  eapply Stackingproof.transf_program_correct with
+      (return_address_offset := Asmgenproof0.return_address_offset instr_size_map instr_size_non_zero);
+    try assumption.
+    exact (Asmgenproof.return_address_exists instr_size_map instr_size_non_zero).
+    {
+      clear - M19 MM.
+      subst.
+      unfold Stackingproof.fn_stack_requirements, fn_stack_requirements.
+      apply Axioms.extensionality.
+      intros i.
+      erewrite Asmgenproof.symbols_preserved; eauto.
+      destruct (Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv p20) i) eqn:?; auto.
+      destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p20) b) eqn:?; auto.
+      eapply Asmgenproof.functions_translated in Heqo0. 2: eauto.
+      destruct Heqo0 as (tf & FFP & TF); rewrite FFP.
+      destruct f; simpl in *; monadInv TF; auto.
+      unfold Asmgen.transf_function in EQ. monadInv EQ. destr_in EQ1. inv EQ1.
+      unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto.
+      eapply match_program_no_more_functions in Heqo0; eauto. rewrite Heqo0. auto.
+    }
+  eapply compose_forward_simulations.
+    eapply Mach2Mach2.mach2_simulation.
+    eapply Stackingproof.stacking_frame_correct; eauto.
+    subst. unfold init_sp.
+    replace (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))
+      with (Asmgenproof.init_sp_block p20).
+    eapply Asmgenproof.transf_program_correct. eassumption. eassumption.
+    eapply Stackingproof.stacking_frame_correct; eauto.
+    unfold Asmgenproof.init_sp_block.
+    eapply Globalenvs.Genv.senv_transf_partial in M19.
+    destruct M19 as (NB & _). simpl in NB. auto.
+  }
+  split. auto.
+  apply forward_to_backward_simulation.
+  apply factor_forward_simulation. auto. eapply sd_traces. eapply Asm.semantics_determinate.
+  apply atomic_receptive. apply Cstrategy.semantics_strongly_receptive.
+  apply Asm.semantics_determinate.
+Qed.
 
 Theorem cstrategy_semantic_preservation_raw:
   forall p tp,
@@ -565,32 +552,24 @@ Theorem cstrategy_semantic_preservation_raw:
       forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)
   /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m).
 Proof.
-(*   intros p tp M NORSP m IM. *)
-(*   set( init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)))). *)
-(*   assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics init_sp tp)). *)
-(*   { *)
-(*     eapply cstrategy_semantic_preservation; eauto. *)
-(*   } *)
-(*   assert (G: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) *)
-(* <<<<<<< HEAD *)
-(*                                 (RawAsmgen.mono_semantics tp)). *)
-(*   { *)
-(*     eapply compose_forward_simulations. apply F. *)
-(*     eapply RawAsmgenproof.transf_program_correct. auto. *)
-(* ======= *)
-(*                                 (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)). *)
-(*   { *)
-(*     eapply compose_forward_simulations. apply F. *)
-(*     eapply RawAsmgen.transf_program_correct; auto. *)
-(* >>>>>>> origin/newstackadt2 *)
-(*   } *)
-(*   split. auto. *)
-(*   apply forward_to_backward_simulation. *)
-(*   apply factor_forward_simulation. auto. eapply sd_traces. eapply mono_semantics_determinate. *)
-(*   apply atomic_receptive. apply Cstrategy.semantics_strongly_receptive. *)
-(*   apply mono_semantics_determinate. *)
-(* Qed. *)
-Admitted.
+  intros p tp M NORSP m IM.
+  set( init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)))).
+  assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics init_sp tp)).
+  {
+    eapply cstrategy_semantic_preservation; eauto.
+  }
+  assert (G: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p)
+                                (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)).
+  {
+    eapply compose_forward_simulations. apply F.
+    eapply RawAsmgen.transf_program_correct; auto.
+  }
+  split. auto.
+  apply forward_to_backward_simulation.
+  apply factor_forward_simulation. auto. eapply sd_traces. eapply mono_semantics_determinate.
+  apply atomic_receptive. apply Cstrategy.semantics_strongly_receptive.
+  apply mono_semantics_determinate.
+Qed.
 
 Theorem cstrategy_semantic_preservation_raw':
   forall p tp,
@@ -600,27 +579,20 @@ Theorem cstrategy_semantic_preservation_raw':
       forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m)
       /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsmgen.mono_semantics tp tp (Asm.Pregmap.init Values.Vundef) m).
 Proof.
-(*   intros p tp M m IM. *)
-(*   eapply cstrategy_semantic_preservation_raw; eauto. *)
-(*   unfold match_prog, pass_match in M; simpl in M. *)
-(*   repeat DestructM.  *)
-(*   red. *)
-(*   intros. *)
-(* <<<<<<< HEAD *)
-(*   destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p18) b) eqn:?; auto. *)
-(*   eapply Asmgenproof.functions_translated in Heqo. *)
-(* ======= *)
-
-(*   subst. *)
-(*   destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p20) b) eqn:?; auto. *)
-(*   eapply Asmgenproof.functions_translated in Heqo. 2: eauto. *)
-(* >>>>>>> origin/newstackadt2 *)
-(*   destruct Heqo as (tf & FFP & TF); rewrite FFP in H. inv H. *)
-(*   destruct f0; simpl in TF; monadInv TF; try congruence. *)
-(*   eapply AsmFacts.asmgen_no_change_rsp; eauto. *)
-(*   eapply match_program_no_more_functions in Heqo; eauto. congruence. *)
-(* Qed. *)
-Admitted.
+  intros p tp M m IM.
+  eapply cstrategy_semantic_preservation_raw; eauto.
+  unfold match_prog, pass_match in M; simpl in M.
+  repeat DestructM.
+  red.
+  intros.
+  subst.
+  destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv p20) b) eqn:?; auto.
+  eapply Asmgenproof.functions_translated in Heqo. 2: eauto.
+  destruct Heqo as (tf & FFP & TF); rewrite FFP in H. inv H.
+  destruct f0; simpl in TF; monadInv TF; try congruence.
+  eapply AsmFacts.asmgen_no_change_rsp; eauto.
+  eapply match_program_no_more_functions in Heqo; eauto. congruence.
+Qed.
 
 Theorem c_semantic_preservation:
   forall p tp,

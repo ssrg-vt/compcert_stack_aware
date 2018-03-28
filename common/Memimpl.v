@@ -3738,7 +3738,7 @@ Lemma get_frame_info_inj:
     (MINJ: mem_inj f g m1 m2)
     (FB : f b1 = Some (b2, delta))
     (PERM: exists o k p, perm m1 b1 o k p /\ inject_perm_condition p),
-    option_le (fun fi => 
+    option_le_stack (fun fi => 
                  forall ofs k p,
                    perm m1 b1 ofs k p ->
                    inject_perm_condition p ->
@@ -4889,7 +4889,7 @@ Lemma get_frame_info_magree:
   forall P m1 m2 b
     (MINJ: magree m1 m2 P)
     (PERM: exists o k p, perm m1 b o k p /\ inject_perm_condition p),
-    option_le (fun fi => 
+    option_le_stack (fun fi => 
                  forall ofs k p,
                    perm m1 b ofs k p ->
                    inject_perm_condition p ->
@@ -9097,6 +9097,242 @@ Proof.
     destruct H2. rewrite H2 in H0. eauto.  
 Qed.
 
+Lemma get_setN_inside:
+  forall bytes t o o',
+    (o' <= o < o' + Z.of_nat (length bytes))%Z ->
+    ZMap.get o (setN bytes o' t) = nth (Z.to_nat (o - o')) bytes Undef.
+Proof.
+  induction bytes; intros; eauto. simpl in H; omega.
+  simpl length in H. rewrite Nat2Z.inj_succ in H.
+  simpl setN.
+  specialize (IHbytes (ZMap.set o' a t) o (o' + 1)%Z).
+  destruct (zeq o' o).
+  - subst. rewrite setN_outside. rewrite ZMap.gss. rewrite Z.sub_diag. simpl. auto.
+    omega.
+  - trim IHbytes. omega.
+    rewrite IHbytes.
+    replace (o - o')%Z with (Z.succ (o - (o' + 1))) by omega. rewrite Z2Nat.inj_succ by omega. simpl. auto.
+Qed.
+
+
+Lemma zle_zlt_false:
+  forall lo hi o,
+    zle lo o && zlt o hi = false <-> ~ (lo <= o < hi)%Z.
+Proof.
+  intros.
+  destruct (zle lo o), (zlt o hi); intuition; try congruence; try omega.
+Qed.
+
+Lemma get_setN:
+  forall bytes t o o',
+    ZMap.get o (setN bytes o' t) =
+    if zle o' o && zlt o (o' + Z.of_nat (length bytes))
+    then nth (Z.to_nat (o - o')) bytes Undef
+    else ZMap.get o t.
+Proof.
+  intros. destr. apply get_setN_inside. apply zle_zlt. auto.
+  apply zle_zlt_false in Heqb. 
+  apply setN_outside. omega.
+Qed.
+
+Lemma store_unchanged_on_1:
+    forall P chunk m m' b ofs v m1
+      (UNCH: Mem.unchanged_on P m m')
+      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
+      (PERMALL: forall b o, P b o)
+      (STORE: Mem.store chunk m b ofs v = Some m1),
+    exists m1',
+      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1'.
+Proof.
+  intros P chunk m m' b ofs v m1 UNCH SH PERMALL STORE.
+  unfold store in STORE |- *; repeat destr_in STORE.
+  destr.
+  - eexists; split; eauto.
+    inv UNCH.
+    split; simpl; auto.
+    intros.
+    change (perm m b0 ofs0 Cur Readable) in H0.
+    rewrite ! PMap.gsspec. destr; eauto. subst.
+    rewrite ! get_setN. destr. auto.
+  - contradict n.
+    destruct v0 as (v1 & v2 & v3); split; [|split]; auto.
+    + red; intros. inv UNCH. eapply unchanged_on_perm0; eauto.
+      eapply perm_valid_block. eapply v1; eauto.
+    + intros; trim v3; auto.
+      eapply stack_access_same_head_or_not_in_stack; eauto.
+      eapply stack_inv_norepet, mem_stack_inv.
+      eapply wf_stack_mem.
+Qed.
+
+Lemma storebytes_unchanged_on_1:
+    forall P m m' b ofs v m1
+      (UNCH: Mem.unchanged_on P m m')
+      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
+      (PERMALL: forall b o, P b o)
+      (STORE: Mem.storebytes m b ofs v = Some m1),
+    exists m1',
+      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1'.
+Proof.
+  intros P m m' b ofs v m1 UNCH SH PERMALL STORE.
+  unfold storebytes in STORE |- *; repeat destr_in STORE.
+  repeat destr.
+  - eexists; split; eauto.
+    inv UNCH.
+    split; simpl; auto.
+    intros.
+    change (perm m b0 ofs0 Cur Readable) in H0.
+    rewrite ! PMap.gsspec. destr; eauto. subst.
+    rewrite ! get_setN. destr. auto.
+  - contradict n.
+    eapply stack_access_same_head_or_not_in_stack.
+    eapply stack_inv_norepet, mem_stack_inv.
+    eapply wf_stack_mem. eauto. eauto. eauto.
+  - contradict n.
+    red; intros. apply r in H.
+    erewrite <- unchanged_on_perm; eauto. eapply perm_valid_block; eauto.
+Qed.
+
+Lemma valid_pointer_unchanged:
+  forall m1 m2,
+    Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+    Mem.nextblock m1 = Mem.nextblock m2 ->
+    Mem.valid_pointer m1 = Mem.valid_pointer m2.
+Proof.
+  unfold Mem.valid_pointer.
+  intros.
+  apply extensionality. intro b.
+  apply extensionality. intro o.
+  repeat destruct perm_dec; auto.
+  contradict n; erewrite <- unchanged_on_perm; eauto. simpl; auto. eapply perm_valid_block; eauto.
+  contradict n; erewrite unchanged_on_perm; eauto. simpl; auto. eapply perm_valid_block in p; eauto.
+  red; rewrite H0; eauto.
+Qed.
+
+Lemma push_new_stage_strong_unchanged_on:
+  forall m1 m2 P,
+    Mem.unchanged_on P m1 m2 ->
+    Mem.unchanged_on P (Mem.push_new_stage m1) (Mem.push_new_stage m2).
+Proof.
+  intros m1 m2 P UNCH; inv UNCH; split; auto.
+Qed.
+
+Lemma unchanged_on_free:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      forall b lo hi m1',
+        Mem.free m1 b lo hi = Some m1' ->
+        exists m2',
+          Mem.free m2 b lo hi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2'.
+Proof.
+  intros m1 m2 UNCH b lo hi m1' FREE; inv UNCH.
+  unfold free in *.
+  repeat destr_in FREE.
+  destr. eexists; split; eauto.
+  - split; simpl; auto.
+    intros.
+    unfold valid_block, unchecked_free in H0. simpl in H0.
+    unfold unchecked_free, perm. simpl. rewrite ! PMap.gsspec.
+    repeat destr; subst; eauto.
+    unfold unchecked_free, perm. simpl. intros. rewrite ! PMap.gsspec in H0.
+    repeat destr_in H0; subst; eauto.
+  - contradict n.
+    red; intros. eapply unchanged_on_perm0; eauto.
+    eapply perm_valid_block. eapply r; eauto.
+Qed.
+
+Lemma unchanged_on_unrecord:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      length (Mem.stack_adt m1) = length (Mem.stack_adt m2) ->
+      forall m1',
+        Mem.unrecord_stack_block m1 = Some m1' ->
+        exists m2',
+          Mem.unrecord_stack_block m2 = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2'.
+Proof.
+  intros.
+  unfold_unrecord.
+  rewrite H2 in H0.
+  destruct (Mem.stack_adt m2) eqn:STK2; simpl in H0. congruence.
+  unfold unrecord_stack_block.
+  setoid_rewrite STK2. eexists; split; eauto.
+  inv H; split; auto.
+Qed.
+
+Lemma unchanged_on_record:
+    forall m1 m2,
+      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+      Mem.nextblock m1 = Mem.nextblock m2 ->
+      same_head ((Mem.stack_adt m1)) ((Mem.stack_adt m2)) ->
+      forall m1' fi,
+        Mem.record_stack_blocks m1 fi = Some m1' ->
+        exists m2',
+          Mem.record_stack_blocks m2 fi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2'.
+Proof.
+  intros m1 m2 UNCH NB SH m1' fi RSB.
+  unfold record_stack_blocks in RSB. repeat destr_in RSB.
+  pattern m1'. eapply destr_dep_match. apply H0. simpl. intros; subst. clear H0.
+  inv UNCH.
+  inv SH. exfalso. inv t.
+  congruence.
+  unfold prepend_to_current_stage in pf.
+  unfold record_stack_blocks. repeat destr. eexists; split.
+  eapply constr_match. eauto.
+  split; simpl; auto.
+  - contradict n. red. eapply Forall_impl. 2: apply f0. simpl.
+    intros a INBLOCKS. destr. intros PERMS o k p PERM.
+    eapply PERMS. erewrite unchanged_on_perm0; eauto. eapply perm_valid_block in PERM.
+    red; rewrite NB; auto.
+  - contradict n. rewrite <- H0. inv t. rewrite <- H in H3; inv H3.
+    constructor.
+    red; intros. intro P. erewrite <- unchanged_on_perm0 in P; eauto.
+    eapply H4; eauto.
+    repeat destr_in H1. easy. rewrite in_frames_cons in H5. destruct H5 as [IFR|[]].
+    rewrite in_frames_cons; auto. eapply in_frames_valid.
+    repeat destr_in H1. easy. easy. rewrite in_frames_cons in H5. destruct H5 as [IFR|[]].
+    rewrite <- H, in_stack_cons; auto. rewrite in_frames_cons; auto.
+  - contradict g. rewrite <- H0. apply same_head_size in H2. simpl.
+    rewrite <- H in l. simpl in l. omega.
+  - contradict n. eapply Forall_impl. 2: apply f. simpl.
+    intros. rewrite <- H in pf. inv pf. intros INS; apply H4; clear H4.
+    eapply same_head_in_impl; eauto.
+    rewrite <- H, <- H0. constructor; auto.
+  - contradict n. red. red. rewrite <- NB. auto.
+    Unshelve.
+    2: rewrite <- H0; simpl; eauto.
+Qed.
+
+Lemma unrecord_push_unchanged:
+  forall m1 m2 m2',
+    Mem.unchanged_on (fun _ _ => True) m1 m2 ->
+    Mem.unrecord_stack_block m2 = Some m2' ->
+    Mem.unchanged_on (fun _ _ => True) m1 (Mem.push_new_stage m2').
+Proof.
+  intros.
+  unfold_unrecord. unfold push_new_stage. simpl.
+  inv H; split; auto.
+Qed.
+
+Lemma unchanged_on_alloc:
+  forall m1 m2 (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
+    lo hi m1' b (ALLOC1: Mem.alloc m1 lo hi = (m1', b))
+    m2' (ALLOC2: Mem.alloc m2 lo hi = (m2', b)),
+    Mem.unchanged_on (fun _ _ => True) m1' m2'.
+Proof.
+  unfold alloc.
+  intros. destr_in ALLOC1. destr_in ALLOC2.
+  inv UNCH; split; simpl; auto. xomega.
+  unfold valid_block, perm. simpl.
+  intros.
+  rewrite ! PMap.gsspec.
+  rewrite H1.
+  repeat destr. apply unchanged_on_perm0; auto. red. xomega.
+  intros.
+  rewrite H1.
+  rewrite ! PMap.gsspec; destr; auto.
+  apply unchanged_on_contents0; eauto.
+  unfold perm in H0. simpl in H0. rewrite PMap.gso in H0; auto.
+Qed.
+
 
 
 
@@ -9430,6 +9666,17 @@ Proof.
   intros; eapply loadbytes_push.
 
   intros; eapply record_stack_blocks_inject_right; eauto.
+
+  apply store_unchanged_on_1.
+  apply storebytes_unchanged_on_1.
+  apply valid_pointer_unchanged.
+  apply push_new_stage_strong_unchanged_on.
+  apply unchanged_on_free.
+  apply unchanged_on_unrecord.
+  apply unchanged_on_record.
+  apply unrecord_push_unchanged.
+  apply unchanged_on_alloc.
+
 Qed.
 
 End Mem.

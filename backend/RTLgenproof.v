@@ -1595,7 +1595,7 @@ Proof.
       erewrite Mem.alloc_stack_blocks in IFF; eauto.
       eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in H6. congruence.
     + intros b fi o k0 p [A|[]] P; inv A.
-      eapply Mem.perm_alloc_3 with (k1:= k0) (p0 := p); eauto.
+      revert P; rewrite_perms. rewrite peq_true. simpl; intros; rewrite Z.max_r; omega.
     + rewrite_stack_blocks.
       inv TOPNOPERM. constructor.
       red in H10. red.

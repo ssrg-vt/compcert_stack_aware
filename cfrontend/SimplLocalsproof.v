@@ -2542,7 +2542,7 @@ Proof.
       setoid_rewrite Forall_forall. simpl. rewrite H2. intros (b0&fi); simpl; intros IN b' delta J'B.
 
 
-      assert (exists i t, e ! i = Some (b0, t) /\ fi = {| frame_size := sizeof ge t; frame_perm := fun _ => Public |}).
+      assert (exists i t, e ! i = Some (b0, t) /\ fi = public_frame_info (sizeof ge t)).
       {
         unfold blocks_with_info in IN.
         unfold blocks_of_env in IN.
@@ -2561,7 +2561,7 @@ Proof.
 
       apply PTree.elements_correct in TENV.
       eexists. split. 2: apply inject_frame_info_id.
-      eapply in_map with (f := fun x => let '(b,_,hi) := block_of_binding ge x in (b, {|frame_size := hi; frame_perm := fun _ => Public |})) in TENV.
+      eapply in_map with (f := fun x => let '(b,_,hi) := block_of_binding ge x in (b, public_frame_info hi)) in TENV.
 
       unfold blocks_with_info, blocks_of_env. rewrite map_map. simpl in TENV.
       erewrite list_map_exten. apply TENV.
@@ -2604,7 +2604,8 @@ Proof.
       simpl in IN. rewrite ! map_map, in_map_iff in IN.
       destruct IN as [[id0 [bb ty]] [EQ' IN]].
       apply PTree.elements_complete in IN. simpl in EQ'; inv EQ'. simpl.
-      intros; eapply alloc_variables_perm; eauto.
+      intros PERM; eapply alloc_variables_perm in PERM; eauto.
+      rewrite Z.max_r by omega. auto.
       edestruct vars_and_temps_properties as (_ & AA & _); eauto.
       apply PTree.gempty.
     }

@@ -28,7 +28,6 @@ Require Import Smallstep.
 Require Import Op.
 Require Import Locations.
 Require Import Conventions.
-Require Import EraseArgs.
 Require Stacklayout.
 
 (** * Abstract syntax *)

@@ -72,7 +72,15 @@ Record frame_info :=
   {
     frame_size: Z;
     frame_perm: Z -> stack_permission;
+    frame_size_pos: (0 <= frame_size)%Z;
   }.
+
+Definition public_frame_info sz : frame_info :=
+  {|
+    frame_size := Z.max 0 sz;
+    frame_perm := fun _ => Public;
+    frame_size_pos := Z.le_max_l _ _;
+  |}.
 
 Definition frame_public f o := frame_perm f o = Public.
 
@@ -1650,10 +1658,10 @@ Section INJ.
     rewrite not_in_stack_get_assoc in H; auto. congruence.
   Qed.
 
-  Inductive option_le {A: Type} (Pns: A -> Prop) (Pss: A -> A -> Prop) (delta: Z): option A -> option A -> Prop :=
-  | option_le_none_none : option_le Pns Pss delta None None
-  | option_le_some_some a b : Pss a b -> option_le Pns Pss delta (Some a) (Some b)
-  | option_le_none_some a: Pns a -> option_le Pns Pss delta None (Some a).
+  Inductive option_le_stack {A: Type} (Pns: A -> Prop) (Pss: A -> A -> Prop) (delta: Z): option A -> option A -> Prop :=
+  | option_le_none_none : option_le_stack Pns Pss delta None None
+  | option_le_some_some a b : Pss a b -> option_le_stack Pns Pss delta (Some a) (Some b)
+  | option_le_none_some a: Pns a -> option_le_stack Pns Pss delta None (Some a).
 
   Lemma get_assoc_spec:
     forall s b fi,
@@ -1722,7 +1730,7 @@ Section INJ.
       (NDT2: Forall nodupt s2)
       (FB : f b1 = Some (b2, delta))
       (PERM: exists o k p, m1 b1 o k p /\ inject_perm_condition p),
-      option_le (fun fi => 
+      option_le_stack (fun fi => 
                    forall ofs k p,
                      m1 b1 ofs k p ->
                      inject_perm_condition p ->
@@ -2661,7 +2669,7 @@ Qed.
 
 Definition make_singleton_frame_adt (b: block) (sz: Z) (machsz: Z) :=
   {|
-    frame_adt_blocks := (b,{| frame_size := sz; frame_perm := fun o => Public |})::nil;
+    frame_adt_blocks := (b, public_frame_info sz)::nil;
     frame_adt_size := Z.max 0 machsz;
     frame_adt_blocks_norepet := norepet_1 _;
     frame_adt_size_pos := Z.le_max_l _ _
@@ -3263,7 +3271,7 @@ Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
 | match_stack_adt_cons lsp s f r sp bi z
                        (REC: match_stack_adt lsp s)
                        (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
-                       (SIZE: frame_size bi = z):
+                       (SIZE: frame_size bi = Z.max 0 z):
     match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
 
 Lemma list_forall2_refl:
@@ -3278,6 +3286,139 @@ Lemma stack_equiv_refl:
     stack_equiv R s s.
 Proof.
   induction s; constructor; eauto using list_forall2_refl.
+Qed.
+
+Definition same_head (m m': stack_adt) :=
+  list_forall2
+    (fun tf1 tf2 =>
+       match tf1, tf2 with
+       | _, nil => True
+       | a::r, b::nil => a = b
+       | _, _ => False
+       end)
+    m m'.
+
+Lemma same_head_get_frame_info:
+  forall s1 s2 (SH: same_head s1 s2)
+    (ND: nodup s1)
+    b f (GFI: get_frame_info s2 b = Some f),
+    get_frame_info s1 b = Some f.
+Proof.
+  induction 1; simpl; intros; eauto.
+  inv ND.
+  repeat destr_in H.
+  - destr. eauto.
+  - destr_in GFI. easy.
+    rewrite pred_dec_false. eauto.
+    intro IFR; eapply H3 in IFR; eauto. apply IFR.
+    eapply get_frame_info_in_stack; eauto.
+  - destr_in GFI; eauto.
+    + rewrite pred_dec_true.
+      simpl in *.
+      destr_in GFI.
+      rewrite in_frames_cons in *. destruct i; auto; easy.
+    + rewrite pred_dec_false. eauto.
+      intro IFR.
+      eapply H3 in IFR; eauto. apply IFR.
+      eapply get_frame_info_in_stack; eauto.
+Qed.
+
+Lemma same_head_in_impl:
+  forall s1 s2, same_head s1 s2 -> forall b, in_stack s2 b -> in_stack s1 b.
+Proof.
+  induction 1; simpl; intros; rewrite ? in_stack_cons in *; eauto.
+  repeat destr_in H.
+  - destruct H1. easy. apply IHlist_forall2 in H; auto.
+  - rewrite in_frames_cons in *.
+    destruct H1; auto.
+    destruct H; auto.
+  - rewrite in_frames_cons in *.
+    destruct H1; auto.
+    destruct H; auto.
+    easy.
+Qed.
+
+Lemma public_stack_access_same_head:
+  forall s1 (ND: nodup s1) s2 (SH: same_head s1 s2) b lo hi
+         (PSA: public_stack_access s1 b lo hi),
+    public_stack_access s2 b lo hi.
+Proof.
+  intros. red. destr. red in PSA.
+  erewrite same_head_get_frame_info in PSA; eauto.
+Qed.
+
+Definition stack_top_is_new s :=
+  top_tframe_prop (fun tf => tf = nil) s.
+
+Lemma is_stack_top_same_head:
+  forall P s1 (WF: wf_stack P inject_id s1) (ND: nodup s1) s2 (SH: same_head s1 s2) b
+         o k p (PERM: P b o k p)
+         (IST: is_stack_top s1 b),
+    is_stack_top s2 b \/ ~ in_stack s2 b.
+Proof.
+  intros.
+  inv SH. easy.
+  repeat destr_in H.
+  - right. intro IS. rewrite in_stack_cons in IS. destruct IS as [IFR|IS]. easy.
+    eapply same_head_in_impl in IS; eauto.
+    inv ND.
+    eapply H3 in IS; eauto.
+  - red in IST. simpl in IST.
+    left. assert (in_frame f0 b).
+    {
+      red. unfold get_frames_blocks in IST.  simpl in IST.
+      rewrite in_app in IST. destruct IST; auto.
+      rewrite concat_In in H. destruct H as (lb & INlb & INblocs).
+      exfalso. inv WF.
+      red in H2. simpl in H2.
+      eapply H2; eauto. unfold inject_id; congruence.
+      red. unfold get_frames_blocks. rewrite concat_In.  eexists; split. 2: apply INblocs. eauto.
+    }
+    red; simpl. unfold get_frames_blocks.
+    simpl. rewrite in_app. left; auto.
+Qed.
+
+Lemma stack_access_same_head:
+  forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 (SH: same_head s1 s2) b lo hi k p
+         (R: forall o, (lo <= o < hi)%Z -> P b o k p)
+         (SA: stack_access s1 b lo hi),
+    stack_access s2 b lo hi.
+Proof.
+  intros.
+  destruct (zlt lo hi).
+  destruct SA as [IST|PSA].
+  edestruct is_stack_top_same_head; eauto. apply (R lo). omega. left; auto.
+  right; red; destr. eapply get_frame_info_in_stack in Heqo; congruence.
+  right; eapply public_stack_access_same_head; eauto.
+  eapply lo_ge_hi_stack_access; eauto.
+Qed.
+
+Lemma stack_access_same_head_or_not_in_stack:
+  forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 b
+         (SH: same_head s1 s2 \/ ~ in_stack s2 b) lo hi k p
+         (R: forall o, (lo <= o < hi)%Z -> P b o k p)
+         (SA: stack_access s1 b lo hi),
+    stack_access s2 b lo hi.
+Proof.
+  intros.
+  destruct SH as [SH | NIS].
+  eapply stack_access_same_head; eauto.
+  right. red. destr. apply get_frame_info_in_stack in Heqo. congruence.          
+Qed.
+
+Lemma same_head_size:
+  forall s1 s2,
+    same_head s1 s2 ->
+    (size_stack s2 <= size_stack s1)%Z.
+Proof.
+  induction 1; simpl; intros; rewrite ? size_stack_cons. omega.
+  repeat destr_in H.
+  - omega.
+  - generalize (size_frames_pos (f::l)).
+    change (size_frames nil) with 0%Z. omega.
+  - apply Z.add_le_mono. auto.
+    rewrite ! size_frames_cons.
+    apply Z.max_le_compat_l. apply size_frames_pos.
 Qed.
 
 

@@ -1586,7 +1586,7 @@ Lemma frame_info_eq:
     frame_size f1 = frame_size f2 ->
     f1 = f2.
 Proof.
-  destruct f1, f2; intros; simpl in *; subst. f_equal.
+  destruct f1, f2; intros; simpl in *; subst. f_equal. apply Axioms.proof_irr.
 Qed.
 
 Lemma compat_frameinj_rec_pop_left:
@@ -1854,6 +1854,7 @@ Proof.
   exploit Mem.agree_perms_mem. rewrite <- H7.
   left; reflexivity. left; reflexivity. rewrite BLOCKS. left; reflexivity.
   eapply Mem.perm_free_3 in P; eauto. rewrite SIZE. intro RNG.
+  rewrite Zmax_spec in RNG. destr_in RNG. omega.
   eapply Mem.perm_free_2 in P. auto. eauto. auto.
   destruct CFINJ as (AA & BB). apply AA. omega.
   {
@@ -2076,13 +2077,14 @@ Proof.
     simpl.
     intros.
     inv H2.
+    rewrite Z.max_r by omega.
     split. omega. eapply Z.lt_le_trans. 2: apply H16.
-    rewrite Z.max_l in H13. omega. omega.
+    rewrite Zmax_spec in H10, H13. destr_in H10. omega. destr_in H13. omega. omega.
   + repeat rewrite_stack_blocks. unfold in_frame; simpl; intros. intros [?|[]]; subst.
     eapply Mem.in_frames_valid in H9. eapply Mem.fresh_block_alloc in H9; eauto.
   + red; unfold in_frame; simpl. intros ? [?|[]]; subst. eapply Mem.valid_new_block; eauto.
   + simpl. intros b fi [AA|[]]; inv AA.
-    simpl; eapply Mem.perm_alloc_3; eauto.
+    intros o k p; rewrite_perms. rewrite peq_true. simpl. intros; rewrite Z.max_r; omega.
   + unfold in_frame; simpl.
     intros b1 b2 delta FB. split; intros [?|[]]; subst; left.
     congruence.
@@ -2223,8 +2225,10 @@ Proof.
     - simpl.
       intros. rewrite PUB. auto.
     - simpl.
-      intros. split. omega.
-      rewrite SIZE. cut (o < mstk ctx). omega.
+      intros.
+      rewrite Zmax_spec in H7. destr_in H7. omega.
+      split. omega.
+      rewrite SIZE. cut (o < mstk ctx). rewrite Z.max_r by omega. omega.
       rewrite H3.
       rewrite Z.max_l; omega.
   }

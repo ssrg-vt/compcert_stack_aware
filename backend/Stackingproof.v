@@ -21,7 +21,6 @@ Require Import Values Memory Separation Events Globalenvs Smallstep.
 Require Import LTL Op Locations Linear Mach.
 Require Import Bounds Conventions Stacklayout Lineartyping.
 Require Import Stacking.
-Require Import EraseArgs.
 
 Local Open Scope sep_scope.
 
