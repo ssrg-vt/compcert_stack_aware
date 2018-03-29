@@ -89,6 +89,15 @@ Definition symbol_address ge l ofs :=
   label_to_ptr (genv_segblocks ge) (offset_seglabel l ofs).
 
 
+Lemma symbol_address_offset : forall ge ofs1 b s ofs,
+    symbol_address ge s Ptrofs.zero = Vptr b ofs ->
+    symbol_address ge s ofs1 = Vptr b (Ptrofs.add ofs ofs1).
+Proof.
+  unfold symbol_address. intros. destruct s.
+  simpl in *. unfold label_to_ptr in *. inv H.
+  rewrite Ptrofs.add_zero. auto.
+Qed.
+
 (* Definition get_label_offset (ge: t) (l:seglabel) (ofs:ptrofs): option ptrofs := *)
 (*   get_sect_label_offset (genv_smap ge) l ofs. *)
 
