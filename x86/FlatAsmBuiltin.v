@@ -5,7 +5,7 @@
 
 Require Import Axioms Coqlib Errors Maps AST Linking.
 Require Import Integers Floats Values Memory.
-Require Import FlatAsmGlobenv Sect.
+Require Import FlatAsmGlobenv Segment.
 
 (** * Arguments and results to builtin functions *)
 
@@ -17,8 +17,8 @@ Inductive builtin_arg (A: Type) : Type :=
   | BA_single (f: float32)
   | BA_loadstack (chunk: memory_chunk) (ofs: ptrofs)
   | BA_addrstack (ofs: ptrofs)
-  | BA_loadglobal (chunk: memory_chunk) (gloc: sect_label) (ofs: ptrofs)
-  | BA_addrglobal (gloc: sect_label) (ofs: ptrofs)
+  | BA_loadglobal (chunk: memory_chunk) (gloc: seglabel) (ofs: ptrofs)
+  | BA_addrglobal (gloc: seglabel) (ofs: ptrofs)
   | BA_splitlong (hi lo: builtin_arg A).
 
 
@@ -54,13 +54,11 @@ Inductive eval_builtin_arg: builtin_arg A -> val -> Prop :=
       eval_builtin_arg (BA_loadstack A chunk ofs) v
   | eval_BA_addrstack: forall ofs,
       eval_builtin_arg (BA_addrstack A ofs) (Val.offset_ptr sp ofs)
-  | eval_BA_loadglobal: forall chunk gloc ofs v o,
-      Genv.get_label_offset ge gloc ofs = Some o ->
-      Mem.loadv chunk m (flatptr o) = Some v ->
+  | eval_BA_loadglobal: forall chunk gloc ofs v,
+      Mem.loadv chunk m  (Genv.symbol_address ge gloc ofs) = Some v ->
       eval_builtin_arg (BA_loadglobal A chunk gloc ofs) v
-  | eval_BA_addrglobal: forall gloc ofs o,
-      (Genv.get_label_offset ge gloc ofs) = Some o -> 
-      eval_builtin_arg (BA_addrglobal A gloc ofs) (flatptr o)
+  | eval_BA_addrglobal: forall gloc ofs,
+      eval_builtin_arg (BA_addrglobal A gloc ofs) (Genv.symbol_address ge gloc ofs)
   | eval_BA_splitlong: forall hi lo vhi vlo,
       eval_builtin_arg hi vhi -> eval_builtin_arg lo vlo ->
       eval_builtin_arg (BA_splitlong A hi lo) (Val.longofwords vhi vlo).

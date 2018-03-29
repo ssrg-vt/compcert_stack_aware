@@ -1,5 +1,5 @@
 Require Import Coqlib Integers Floats Memory.
-Require Import Sect.
+Require Import Segment.
 
 (** Initialization data for global variables. *)
 
@@ -11,7 +11,7 @@ Inductive init_data: Type :=
   | Init_float32: float32 -> init_data
   | Init_float64: float -> init_data
   | Init_space: Z -> init_data
-  | Init_addrof:  sect_label -> ptrofs -> init_data.  (**r address of symbol + offset *)
+  | Init_addrof:  seglabel -> ptrofs -> init_data.  (**r address of symbol + offset *)
 
 Definition init_data_size (i: init_data) : Z :=
   match i with

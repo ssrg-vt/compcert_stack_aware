@@ -4,7 +4,7 @@
 (* ******************* *)
 
 Require Import Coqlib Integers AST Maps.
-Require Import Asm FlatAsm Sect.
+Require Import Asm FlatAsm Segment.
 Require Import Errors.
 Require Import FlatAsmBuiltin FlatAsmGlobdef.
 Require Import Memtype.
@@ -16,23 +16,23 @@ Local Open Scope error_monad_scope.
 (** Translation from CompCert Assembly (RawAsm) to FlatAsm *)
 
 
-Definition stack_sect_id: ident := 1%positive.
-Definition data_sect_id:  ident := 2%positive.
-Definition code_sect_id:  ident := 3%positive.
-Definition extfuns_sect_id: ident := 4%positive.
+Definition stack_segid: segid_type := 1%positive.
+Definition data_segid:  segid_type := 2%positive.
+Definition code_segid:  segid_type := 3%positive.
+Definition extfuns_segid: segid_type := 4%positive.
 
-Definition data_label (ofs:Z) : sect_label := (data_sect_id, Ptrofs.repr ofs).
-Definition code_label (ofs:Z) : sect_label := (code_sect_id, Ptrofs.repr ofs).
-Definition extfun_label (ofs:Z) : sect_label := (extfuns_sect_id, Ptrofs.repr ofs).
+Definition data_label (ofs:Z) : seglabel := (data_segid, Ptrofs.repr ofs).
+Definition code_label (ofs:Z) : seglabel := (code_segid, Ptrofs.repr ofs).
+Definition extfun_label (ofs:Z) : seglabel := (extfuns_segid, Ptrofs.repr ofs).
 
-Definition GID_MAP_TYPE := ident -> option sect_label.
+Definition GID_MAP_TYPE := ident -> option seglabel.
 Definition LABEL_MAP_TYPE := ident -> Asm.label -> option Z.
 
 Definition default_gid_map : GID_MAP_TYPE := fun id => None.
 Definition default_label_map : LABEL_MAP_TYPE :=
   fun id l => None.
 
-Definition update_gid_map (id:ident) (l:sect_label) (map:GID_MAP_TYPE) : GID_MAP_TYPE :=
+Definition update_gid_map (id:ident) (l:seglabel) (map:GID_MAP_TYPE) : GID_MAP_TYPE :=
   fun id' => if peq id id' then Some l else (map id').
 
 Definition update_label_map (id:ident) (l:Asm.label) (ofs:Z) (map:LABEL_MAP_TYPE) : LABEL_MAP_TYPE :=
@@ -86,7 +86,7 @@ Definition transl_gvar {V:Type} (gvar : AST.globvar V) : res (globvar V) :=
 
 (** Translation of global variables *)
 Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * sect_block)) :=
+                         : res (Z * list (ident * option FlatAsm.gdef * segblock)) :=
   match gdefs with
   | nil => OK (ofs, nil)
   | ((id, None) :: gdefs') =>
@@ -95,7 +95,7 @@ Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
     transl_globvars ofs gdefs'
   | ((id, Some (AST.Gvar v)) :: gdefs') =>
     let sz := AST.init_data_list_size (AST.gvar_init v) in
-    let sblk := mkSectBlock data_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    let sblk := mkSegBlock data_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
     let nofs := ofs+sz in
     do (fofs, tgdefs') <- transl_globvars nofs gdefs';
     do v' <- transl_gvar v;
@@ -163,7 +163,7 @@ Section WITH_LABEL_MAP.
 (** A mapping from labels in functions to their offsets in the code section *)
 Variable label_map : LABEL_MAP_TYPE.
 
-Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list sect_label) :=
+Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list seglabel) :=
   match tbl with
   | nil => OK nil
   | l::tbl' =>
@@ -427,7 +427,7 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
 
 Definition transl_instr (ofs:Z) (fid: ident) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
     let sz := si_size (snd i) in
-    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    let sblk := mkSegBlock code_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
     do instr <- transl_instr' fid (fst i);
     OK (instr, sblk).
 
@@ -447,12 +447,12 @@ Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instr_with_info) : 
 Definition transl_fun (fid: ident) (ofs:Z) (f:Asm.function) : res (Z* function) :=
   do (fofs, code') <- transl_instrs fid ofs (Asm.fn_code f);
   let sz := fofs - ofs in
-  let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+  let sblk := mkSegBlock code_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
   OK (fofs, (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk)).
 
 (** Translation of internal functions *)
 Fixpoint transl_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * sect_block) * code) :=
+                         : res (Z * list (ident * option FlatAsm.gdef * segblock) * code) :=
   match gdefs with
   | nil => OK (ofs, nil, nil)
   | ((id, None) :: gdefs') =>
@@ -473,7 +473,7 @@ Fixpoint transl_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fund
 
 (** Translation of external functions *)
 Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * sect_block)) :=
+                         : res (Z * list (ident * option FlatAsm.gdef * segblock)) :=
   match gdefs with
   | nil => OK (ofs, nil)
   | ((id, None) :: gdefs') =>
@@ -483,7 +483,7 @@ Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
     | External f => 
       (* We assume an external function only occupies one byte *)
       let nofs := ofs+1 in
-      let sblk := mkSectBlock extfuns_sect_id (Ptrofs.repr nofs) Ptrofs.one in
+      let sblk := mkSegBlock extfuns_segid (Ptrofs.repr nofs) Ptrofs.one in
       do (fofs, tgdefs') <- transl_ext_funs nofs gdefs';
       OK (fofs, (id, Some (Gfun (External f)), sblk)::tgdefs')
     | Internal fd =>
@@ -497,32 +497,20 @@ Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
 Section WITHMEMORYMODELOPS.
 Context `{memory_model_ops: Mem.MemoryModelOps}.
 
-Definition gen_smap (ds_size cs_size es_size: Z) : res section_map :=
-  if zle (ds_size + cs_size + es_size + Mem.stack_limit) Ptrofs.modulus then
-    let t1 := PTree.set data_sect_id Ptrofs.zero (PTree.empty _) in
-    let t2 := PTree.set code_sect_id (Ptrofs.repr ds_size) t1 in
-    let t3 := PTree.set extfuns_sect_id (Ptrofs.repr (ds_size + cs_size)) t2 in
-    let t4 := PTree.set stack_sect_id (Ptrofs.repr (Ptrofs.modulus - Mem.stack_limit)) t3 in
-    OK t4
-  else
-    Error (MSG "Sections are too large to fit into the memory" :: nil).
-
 (** Translation of a program *)
 Definition transl_prog_with_map (p:Asm.program) : res program := 
   do (data_sz, data_defs) <- transl_globvars 0 (AST.prog_defs p);
   do (h, code) <- transl_funs 0 (AST.prog_defs p);
   let (code_sz, fun_defs) := h in
   do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
-  do smap <- gen_smap data_sz code_sz extfuns_sz;
   OK (Build_program
         (data_defs ++ fun_defs ++ ext_fun_defs)
         (AST.prog_public p)
         (AST.prog_main p)
-        smap
-        (Build_section stack_sect_id (Ptrofs.repr Mem.stack_limit))
-        (Build_section data_sect_id (Ptrofs.repr data_sz))
-        (Build_section code_sect_id (Ptrofs.repr code_sz), code)
-        (Build_section extfuns_sect_id (Ptrofs.repr extfuns_sz)))
+        (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit))
+        (mkSegment data_segid (Ptrofs.repr data_sz))
+        (mkSegment code_segid (Ptrofs.repr code_sz), code)
+        (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))
       .
 
 End WITHMEMORYMODELOPS.

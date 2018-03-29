@@ -37,7 +37,7 @@ Require Recdef.
 Require Import Zwf.
 Require Import Axioms Coqlib Errors Maps AST Linking.
 Require Import Integers Floats Values Memory.
-Require Import Sect.
+Require Import Segment.
 Require Import FlatAsmGlobdef.
 
 Notation "s #1" := (fst s) (at level 9, format "s '#1'") : pair_scope.
@@ -64,11 +64,10 @@ Variable I: Type.  (**r The type of instructions *)
 (** The type of global environments. *)
 
 Record t: Type := mkgenv {
-  genv_defs: ZTree.t F;                 (**r mapping offsets -> function defintions *)
-  genv_smap: section_map;               (**r mapping from section ids to their addresses *)
-  genv_instrs_map: ZTree.t I;           (**r mapping offset -> instructions *)
-  genv_is_instr_internal : ptrofs -> bool;       (**r checking if pc points to an internal instruction *)
-  genv_stack_start : Z;
+  genv_defs: block -> ptrofs -> option F;                 (**r mapping offsets -> function defintions *)
+  genv_instrs: block -> ptrofs -> option I;           (**r mapping offset -> instructions *)
+  genv_internal_codeblock : block -> bool;
+  genv_segblocks: segid_type -> block;
 }.
 
 (** ** Lookup functions *)
@@ -76,34 +75,46 @@ Record t: Type := mkgenv {
 (** [find_funct_ptr ge ofs] returns the function description associated with
     the given address. *)
 
-Definition find_funct_offset (ge: t) (ofs: ptrofs) : option F :=
-  ZTree.get (Ptrofs.unsigned ofs) (genv_defs ge).
+Definition find_funct (ge: t) (v:val) : option F :=
+  match v with
+  | Vptr b ofs => genv_defs ge b ofs
+  | _ => None
+  end.
 
-(** Translate a label to an offset in the flat memory space *)
-Definition get_label_offset (ge: t) (l:sect_label) (ofs:ptrofs): option ptrofs :=
-  get_sect_label_offset (genv_smap ge) l ofs.
+Definition label_to_ptr (smap: segid_type -> block) (l:seglabel) : val :=
+  Vptr (smap (fst l)) (snd l).
 
-Definition get_label_offset0 ge l :=
-  get_sect_label_offset0 (genv_smap ge) l.
 
-(** Get the address value of a label *)
-Definition get_label_addr (ge: t) (l:sect_label) (ofs:ptrofs) : val :=
-  get_sect_label_addr (genv_smap ge) l ofs.
+Definition symbol_address ge l ofs := 
+  label_to_ptr (genv_segblocks ge) (offset_seglabel l ofs).
 
-Definition get_label_addr0 ge l :=
-  get_sect_label_addr0 (genv_smap ge) l.
 
-(** Translate a section block to an offset in the flat memory space *)
-Definition get_block_offset (ge: t) (sb:sect_block) (ofs:ptrofs): option ptrofs :=
-  get_sect_block_offset (genv_smap ge) sb ofs.
+(* Definition get_label_offset (ge: t) (l:seglabel) (ofs:ptrofs): option ptrofs := *)
+(*   get_sect_label_offset (genv_smap ge) l ofs. *)
 
-Definition get_block_offset0 ge sb :=
-  get_sect_block_offset0 (genv_smap ge) sb.
+(* Definition get_label_offset0 ge l := *)
+(*   get_sect_label_offset0 (genv_smap ge) l. *)
+
+(* Definition get_label_addr (ge: t) (l:sect_label) (ofs:ptrofs) : val := *)
+(*   get_sect_label_addr (genv_smap ge) l ofs. *)
+
+(* Definition get_label_addr0 ge l := *)
+(*   get_sect_label_addr0 (genv_smap ge) l. *)
+
+(* (** Translate a section block to an offset in the flat memory space *) *)
+(* Definition get_block_offset (ge: t) (sb:sect_block) (ofs:ptrofs): option ptrofs := *)
+(*   get_sect_block_offset (genv_smap ge) sb ofs. *)
+
+(* Definition get_block_offset0 ge sb := *)
+(*   get_sect_block_offset0 (genv_smap ge) sb. *)
 
 
 (** Find an instruction at an offset *)
-Definition find_instr (ge: t) (ofs:ptrofs) : option I :=
-  ZTree.get (Ptrofs.unsigned ofs) (genv_instrs_map ge).
+Definition find_instr (ge: t) (v:val) : option I :=
+  match v with
+  | Vptr b ofs => (genv_instrs ge b ofs)
+  | _ => None
+  end.
 
 End GENV.
 
