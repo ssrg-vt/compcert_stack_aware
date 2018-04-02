@@ -17,12 +17,12 @@ Require Import Conventions1.
 Section WITHMEMORYMODEL.
 
   Existing Instance mem_accessors_default.
-  Context `{external_calls_prf : ExternalCalls }.
+  Context `{memory_model_ops: Mem.MemoryModelOps}.
+  Context `{external_calls_ops : !ExternalCallsOps mem}.
+  Context `{enable_builtins: !EnableBuiltins mem}.
 
 Section WITHGE.
   Variable ge : Genv.t Asm.fundef unit.
-
-  Definition bstack: block := Genv.genv_next ge.
 
   Definition exec_instr f i' rs (m: mem) :=
     match i' with
@@ -50,7 +50,7 @@ Section WITHGE.
     | Pcall_r r sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (rs r)) m
     | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
-    | _ => Asm.exec_instr Vnullptr ge f i' rs m
+    | _ => Asm.exec_instr nil ge f i' rs m
     end
     end.
   
@@ -113,6 +113,13 @@ End WITHGE.
   Definition semantics prog rs m :=
     Semantics step (initial_state prog rs m) final_state (Genv.globalenv prog).
 
+End WITHMEMORYMODEL.
+
+Section WITHMEMORYMODEL2.
+
+  Existing Instance mem_accessors_default.
+  Context `{external_calls_prf : ExternalCalls }.
+
   Lemma semantics_determinate:
     forall p m rs,
       determinate (semantics p rs m).
@@ -142,7 +149,7 @@ End WITHGE.
       eapply Events.external_call_trace_length; eauto.
     - (* initial states *)
       inv H; inv H0.
-      assert (m1 = m0 /\ bstack1 = bstack0) by intuition congruence. destruct H; subst.
+      assert (m1 = m0 /\ bstack = bstack0) by intuition congruence. destruct H; subst.
       assert (m2 = m4) by congruence. subst.
       f_equal. congruence.
     - (* final no step *)
@@ -153,5 +160,5 @@ End WITHGE.
       inv H; inv H0. congruence.
   Qed.
   
-End WITHMEMORYMODEL.
+End WITHMEMORYMODEL2.
 

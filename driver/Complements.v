@@ -47,8 +47,10 @@ Context `{memory_model_x_prf: !Unusedglobproof.Mem.MemoryModelX mem}.
 Theorem transf_c_program_preservation:
   forall p tp beh,
   transf_c_program p = OK tp ->
-  let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
-  program_behaves (Asm.semantics init_sp tp) beh ->
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
+  program_behaves (Asm.semantics tp init_stk) beh ->
   exists beh', program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh' /\ behavior_improves beh' beh.
 Proof.
   intros. eapply backward_simulation_behavior_improves; eauto.
@@ -62,8 +64,10 @@ Theorem transf_c_program_is_refinement:
   forall p tp,
   transf_c_program p = OK tp ->
   (forall beh, program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh -> not_wrong beh) ->
-  let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
-  (forall beh, program_behaves (Asm.semantics init_sp tp) beh -> program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh).
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
+  (forall beh, program_behaves (Asm.semantics tp init_stk) beh -> program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh).
 Proof.
   intros. eapply backward_simulation_same_safe_behavior; eauto.
   apply transf_c_program_correct; auto.
@@ -75,16 +79,18 @@ Qed.
 Theorem transf_cstrategy_program_preservation:
   forall p tp,
     transf_c_program p = OK tp ->
-    let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
   (forall beh, program_behaves (Cstrategy.semantics (fn_stack_requirements tp) p) beh ->
-     exists beh', program_behaves (Asm.semantics init_sp tp) beh' /\ behavior_improves beh beh')
-/\(forall beh, program_behaves (Asm.semantics init_sp tp) beh ->
+     exists beh', program_behaves (Asm.semantics tp init_stk) beh' /\ behavior_improves beh beh')
+/\(forall beh, program_behaves (Asm.semantics tp init_stk) beh ->
      exists beh', program_behaves (Cstrategy.semantics (fn_stack_requirements tp) p) beh' /\ behavior_improves beh' beh)
 /\(forall beh, not_wrong beh ->
-     program_behaves (Cstrategy.semantics (fn_stack_requirements tp) p) beh -> program_behaves (Asm.semantics init_sp tp) beh)
+     program_behaves (Cstrategy.semantics (fn_stack_requirements tp) p) beh -> program_behaves (Asm.semantics tp init_stk) beh)
 /\(forall beh,
      (forall beh', program_behaves (Cstrategy.semantics (fn_stack_requirements tp) p) beh' -> not_wrong beh') ->
-     program_behaves (Asm.semantics init_sp tp) beh ->
+     program_behaves (Asm.semantics tp init_stk) beh ->
      program_behaves (Cstrategy.semantics (fn_stack_requirements tp) p) beh).
 Proof.
   intros p tp.
@@ -113,14 +119,16 @@ Qed.
 Theorem bigstep_cstrategy_preservation:
   forall p tp,
     transf_c_program p = OK tp ->
-    let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
   (forall t r,
      Cstrategy.bigstep_program_terminates (fn_stack_requirements tp) p t r ->
-     program_behaves (Asm.semantics init_sp tp) (Terminates t r))
+     program_behaves (Asm.semantics tp init_stk) (Terminates t r))
 /\(forall T,
      Cstrategy.bigstep_program_diverges (fn_stack_requirements tp) p T ->
-       program_behaves (Asm.semantics init_sp tp) (Reacts T)
-    \/ exists t, program_behaves (Asm.semantics init_sp tp) (Diverges t) /\ traceinf_prefix t T).
+       program_behaves (Asm.semantics tp init_stk) (Reacts T)
+    \/ exists t, program_behaves (Asm.semantics tp init_stk) (Diverges t) /\ traceinf_prefix t T).
 Proof.
   intros p tp TP init_sp. 
   split.
@@ -156,9 +164,11 @@ Hypothesis spec_stable:
 Theorem transf_c_program_preserves_spec:
   forall p tp,
     transf_c_program p = OK tp ->
-    let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
     (forall beh, program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh -> spec beh) ->
-    (forall beh, program_behaves (Asm.semantics init_sp tp) beh -> spec beh).
+    (forall beh, program_behaves (Asm.semantics tp init_stk) beh -> spec beh).
 Proof.
   intros.
   exploit transf_c_program_preservation; eauto. intros [beh' [A B]].
@@ -180,9 +190,11 @@ Hypothesis spec_safety:
 Theorem transf_c_program_preserves_safety_spec:
   forall p tp,
     transf_c_program p = OK tp ->
-    let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
     (forall beh, program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh -> spec beh) ->
-    (forall beh, program_behaves (Asm.semantics init_sp tp) beh -> spec beh).
+    (forall beh, program_behaves (Asm.semantics tp init_stk) beh -> spec beh).
 Proof.
   intros. eapply transf_c_program_preserves_spec; eauto.
   intros. destruct H2. congruence. destruct H2 as [t [EQ1 EQ2]].
@@ -205,9 +217,11 @@ Definition liveness_spec_satisfied {RETVAL: Type} (b: program_behavior RETVAL) :
 Theorem transf_c_program_preserves_liveness_spec:
   forall p tp,
     transf_c_program p = OK tp ->
-    let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
     (forall beh, program_behaves (Csem.semantics (fn_stack_requirements tp) p) beh -> liveness_spec_satisfied beh) ->
-    (forall beh, program_behaves (Asm.semantics init_sp tp) beh -> liveness_spec_satisfied beh).
+    (forall beh, program_behaves (Asm.semantics tp init_stk) beh -> liveness_spec_satisfied beh).
 Proof.
   intros. eapply transf_c_program_preserves_spec; eauto.
   intros. destruct H3 as [t1 [A B]]. destruct H2.

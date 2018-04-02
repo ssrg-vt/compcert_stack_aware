@@ -48,6 +48,18 @@ Definition locset := block -> Z -> Prop.
 
 Close Scope nat_scope.
 
+Definition stack_limit: Z := 4096.
+
+Lemma stack_limit_range: 0 <= stack_limit <= Ptrofs.max_unsigned.
+Proof.
+  simpl. vm_compute. intuition congruence.
+Qed.
+
+Lemma stack_limit_aligned: (8 | stack_limit).
+Proof.
+  simpl. unfold stack_limit. exists 512; omega.
+Qed.
+
 Class MemoryModelOps
       (** The abstract type of memory states. *)
  (mem: Type)
@@ -201,7 +213,6 @@ that we now axiomatize. *)
  (*                           option mem; *)
  unrecord_stack_block: mem -> option mem;
  frame_inject f := StackADT.frame_inject f;
- stack_limit: Z;
 }.
 
 
@@ -1857,10 +1868,6 @@ for [unchanged_on]. *)
      (IST: is_stack_top ( (stack_adt m1)) b1),
      is_stack_top ( (stack_adt m2)) b2 ;
 
- stack_limit_range:
-   0 <= stack_limit <= Ptrofs.max_unsigned;
- stack_limit_aligned:
-   (8 | stack_limit);
  size_stack_below:
    forall m, size_stack (stack_adt m) < stack_limit;
 
@@ -1872,7 +1879,6 @@ for [unchanged_on]. *)
       (FAP2: frame_at_pos (stack_adt m2) O f2)
       (FI: tframe_inject j (perm m1) (f1::nil) f2)
       (HP: has_perm_frame (perm m1) j f1)
-      (SZ2: Forall (fun f => Forall (fun f =>0 = frame_adt_size f) f)%Z (stack_adt m2)) 
       (RSB: record_stack_blocks m1 f1 = Some m1')
       (G0: g O = Some O),
       inject j g m1' m2;
@@ -1881,7 +1887,7 @@ for [unchanged_on]. *)
     forall (m1 m1' m2 : mem) (j : meminj) g,
       inject j g m1 m2 ->
       unrecord_stack_block m1 = Some m1' ->
-      (forall i j, g i = Some j -> j = O) ->
+      (* (forall i j, g i = Some j -> j = O) -> *)
       (forall b, is_stack_top (stack_adt m1) b -> forall o k p, ~ perm m1 b o k p) ->
       g 1%nat = Some O ->
       (* size_stack (stack_adt m2) <= size_stack (stack_adt m1') -> *)
