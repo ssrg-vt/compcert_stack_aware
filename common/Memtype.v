@@ -48,6 +48,18 @@ Definition locset := block -> Z -> Prop.
 
 Close Scope nat_scope.
 
+Definition stack_limit: Z := 4096.
+
+Lemma stack_limit_range: 0 <= stack_limit <= Ptrofs.max_unsigned.
+Proof.
+  simpl. vm_compute. intuition congruence.
+Qed.
+
+Lemma stack_limit_aligned: (8 | stack_limit).
+Proof.
+  simpl. unfold stack_limit. exists 512; omega.
+Qed.
+
 Class MemoryModelOps
       (** The abstract type of memory states. *)
  (mem: Type)
@@ -201,7 +213,6 @@ that we now axiomatize. *)
  (*                           option mem; *)
  unrecord_stack_block: mem -> option mem;
  frame_inject f := StackADT.frame_inject f;
- stack_limit: Z;
 }.
 
 
@@ -1857,10 +1868,6 @@ for [unchanged_on]. *)
      (IST: is_stack_top ( (stack_adt m1)) b1),
      is_stack_top ( (stack_adt m2)) b2 ;
 
- stack_limit_range:
-   0 <= stack_limit <= Ptrofs.max_unsigned;
- stack_limit_aligned:
-   (8 | stack_limit);
  size_stack_below:
    forall m, size_stack (stack_adt m) < stack_limit;
 

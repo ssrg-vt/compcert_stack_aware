@@ -351,7 +351,8 @@ Section WITHMEMORYMODEL.
     2: apply align_le.
     apply frame_adt_size_pos. omega.
   Qed.
-  
+
+  Opaque Mem.stack_limit.
  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4 sz,
       match_states j (Ptrofs.unsigned ostack) (State rs1 m1) (State rs1' m1') ->
@@ -2045,9 +2046,7 @@ End PRESERVATION.
       rewnb. destr.
     - repeat rewrite_stack_blocks.
       repeat econstructor; eauto.
-      + rewrite F'B. f_equal. f_equal.
-        simpl. change (align (Z.max 0 0) 8) with 0. omega.
-      + simpl. rewrite Z.max_r by omega. intros; omega.
+      simpl. rewrite Z.max_r by omega. intros; omega.
     - red. repeat rewrite_stack_blocks. simpl.
       intros. destruct H as [[]|[[A|[]]|[]]]. destruct A as [A|[]]; inv A.
       simpl. rewrite Z.max_r by omega. change (align 0 8) with 0. omega.

@@ -114,8 +114,6 @@ Definition perm_order'' (po1 po2: option permission) :=
   | None, Some _ => False
  end.
 
-Definition stack_limit: Z := 4096.
-
 Definition in_bounds (o: Z) (bnds: Z*Z) :=
   fst bnds <= o < snd bnds.
 
@@ -1630,7 +1628,6 @@ Proof.
   exact push_new_stage.
   exact record_stack_blocks.
   exact unrecord_stack_block.
-  exact stack_limit.
 Defined.
 
 Section WITHINJPERM.
@@ -9601,8 +9598,6 @@ Proof.
   intros; eapply in_frames_valid; eauto.
   intros; eapply is_stack_top_extends; eauto.
   intros; eapply is_stack_top_inject; eauto.
-  simpl. vm_compute. intuition congruence.
-  simpl. unfold stack_limit. exists 512; omega.
   intros. simpl. eapply stack_inv_below_limit, mem_stack_inv.
   intros; eapply record_stack_block_inject_left_zero'; eauto.
   specialize (FI _ (or_introl eq_refl)). auto.

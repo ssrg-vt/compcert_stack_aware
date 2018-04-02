@@ -17,7 +17,9 @@ Require Import Conventions1.
 Section WITHMEMORYMODEL.
 
   Existing Instance mem_accessors_default.
-  Context `{external_calls_prf : ExternalCalls }.
+  Context `{memory_model_ops: Mem.MemoryModelOps}.
+  Context `{external_calls_ops : !ExternalCallsOps mem}.
+  Context `{enable_builtins: !EnableBuiltins mem}.
 
 Section WITHGE.
   Variable ge : Genv.t Asm.fundef unit.
@@ -111,6 +113,13 @@ End WITHGE.
   Definition semantics prog rs m :=
     Semantics step (initial_state prog rs m) final_state (Genv.globalenv prog).
 
+End WITHMEMORYMODEL.
+
+Section WITHMEMORYMODEL2.
+
+  Existing Instance mem_accessors_default.
+  Context `{external_calls_prf : ExternalCalls }.
+
   Lemma semantics_determinate:
     forall p m rs,
       determinate (semantics p rs m).
@@ -151,5 +160,5 @@ End WITHGE.
       inv H; inv H0. congruence.
   Qed.
   
-End WITHMEMORYMODEL.
+End WITHMEMORYMODEL2.
 
