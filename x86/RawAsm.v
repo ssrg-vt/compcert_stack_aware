@@ -48,7 +48,7 @@ Section WITHGE.
     | Pcall_r r sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (rs r)) m
     | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
-    | _ => Asm.exec_instr ge f i' rs m
+    | _ => Asm.exec_instr nil ge f i' rs m
     end
     end.
   

@@ -32,11 +32,15 @@ Axiom i64_helpers_correct_prf:
 
 (** * Correctness of the CompCert compiler *)
 
+Require Import List.
+
 Theorem transf_c_program_correct:
   forall p tp,
   Compiler.transf_c_program p = Errors.OK tp ->
-  let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))) in
-  Smallstep.backward_simulation (Csem.semantics (Compiler.fn_stack_requirements tp) p) (Asm.semantics init_sp tp).
+    let init_stk :=
+        (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
+  Smallstep.backward_simulation (Csem.semantics (Compiler.fn_stack_requirements tp) p) (Asm.semantics tp init_stk).
 Proof.
   apply Compiler.transf_c_program_correct.
 Qed.
@@ -60,8 +64,10 @@ Theorem separate_transf_c_program_correct:
   exists asm_program, 
       Linking.link_list asm_units = Some asm_program
       /\
-      let init_sp := (Asmgenproof.ptr_of_block (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv asm_program))) in
-      Smallstep.backward_simulation (Csem.semantics (Compiler.fn_stack_requirements asm_program) c_program) (Asm.semantics init_sp asm_program).
+      let init_stk :=
+          (StackADT.make_singleton_frame_adt
+             (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv asm_program)) 0 0 :: nil) :: nil in
+      Smallstep.backward_simulation (Csem.semantics (Compiler.fn_stack_requirements asm_program) c_program) (Asm.semantics asm_program init_stk).
 Proof.
   apply Compiler.separate_transf_c_program_correct.
 Qed.

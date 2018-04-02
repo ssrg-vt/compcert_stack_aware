@@ -45,8 +45,8 @@ Section WITHMEMORYMODEL.
 
   Definition asm_instr_no_rsp (i : Asm.instr_with_info) : Prop :=
     stack_invar i = true ->
-    forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f,
-      Asm.exec_instr ge f i rs1 m1 = Next rs2 m2 ->
+    forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
+      Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       rs2 # RSP = rs1 # RSP.
 
   Definition asm_code_no_rsp (c : Asm.code) : Prop :=
@@ -233,9 +233,9 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       unfold Asmgen.code_to_with_info in H; simpl_cinfo
     | [ H: context [Asmgen.instr_to_with_info _ _] |- _ ] =>
       unfold Asmgen.instr_to_with_info in H; simpl_cinfo
-    | [ H: context [exec_instr _ _ _ _ _ = Next _ _] |- _ ] =>
+    | [ H: context [exec_instr ?init_stk _ _ _ _ _ = Next _ _] |- _ ] =>
       unfold exec_instr in H; simpl_cinfo
-    | [ |- exec_instr _ _ _ _ _ = Next _ _ ] =>
+    | [ |- exec_instr ?init_stk _ _ _ _ _ = Next _ _ ] =>
       unfold exec_instr; simpl_cinfo
     | _ => simpl in *
     end.
@@ -244,7 +244,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     repeat match goal with
              H: bind _ ?x = OK ?x1 |- _ =>
              monadInv H
-           | H: exec_instr _ _ _ _ _ = _ |- _ =>
+           | H: exec_instr ?init_stk _ _ _ _ _ = _ |- _ =>
              unfold exec_instr in H; simpl in H; inv H
            | |- _ => apply asm_code_no_rsp_cons; auto; red; simpl; intros; solve_rs
            end.
@@ -257,41 +257,28 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       asm_instr_no_rsp i.
   Proof.
     intros x0 m x2 i c A B C.
-    unfold mk_setcc in B. unfold Asmgen.mk_setcc in B. destr_in B.
-    - destruct c. simpl in *.
-      unfold Asmgen.instr_to_with_info in B.
-      destruct B; subst; auto; red; intros; unfold Asm.exec_instr in H1; simpl in H1; solve_rs.
-      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in B; simpl in B. 
-      destruct (ireg_eq x2 RAX) eqn: IEQ; simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in B; simpl in B. 
-      destruct (ireg_eq x2 RAX) eqn: IEQ; simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      simpl in B. destr_in B.
-      red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in *; simpl in EI; solve_rs.
-    - destruct c.
-      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in B; simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      simpl in B.
-      destruct B; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI;  unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
-      destruct H0; subst; auto. red. intros IU F V ge rs1 m1 rs2 m2 f EI; unfold Asm.exec_instr in EI; simpl in EI; solve_rs.
+    Ltac ainr :=
+      match goal with
+        |- asm_instr_no_rsp (?i, _) =>
+        let invar := fresh "invar" in
+        let F := fresh "F" in
+        let V := fresh "V" in
+        let ge := fresh "ge" in
+        let rs1 := fresh "rs1" in
+        let m1 := fresh "m1" in
+        let rs2 := fresh "rs2" in
+        let m2 := fresh "m2" in
+        let init_stk := fresh "init_stk" in
+        let EI := fresh "EI" in
+        intros invar F V ge rs1 m1 rs2 m2 f init_stk EI;
+        unfold Asm.exec_instr in EI; simpl in EI; solve_rs
+      end.
+    unfold mk_setcc in B. unfold Asmgen.mk_setcc in B.
+    destr_in B; destruct c; simpl in *;
+      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in *; simpl in *;
+        (intuition subst; simpl in *; auto; try ainr).
+    - destr_in B; simpl in *; intuition subst; simpl in *; auto; try ainr.
+    - destr_in B; simpl in *; intuition subst; simpl in *; auto; try ainr.
   Qed.
 
   Lemma asmgen_transl_cond_rsp:
@@ -303,23 +290,9 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Proof.
     unfold transl_cond, Asmgen.transl_cond; simpl.
     intros x0 m x2 x1 cond l ACNR IREG TRANSL.
-    repeat destr_in TRANSL.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
-    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
-    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
-    - destruct c; invasm; eauto; simpl in *; solve_rs; eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
-    - invasm. eauto. eapply mkset_cc_no_rsp; eauto.
+    repeat destr_in TRANSL; try destruct (c:comparison);
+      invasm; eauto;
+        simpl in *; solve_rs; eauto using mkset_cc_no_rsp.
   Qed.
 
   Lemma goto_label_rsp:
@@ -332,7 +305,6 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     repeat destr_in A. solve_rs.
   Qed.
 
-
   Lemma mkjcc_no_rsp:
     forall x0 x2 i c,
       asm_code_no_rsp x0 ->
@@ -340,19 +312,9 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       asm_instr_no_rsp i.
   Proof.
     intros x0 x2 i c A H1.
-    unfold mk_jcc, Asmgen.mk_jcc in H1. destr_in H1; simpl_cinfo.
-    - destruct H1. subst. red; simpl; intros; simpl_cinfo.
-      repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs.
-      eapply A; eauto.
-    - destruct H1. subst. red; simpl; intros; simpl_cinfo.
-      invasm. repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs.
-      destruct H0. subst. red; simpl; intros; simpl_cinfo. 
-      invasm. repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs.
-      simpl in H0. 
-      eapply A; eauto.
-    - destruct H1. subst.  red; simpl; intros; simpl_cinfo.
-      invasm. repeat destr_in H1. eapply goto_label_rsp; eauto. solve_rs. solve_rs.
-      intros. eapply A. eauto.
+    unfold mk_jcc, Asmgen.mk_jcc in H1.
+    destr_in H1; simpl_cinfo; intuition subst; simpl in *; auto; ainr;
+      repeat destr_in EI; eauto using goto_label_rsp.
   Qed.
   
   Lemma asmgen_transl_cond_rsp':
@@ -363,55 +325,10 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Proof.
     unfold transl_cond, Asmgen.transl_cond; simpl.
     intros x0 x2 x1 cond l ACNR TRANSL.
-    repeat destr_in TRANSL.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
-      invasm; repeat destr_in H3; eauto;
-      eapply goto_label_rsp; eauto.
-    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
-        invasm; repeat destr_in H3; eauto;
-          eapply goto_label_rsp; eauto.
-    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
-        invasm; repeat destr_in H3; eauto;
-          eapply goto_label_rsp; eauto.
-    - destruct c; invasm; eauto; intuition subst; eauto; try solve_rs; red; simpl; intros;
-        invasm; repeat destr_in H3; eauto;
-          eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
-    - invasm. eauto. intuition subst; eauto. red; simpl; intros.
-      invasm. repeat destr_in H3; eauto.
-      eapply goto_label_rsp; eauto.
+    repeat destr_in TRANSL;
+      try destruct (c: comparison);
+      invasm; eauto; unfold Asmgen.instr_to_with_info in *; intuition subst; eauto; try solve_rs;
+        ainr; repeat destr_in EI; eauto using goto_label_rsp.
   Qed.
 
   Lemma intconv_no_change_rsp:
@@ -490,8 +407,8 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
 
   Definition asm_instr_no_stack (i : Asm.instr_with_info) : Prop :=
     stack_invar i = true ->
-    forall F V (ge: _ F V) rs1 m1 rs2 m2 f,
-      Asm.exec_instr ge f i rs1 m1 = Next rs2 m2 ->
+    forall F V (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
+      Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
 
 
@@ -531,7 +448,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Lemma asmgen_no_change_stack i:
     asm_instr_no_stack i.
   Proof.
-    red; intros IU F V ge0 rs1 m1 rs2 m2 f EI.
+    red; intros IU F V ge0 rs1 m1 rs2 m2 f init_stk EI.
     destruct i as (i & info);
       destruct i; simpl in IU; try discriminate;
         unfold exec_instr in EI; simpl in EI; repeat destr_in EI;
@@ -545,8 +462,8 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Qed.
 
   Definition asm_instr_nb_fw i:=
-    forall F V (ge: _ F V) f rs1 m1 rs2 m2,
-      Asm.exec_instr ge f i rs1 m1 = Next rs2 m2 ->
+    forall F V (ge: _ F V) f rs1 m1 rs2 m2 init_stk,
+      Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       Ple (Mem.nextblock m1) (Mem.nextblock m2).
 
   Definition asm_code_nb_fw c :=
@@ -578,7 +495,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
   Lemma asmgen_nextblock_forward i:
     asm_instr_nb_fw i.
   Proof.
-    red. intros F V ge f rs1 m1 rs2 m2 EI.
+    red. intros F V ge f rs1 m1 rs2 m2 init_stk EI.
     unfold exec_instr in EI.
     destruct i as(i&info); destruct i; simpl in EI; inv EI; try (apply Ple_refl);
       first [now eapply exec_load_nb; eauto

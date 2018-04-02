@@ -784,6 +784,8 @@ Ltac TailNoLabel :=
 Section WITHCONFIG.
 
   Local Existing Instance mem_accessors_default.
+  Variable init_stk: stack_adt.
+
 Section STRAIGHTLINE.
 
 Variable ge: genv.
@@ -800,12 +802,12 @@ Inductive exec_straight: code -> regset -> mem ->
                          code -> regset -> mem -> Prop :=
   | exec_straight_one:
       forall i1 c rs1 m1 rs2 m2,
-        exec_instr ge fn i1 rs1 m1 = Next rs2 m2 ->
+        exec_instr init_stk ge fn i1 rs1 m1 = Next rs2 m2 ->
       rs2#PC = Val.offset_ptr rs1#PC (Ptrofs.repr (instr_size i1)) ->
       exec_straight (i1 :: c) rs1 m1 c rs2 m2
   | exec_straight_step:
       forall i c rs1 m1 rs2 m2 c' rs3 m3,
-      exec_instr ge fn i rs1 m1 = Next rs2 m2 ->
+      exec_instr init_stk ge fn i rs1 m1 = Next rs2 m2 ->
       rs2#PC = Val.offset_ptr rs1#PC (Ptrofs.repr (instr_size i)) ->
       exec_straight c rs2 m2 c' rs3 m3 ->
       exec_straight (i :: c) rs1 m1 c' rs3 m3.
@@ -823,8 +825,8 @@ Qed.
 
 Lemma exec_straight_two:
   forall i1 i2 c rs1 m1 rs2 m2 rs3 m3,
-  exec_instr ge fn i1 rs1 m1 = Next rs2 m2 ->
-  exec_instr ge fn i2 rs2 m2 = Next rs3 m3 ->
+  exec_instr init_stk ge fn i1 rs1 m1 = Next rs2 m2 ->
+  exec_instr init_stk ge fn i2 rs2 m2 = Next rs3 m3 ->
   rs2#PC = Val.offset_ptr rs1#PC (Ptrofs.repr (instr_size i1)) ->
   rs3#PC = Val.offset_ptr rs2#PC (Ptrofs.repr (instr_size i2)) ->
   exec_straight (i1 :: i2 :: c) rs1 m1 c rs3 m3.
@@ -835,9 +837,9 @@ Qed.
 
 Lemma exec_straight_three:
   forall i1 i2 i3 c rs1 m1 rs2 m2 rs3 m3 rs4 m4,
-  exec_instr ge fn i1 rs1 m1 = Next rs2 m2 ->
-  exec_instr ge fn i2 rs2 m2 = Next rs3 m3 ->
-  exec_instr ge fn i3 rs3 m3 = Next rs4 m4 ->
+  exec_instr init_stk ge fn i1 rs1 m1 = Next rs2 m2 ->
+  exec_instr init_stk ge fn i2 rs2 m2 = Next rs3 m3 ->
+  exec_instr init_stk ge fn i3 rs3 m3 = Next rs4 m4 ->
   rs2#PC = Val.offset_ptr rs1#PC (Ptrofs.repr (instr_size i1)) ->
   rs3#PC = Val.offset_ptr rs2#PC (Ptrofs.repr (instr_size i2)) ->
   rs4#PC = Val.offset_ptr rs3#PC (Ptrofs.repr (instr_size i3)) ->
@@ -858,7 +860,7 @@ Lemma exec_straight_steps_1:
   rs#PC = Vptr b ofs ->
   Genv.find_funct_ptr ge b = Some (Internal fn) ->
   code_tail (Ptrofs.unsigned ofs) (fn_code fn) c ->
-  plus (step) ge (State rs m) E0 (State rs' m').
+  plus (step init_stk) ge (State rs m) E0 (State rs' m').
 Proof.
   induction 1; intros.
   apply plus_one.

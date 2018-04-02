@@ -35,29 +35,23 @@ Section WITHMEMORYMODEL.
   Definition bstack := Genv.genv_next ge.
   Section PRESERVATION.
 
+  Variable init_stk: stack_adt.
+  Definition init_sp: val := current_sp init_stk.
   Variable binit_sp: block.
-  Definition init_sp: val := Vptr binit_sp Ptrofs.zero.
-
-  (* [init_sp] is required to be a pointer, i.e. Vptr bsp osp.
-   * The whole-program setting is emulating by allocating an empty block
-   * for the arguments to main and using this block for init_sp.
-   *
-   * Because now, RSP is updated with increments/decrements, it's unclear how
-   * to cleanly recover a Vnullptr for example when needed to match with the original
-   * program.
-   *)
+  Hypothesis init_sp_ptr: init_sp = Vptr binit_sp Ptrofs.zero.
 
   Lemma type_init_sp:
     Val.has_type init_sp Tptr.
   Proof.
-    unfold init_sp; apply Val.Vptr_has_type.
+    unfold init_sp, current_sp, current_frame_sp.
+    repeat destr; eauto using Val.Vnullptr_has_type, Val.Vptr_has_type.
   Qed.
 
   Lemma init_sp_zero:
     forall b o,
       init_sp = Vptr b o -> o = Ptrofs.zero.
   Proof.
-    inversion 1; auto.
+    intros. rewrite init_sp_ptr in H. inv H; auto.
   Qed.
 
   Definition is_unchanged (i:instr_with_info) :=
@@ -73,9 +67,9 @@ Section WITHMEMORYMODEL.
     end.
 
   Lemma is_unchanged_exec:
-    forall (ge: Genv.t Asm.fundef unit) f rs m i,
+    forall (ge: Genv.t Asm.fundef unit) f rs m i istk,
       is_unchanged i = true ->
-      exec_instr ge f i rs m = Asm.exec_instr ge f i rs m.
+      exec_instr ge f i rs m = Asm.exec_instr istk ge f i rs m.
   Proof.
     destruct i. destruct i; simpl; intros; try reflexivity; try congruence.
   Qed.
@@ -93,7 +87,7 @@ Section WITHMEMORYMODEL.
 
   Definition perm_bstack m2:=
     forall (ofs : Z) (k : perm_kind) (p : permission),
-       Mem.perm m2 bstack ofs k p -> 0 <= ofs < Ptrofs.max_unsigned /\  perm_order Writable p.
+       Mem.perm m2 bstack ofs k p -> 0 <= ofs < Ptrofs.max_unsigned /\ perm_order Writable p.
 
   Definition perm_bstack_stack_limit m2:=
     forall (ofs : Z) (k : perm_kind),
@@ -193,9 +187,10 @@ Section WITHMEMORYMODEL.
       (MINJ: Mem.inject j g m1 m2)
       (RINJ: forall r, Val.inject j (rs1 # r) (rs2 # r))
       (IU: is_unchanged i = true)
-      (EXEC: Asm.exec_instr ge f i rs1 m1 = Next rs1' m1'),      
+      istk1 istk2
+      (EXEC: Asm.exec_instr istk1 ge f i rs1 m1 = Next rs1' m1'),      
       exists rs2' m2',
-        Asm.exec_instr ge f i rs2 m2 = Next rs2' m2'
+        Asm.exec_instr istk2 ge f i rs2 m2 = Next rs2' m2'
         /\ Mem.inject j g m1' m2'
         /\ (forall r, Val.inject j (rs1' # r) (rs2' # r)).
   (* should be proved already somewhere *)
@@ -723,7 +718,7 @@ Section WITHMEMORYMODEL.
         Val.inject j init_sp (Vptr bstack o).
   Proof.
     intros. edestruct inject_stack_init_sp; eauto.
-    unfold init_sp. exists (Ptrofs.repr x).
+    rewrite init_sp_ptr. exists (Ptrofs.repr x).
     econstructor; eauto. rewrite Ptrofs.add_zero_l. auto.
   Qed.
 
@@ -731,43 +726,43 @@ Section WITHMEMORYMODEL.
     repeat match goal with
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
-                        EI: Asm.exec_instr _ _ ?i _ ?m1 = Next _ ?m2 |-
+                        EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2 |-
              context [Mem.stack_adt ?m2] =>
              let AINS_stack := fresh "AINS_stack" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack;
+             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack;
              clear AINS_stack
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
-                        EI: Asm.exec_instr _ _ ?i _ ?m1 = Next _ ?m2,
+                        EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2,
                             H: context [Mem.stack_adt ?m2] |- _ =>
              let AINS_stack := fresh "AINS_stack" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack in H;
+             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack in H;
              clear AINS_stack
 
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
-                        EI: Asm.exec_instr _ _ ?i _ ?m1 = Next _ ?m2 |-
+                        EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2 |-
              context [Mem.perm ?m2 _ _ _ _] =>
              let AINS_perm := fresh "AINS_perm" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm;
+             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm;
              clear AINS_perm
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
-                        EI: Asm.exec_instr _ _ ?i _ ?m1 = Next _ ?m2,
+                        EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2,
                             H : context [Mem.perm ?m2 _ _ _ _] |- _ =>
              let AINS_perm := fresh "AINS_perm" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm in H;
+             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm in H;
              clear AINS_perm
            | AINR: asm_instr_no_rsp ?i,
                    UNC: stack_invar ?i = true,
-                        EI: Asm.exec_instr _ _ ?i ?rs1 _ = Next ?rs2 _ |-
+                        EI: Asm.exec_instr ?init_stk _ _ ?i ?rs1 _ = Next ?rs2 _ |-
              context [?rs2 (IR RSP)] =>
-             rewrite (AINR UNC _ _ _ _ _ _ _ _ EI)
+             rewrite (AINR UNC _ _ _ _ _ _ _ _ _ EI)
            | AINR: asm_instr_no_rsp ?i,
                    UNC: stack_invar ?i = true,
-                        EI: Asm.exec_instr _ _ ?i ?rs1 _ = Next ?rs2 _,
+                        EI: Asm.exec_instr ?init_stk _ _ ?i ?rs1 _ = Next ?rs2 _,
                             H: context [?rs2 (IR RSP)] |- _ =>
-             rewrite (AINR UNC _ _ _ _ _ _ _ _ EI) in H
+             rewrite (AINR UNC _ _ _ _ _ _ _ _ _ EI) in H
                                                           
            end.
 
@@ -784,7 +779,7 @@ Section WITHMEMORYMODEL.
       (MS: match_states j ostack (State rs1 m1) (State rs2 m2))
       (AINR: asm_instr_no_rsp i)
       (AINS: asm_instr_no_stack i)
-      (EI: Asm.exec_instr ge f i rs1 m1 = Next rs1' m1'),
+      (EI: Asm.exec_instr init_stk ge f i rs1 m1 = Next rs1' m1'),
       exists j' ostack' rs2' m2',
         exec_instr ge f i rs2 m2 = Next rs2' m2'
         /\ match_states j' ostack' (State rs1' m1') (State rs2' m2')
@@ -1179,19 +1174,17 @@ Section WITHMEMORYMODEL.
          revert PERMS. repeat rewrite_perms. destr.
        * rewnb. xomega.
        * repeat rewrite_stack_blocks. rewrite Heqs. simpl. auto. simpl in SPinstack. destruct SPinstack; auto.
-         destruct H0 as [IFR|[]].
+         destruct H0 as [IFR|[]]. red in c.
+         revert c. repeat rewrite_stack_blocks. rewrite Heqs. simpl.
+         unfold init_sp in init_sp_ptr. setoid_rewrite init_sp_ptr.
+         intro INS.
          exploit Mem.stack_norepet. rewrite Heqs. intro ND; exfalso; inv ND.
-         destruct (in_stack_dec (Mem.stack_adt m1') binit_sp); simpl in *; try congruence.
-         revert i. repeat rewrite_stack_blocks. rewrite Heqs; simpl. revert H3 IFR. clear.
-         intros.
          apply (H3 binit_sp).
          rewrite in_frames_cons; left; eapply in_frame'_in_frame; eauto.
-         rewrite in_stack_cons in i; destruct i; auto; easy.
-         revert n. repeat rewrite_stack_blocks. rewrite Heqs. simpl.
-         (* either throw this assumption away: do we really need it? *)
-         (* or reestablish in Asm something like check_init_sp_in_stack for freeframe *)
-         inv IPS_REC; simpl in ISDEF. inv ISDEF. inv ISDEF.
-     + unfold Asm.exec_instr in EI; simpl in EI.
+         rewrite in_stack_cons in INS; destruct INS; auto; easy.
+
+     + (* load parent pointer *)
+       unfold Asm.exec_instr in EI; simpl in EI.
        unfold check_top_frame in EI.
        destruct (Mem.stack_adt m1) eqn:S1; try congruence.
        repeat destr_in EI.
@@ -1218,31 +1211,22 @@ Section WITHMEMORYMODEL.
          rewrite Pregmap.gso. eauto. auto.
        * intros; apply val_inject_nextinstr.
          intros; apply val_inject_set; auto. rewrite S1 in *.
-         inv IS. unfold parent_pointer. rewrite S1.
-         repeat destr; auto.
-         -- rewrite BLOCKS in f1. inv f1. red in H2. simpl in H2. destruct H2. clear H0 H1 H3.
-            simpl in SPinstack.
-            destruct SPinstack as [[IFR|[]]|[]]. red in IFR. rewrite BLOCKS in IFR.
-            destruct IFR as [EQ|[]]; inv EQ. simpl in *.
-            unfold init_sp. rewrite RSPEQ. econstructor. eauto.
-            rewrite Ptrofs.add_zero_l.
-            rewrite Ptrofs.add_unsigned.
-            erewrite AGSP; eauto. rewrite S1. simpl. rewrite size_frames_one.
-            rewrite SIZE.
-            repeat rewrite Z.max_r by omega. change (align 0 8) with 0.
-            fold Ptrofs.zero. rewrite Ptrofs.unsigned_zero.
-            f_equal; omega.
-         -- subst. inv IPS_REC. rewrite BLOCKS0 in Heql0; inv Heql0.
-            rewrite RSPEQ; simpl.
-            econstructor; eauto.
-            rewrite Ptrofs.add_zero_l. rewrite Ptrofs.add_unsigned. 
-            rewrite AGSP. rewrite S1.
-            simpl. rewrite ! size_frames_one.
-            rewrite <- SIZE0.
-            repeat rewrite Z.max_r by (apply frame_adt_size_pos). f_equal.
-            rewrite Ptrofs.unsigned_repr.
-            omega. omega.
-            auto.
+         simpl in Heqo.
+         unfold is_ptr in Heqo; destr_in Heqo. inv Heqo.
+         inv IS. 
+         rewrite <- Heqv0. unfold current_sp. destr. inv Heqv0.
+         inv IPS_REC. inv Heqv0. simpl in *.
+         repeat destr_in Heqv0. inv BLOCKS0.
+         rewrite RSPEQ. simpl.
+         econstructor; eauto. rewrite Ptrofs.add_zero_l.
+         rewrite Ptrofs.add_unsigned. 
+         rewrite AGSP. rewrite S1.
+         simpl. rewrite ! size_frames_one.
+         rewrite <- SIZE0.
+         repeat rewrite Z.max_r by (apply frame_adt_size_pos). f_equal.
+         rewrite Ptrofs.unsigned_repr.
+         omega. omega.
+         auto.
        * red. rewrite nextinstr_rsp.
          rewrite Pregmap.gso; eauto.
        * red. rewrite nextinstr_rsp.
@@ -1418,9 +1402,6 @@ Section WITHMEMORYMODEL.
     intuition.    
   Qed.
 
- 
-
-
   Lemma extcall_arg_inject:
     forall j g rs1 m1 arg1 loc rs2 m2,
       extcall_arg rs1 m1 loc arg1 ->
@@ -1503,7 +1484,7 @@ Section WITHMEMORYMODEL.
 
   Theorem step_simulation:
     forall S1 t S2,
-      Asm.step init_sp ge S1 t S2 ->
+      Asm.step init_stk ge S1 t S2 ->
       forall j ostack S1' (MS: match_states j ostack S1 S1'),
       exists j' ostack' S2',
         step ge S1' t S2' /\
@@ -2035,7 +2016,9 @@ End PRESERVATION.
   Theorem transf_program_correct m:
     asm_prog_no_rsp ge ->
     Genv.init_mem prog = Some m ->
-    forward_simulation (Asm.semantics (Vptr (Genv.genv_next ge) Ptrofs.zero) prog) (RawAsm.semantics prog (Pregmap.init Vundef) m).
+    forward_simulation (Asm.semantics prog
+                                      ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil) :: nil))
+                       (RawAsm.semantics prog (Pregmap.init Vundef) m).
   Proof.
     intros APNR IM.
     eapply forward_simulation_step with (fun s1 s2 => exists j o, match_states (Genv.genv_next ge) j o s1 s2).
@@ -2046,6 +2029,7 @@ End PRESERVATION.
     - simpl. intros s1 s2 r (j & o & MS) FS. eapply transf_final_states; eauto.
     - simpl. intros s1 t s1' STEP s2 (j & o & MS). 
       edestruct step_simulation as (isp' & j' & o' & STEP' & MS'); eauto.
+      reflexivity.
   Qed.
   
 End WITHMEMORYMODEL.

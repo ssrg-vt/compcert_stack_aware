@@ -710,11 +710,8 @@ End MEM_ACCESSORS_DEFAULT.
 *)
 
 
-Definition check_alloc_frame (f: frame_info) (* ofs_link *) (* ofs_ra *) :=
-  (* (Nat.eq_dec (length (frame_link f)) 1) *)
-  (*   && Forall_dec _ (fun fl => zeq (Ptrofs.unsigned ofs_link) (seg_ofs fl)) (frame_link f) *)
-  (*   && disjointb (Ptrofs.unsigned ofs_link) (size_chunk Mptr) (Ptrofs.unsigned ofs_ra) (size_chunk Mptr) *)
-  (*   &&  *) zlt 0 (frame_size f).
+Definition check_alloc_frame (f: frame_info) :=
+  zlt 0 (frame_size f).
 
 
 Definition match_frame (bfi: block * frame_info) (stk: option block) (sz: Z) : Prop :=
@@ -755,6 +752,23 @@ Notation " 'check' A ; B" := (if A then B else Stuck)
 
 Definition is_ptr (v: val) :=
   match v with Vptr _ _ => Some v | _ => None end.
+
+Variable init_stk: stack_adt.
+
+Definition init_sp : val := current_sp init_stk.
+
+Definition check_init_sp_in_stack (m: mem) :=
+  match init_sp with
+    Vptr b o => in_stack (Mem.stack_adt m) b 
+  | _ => True
+  end.
+
+Definition check_init_sp_in_stack_dec m : { check_init_sp_in_stack m } + { ~ check_init_sp_in_stack m }.
+Proof.
+  unfold check_init_sp_in_stack.
+  destr.
+  apply in_stack_dec.
+Qed.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instr_with_info) (rs: regset) (m: mem): outcome :=
   let sz := Ptrofs.repr (instr_size i) in
@@ -1107,13 +1121,14 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       do m2 <- Mem.store Mptr m1 b (Ptrofs.unsigned ofs_ra) rs#RA;
       do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi (frame_size fi));
       Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- (Vptr b Ptrofs.zero)) sz) m3
-  | Pfreeframe sz' ofs_ra (* ofs_link *) =>
+  | Pfreeframe sz' ofs_ra =>
       do ra <- Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
         match rs#RSP with
         | Vptr stk ofs =>
           check (check_top_frame m (Some stk) sz');
             do m' <- Mem.free m stk 0 sz';
             do m' <- Mem.clear_stage m';
+            check (check_init_sp_in_stack_dec m');
             do sp <- is_ptr (parent_sp (Mem.stack_adt m));
             Next (nextinstr (rs#RSP <- sp #RA <- ra) sz) m'
         | _ => Stuck
@@ -1121,7 +1136,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pload_parent_pointer rd sz' =>
     check (check_top_frame m None sz');
       check (Sumbool.sumbool_not _ _ (preg_eq rd RSP));
-      Next (nextinstr (rs#rd <- (parent_sp (Mem.stack_adt m))) sz) m
+      do sp <- is_ptr (parent_sp (Mem.stack_adt m));
+      Next (nextinstr (rs#rd <- sp) sz) m
   | Pcfi_adjust n => Next rs m
   
   | Pbuiltin ef args res =>
@@ -1305,8 +1321,8 @@ Inductive final_state: state -> int -> Prop :=
 
 Local Existing Instance mem_accessors_default.
 
-Definition semantics (p: program) :=
-  Semantics step (initial_state p) final_state (Genv.globalenv p).
+Definition semantics (p: program) (init_stk: stack_adt) :=
+  Semantics (step init_stk) (initial_state p) final_state (Genv.globalenv p).
 
 (** Determinacy of the [Asm] semantics. *)
 
@@ -1339,7 +1355,7 @@ Qed.
 (*   intros. unfold exec_instr in H. rewrite H0 in H. congruence. *)
 (* Qed. *)
   
-Lemma semantics_determinate: forall p, determinate (semantics p).
+Lemma semantics_determinate: forall p istk, determinate (semantics p istk).
 Proof.
 Ltac Equalities :=
   match goal with

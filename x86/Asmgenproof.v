@@ -115,13 +115,14 @@ Qed.
 
 Section WITHINITSPRA.
 
-Variables init_ra: val.
+Variable init_ra: val.
+Variable init_stk: stack_adt.
 
 Lemma exec_straight_exec:
   forall fb f c ep tf tc c' rs m rs' m',
   transl_code_at_pc ge (rs PC) fb f c ep tf tc ->
-  exec_straight tge tf tc rs m c' rs' m' ->
-  plus step tge (State rs m) E0 (State rs' m').
+  exec_straight init_stk tge tf tc rs m c' rs' m' ->
+  plus (step init_stk) tge (State rs m) E0 (State rs' m').
 Proof.
   intros. inv H.
   eapply exec_straight_steps_1; eauto.
@@ -133,7 +134,7 @@ Lemma exec_straight_at:
   forall fb f c ep tf tc c' ep' tc' rs m rs' m',
   transl_code_at_pc ge (rs PC) fb f c ep tf tc ->
   transl_code f c' ep' = OK tc' ->
-  exec_straight tge tf tc rs m tc' rs' m' ->
+  exec_straight init_stk tge tf tc rs m tc' rs' m' ->
   transl_code_at_pc ge (rs' PC) fb f c' ep' tf tc'.
 Proof.
   intros. inv H.
@@ -462,13 +463,13 @@ Lemma exec_straight_steps:
   transl_code_at_pc ge (rs1 PC) fb f (i :: c) ep tf tc ->
   (forall k c (TR: transl_instr f i ep k = OK c),
    exists rs2,
-       exec_straight tge tf c rs1 m1' k rs2 m2'
+       exec_straight init_stk tge tf c rs1 m1' k rs2 m2'
     /\ agree ms2 (Vptr sp Ptrofs.zero) rs2
     /\ (it1_is_parent ep i = true -> rs2#RAX = parent_sp (Mem.stack_adt m2))) ->
   forall (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m2) b -> (Mem.perm m2 b o k p <-> Mem.perm m2' b o k p))
     (SAMEADT: (Mem.stack_adt m2) = (Mem.stack_adt m2')),
   exists st',
-  plus step tge (State rs1 m1') E0 st' /\
+  plus (step init_stk) tge (State rs1 m1') E0 st' /\
   match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c ms2 m2) st'.
 Proof.
   intros. inversion H2. subst. monadInv H7.
@@ -488,13 +489,13 @@ Lemma exec_straight_steps_goto:
     it1_is_parent ep i = false ->
     (forall k c (TR: transl_instr f i ep k = OK c),
         exists jmp, exists k', exists rs2,
-              exec_straight tge tf c rs1 m1' (jmp :: k') rs2 m2'
+              exec_straight init_stk tge tf c rs1 m1' (jmp :: k') rs2 m2'
               /\ agree ms2 (Vptr sp Ptrofs.zero) rs2
-              /\ exec_instr tge tf jmp rs2 m2' = goto_label tge tf lbl rs2 m2') ->
+              /\ exec_instr init_stk tge tf jmp rs2 m2' = goto_label tge tf lbl rs2 m2') ->
     forall (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m2) b -> (Mem.perm m2 b o k p <-> Mem.perm m2' b o k p))
       (SAMEADT: (Mem.stack_adt m2) = (Mem.stack_adt m2')),
   exists st',
-  plus step tge (State rs1 m1') E0 st' /\
+  plus (step init_stk) tge (State rs1 m1') E0 st' /\
   match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c' ms2 m2) st'.
 Proof.
   intros s fb f rs1 i c ep tf tc m1' m2 m2' sp ms2 lbl c' H H0 H1 H2 H3 H4 H5.
@@ -643,7 +644,6 @@ Qed.
     destruct zlt; auto. eauto. omega.
   Qed.
 
-  Variable init_stk: stack_adt.
   Variable init_sg: signature.
 
   Lemma load_parent_pointer_correct:
@@ -654,16 +654,19 @@ Qed.
       ms1
       (LP: call_stack_consistency ge init_sg init_stk (Mach.State s fb (Vptr sp Ptrofs.zero) c ms1 m1))
       m2 (EQSTK: Mem.stack_adt m1 = Mem.stack_adt m2),
-      exists rs2,
-      exec_straight tge fn (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
-      rs2 rd = parent_sp (Mem.stack_adt m1) /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
+      exists rs2 sp,
+        exec_straight init_stk tge fn (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
+        is_ptr (parent_sp (Mem.stack_adt m1)) = Some sp /\
+        rs2 rd = sp /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
   Proof.
     intros.
+    destruct PISP_DEF as (bisp & PISP_DEF).
     exists (nextinstr (rs1#rd <- (parent_sp (Mem.stack_adt m1))) 
-                 (Ptrofs.repr (instr_size (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))))))).
+                 (Ptrofs.repr (instr_size (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))))))), (Vptr bisp Ptrofs.zero).
     split; [|split].
     - constructor.
       + unfold exec_instr. simpl. destr. destr.
+        rewrite <- EQSTK, PISP_DEF. simpl. auto.
         contradict Heqb. unfold check_top_frame. rewrite <- EQSTK.
         inv LP. inv CallStackConsistency. rewrite BLOCKS. rewrite FSIZE.
         rewrite FFP in FIND; inv FIND.
@@ -673,9 +676,10 @@ Qed.
         exfalso; apply n; clear n.
         constructor; auto. red. split; auto.
       + rewrite nextinstr_pc. rewrite Pregmap.gso. auto. congruence.
+    - rewrite PISP_DEF; reflexivity.
     - rewrite nextinstr_inv by congruence.
-      rewrite Pregmap.gss. auto.
-    - intros.
+      rewrite Pregmap.gss. rewrite PISP_DEF. split; auto.
+      intros.
       rewrite nextinstr_inv.
       + rewrite Pregmap.gso by congruence; auto.
       + intro; subst. contradict H; simpl; congruence.
@@ -691,7 +695,7 @@ Qed.
 Theorem step_simulation:
   forall S1 t S2, Mach2.step init_ra return_address_offset ge S1 t S2 ->
   forall S1' (MS: match_states S1 S1') (CSC: call_stack_consistency ge init_sg init_stk S1),
-  (exists S2', plus step tge S1' t S2' /\ match_states S2 S2')
+  (exists S2', plus (step init_stk) tge S1' t S2' /\ match_states S2 S2')
   \/ (measure S2 < measure S1 /\ t = E0 /\ match_states S2 S1')%nat.
 Proof.
   induction 1; intros; inv MS(* ; inv ANN *).
@@ -765,13 +769,14 @@ Opaque loadind.
   }
   exploit load_parent_pointer_correct. eauto. eauto.
   instantiate (1 := RAX). congruence. eauto.
-  apply SAMEADT. intros (rs2 & ESLoad & RS2SPEC & RS2OTHER).
-  exploit loadind_correct. eexact EQ. rewrite RS2SPEC. eauto.
+  apply SAMEADT. intros (rs2 & sp & ESLoad & ISPTR & RS2SPEC & RS2OTHER).
+  unfold is_ptr in ISPTR. destr_in ISPTR. inv ISPTR.
+  exploit loadind_correct. eexact EQ. rewrite <- H3. eauto.
   intros [rs3 [S [T U]]].
   exists rs3; split;[|split].
   + eapply exec_straight_trans; eauto.
   + eapply agree_set_mreg. eapply agree_set_mreg; eauto. congruence. auto.
-  + simpl; intros. rewrite U; auto.
+  + simpl; intros. rewrite U; auto. 
   
 - (* Mop *)
   assert (eval_operation tge (Vptr sp0 Ptrofs.zero) op rs##args m = Some v).
@@ -939,11 +944,9 @@ Proof.
   rewrite IHs1. tauto.
 Qed.
 
-Definition init_sp : val := current_sp init_stk.
-
 Lemma init_sp_csc:
   forall b o
-    (ISP: init_sp = Vptr b o)
+    (ISP: init_sp init_stk = Vptr b o)
     s stk
     (LP: list_prefix init_sg init_stk s stk),
   exists fi, in_stack' stk (b, fi).
@@ -982,6 +985,14 @@ edestruct init_sp_csc' as (bsp & EQsp). eauto.
 
 rewrite H5 in FIND0; inv FIND0.
 
+
+assert (CISIS: check_init_sp_in_stack init_stk m2').
+{
+  red. repeat rewrite_stack_blocks.
+  rewrite <- SAMEADT, <- H14. simpl.
+  destr. eapply init_sp_csc in Heqv; eauto. destruct Heqv. eapply in_stack'_in_stack; eauto. right. eauto.
+}
+
   destruct ros as [rf|fid]; simpl in H; monadInv H7.
 + (* Indirect call *)
   assert (rs rf = Vptr f' Ptrofs.zero).
@@ -998,7 +1009,8 @@ rewrite H5 in FIND0; inv FIND0.
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
   rewrite SEQ, E.
-  rewrite CS. rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl. eauto.
+  rewrite CS. rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl.
+  apply pred_dec_true. auto.
 
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
@@ -1028,7 +1040,8 @@ rewrite H5 in FIND0; inv FIND0.
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
   rewrite CTF, SEQ, E, CS.
-  rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl. eauto.
+  rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl.
+  apply pred_dec_true. auto.
 
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
@@ -1103,7 +1116,7 @@ rewrite H5 in FIND0; inv FIND0.
   exploit eval_condition_lessdef. eapply preg_vals; eauto. eauto. eauto. intros EC.
   left; eapply exec_straight_steps_goto; eauto.
   intros. simpl in TR.
-  destruct (transl_cond_correct tge tf instr_size_map instr_size_non_zero cond args _ _ rs0 m' TR)
+  destruct (transl_cond_correct init_stk tge tf instr_size_map instr_size_non_zero cond args _ _ rs0 m' TR)
   as [rs' [A [B C]]].
   rewrite EC in B.
   destruct (testcond_for_condition cond); simpl in *.
@@ -1141,7 +1154,7 @@ rewrite H5 in FIND0; inv FIND0.
 - (* Mcond false *)
   exploit eval_condition_lessdef. eapply preg_vals; eauto. eauto. eauto. intros EC.
   left; eapply exec_straight_steps; eauto. intros. simpl in TR.
-  destruct (transl_cond_correct tge tf instr_size_map instr_size_non_zero cond args _ _ rs0 m' TR)
+  destruct (transl_cond_correct init_stk tge tf instr_size_map instr_size_non_zero cond args _ _ rs0 m' TR)
   as [rs' [A [B C]]].
   rewrite EC in B.
   destruct (testcond_for_condition cond); simpl in *.
@@ -1228,6 +1241,13 @@ Transparent destroyed_by_jumptable.
 
   edestruct init_sp_csc' as (bsp & EQsp). eauto.
 
+  assert (CISIS: check_init_sp_in_stack init_stk m3').
+  {
+    red. repeat rewrite_stack_blocks.
+    rewrite <- SAMEADT, <- H12. simpl.
+    destr. eapply init_sp_csc in Heqv; eauto. destruct Heqv. eapply in_stack'_in_stack; eauto. right. eauto.
+  }
+
 
   left; econstructor; split.
   + eapply plus_left. eapply exec_step_internal. eauto.
@@ -1237,6 +1257,7 @@ Transparent destroyed_by_jumptable.
     generalize (frame_size_correct _ _ FIND). intros SEQ.
     rewrite SEQ, E, CS, CTF.
     rewrite <- SAMEADT, <- H12; simpl; rewrite EQsp; simpl; eauto.
+    apply pred_dec_true; auto.
 
     apply star_one. eapply exec_step_internal.
     transitivity (Val.offset_ptr rs0#PC (instr_size_in_ptrofs instr_size_map (Pfreeframe (fn_stacksize tf0) (fn_retaddr_ofs tf0)))). 
@@ -1446,7 +1467,7 @@ Hypothesis frame_correct:
     frame_size (Mach.fn_frame f) = fn_stacksize f.
 
 Theorem transf_program_correct:
-  forward_simulation (Mach2.semantics return_address_offset prog) (Asm.semantics tprog).
+  forward_simulation (Mach2.semantics return_address_offset prog) (Asm.semantics tprog ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil) :: nil)).
 Proof.
   eapply forward_simulation_star with (measure := measure)
                                         (match_states := fun s1 s2 => match_states Vnullptr s1 s2 /\ call_stack_consistency ge signature_main
