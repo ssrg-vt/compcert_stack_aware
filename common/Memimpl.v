@@ -8197,12 +8197,11 @@ Lemma record_stack_inject_left_zero:
     (FAP: frame_at_pos s2 0 f2)
     (FI: tframe_inject j m1 f1 f2)
     (SI: stack_inject j g m1 s1 s2)
-    (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z s2)
     (WTF: wf_tframe m1 j f1)
   ,
     stack_inject j (upstar g) m1 (f1 :: s1) s2.
 Proof.
-  intros j g m1 s1 s2 f1 f2 FAP FI SI SZ2 WTF.
+  intros j g m1 s1 s2 f1 f2 FAP FI SI (* SZ2  *)WTF.
   unfold upstar, option_map.
   destruct SI.
   constructor.
@@ -8236,10 +8235,10 @@ Lemma record_stack_blocks_mem_inj_left_zero:
     record_stack_blocks (push_new_stage m1) f1 = Some m1' ->
     frame_at_pos (stack_adt m2) O f2 ->
     (exists vf2, In vf2 f2 /\ frame_inject j f1 vf2) ->
-    Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z (stack_adt m2) ->
+    (* Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z (stack_adt m2) -> *)
     mem_inj j (upstar g) m1' m2.
 Proof.
-  intros j g m1 m2 f1 f2 m1' INJ ADT FAP FI SZ2; autospe.
+  intros j g m1 m2 f1 f2 m1' INJ ADT FAP FI; autospe.
   unfold record_stack_blocks in ADT; repeat destr_in ADT.
   inversion INJ; subst; constructor; simpl; intros; eauto.
   eapply stack_inject_invariant_strong.
@@ -8254,7 +8253,7 @@ Lemma record_stack_block_inject_left_zero:
     (INJ: inject j g m1 m2)
     (FAP: frame_at_pos (stack_adt m2) 0 f2)
     (FI: exists vf2, In vf2 f2 /\ frame_inject j f1 vf2)
-    (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f)%Z f) (stack_adt m2)) 
+    (* (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f)%Z f) (stack_adt m2))  *)
     (RSB: record_stack_blocks (push_new_stage m1) f1 = Some m1'),
     inject j (upstar g) m1' m2.
 Proof.
@@ -8279,12 +8278,12 @@ Lemma record_stack_inject_left_zero':
     (FAP: frame_at_pos s2 0 f2)
     (FI: tframe_inject j m1 f1 f2)
     (SI: stack_inject j g m1 (nil :: s1) s2)
-    (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z s2)
+    (* (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z s2) *)
     (WTF: wf_tframe m1 j f1)
     (G0: g O = Some O),
     stack_inject j g m1 (f1 :: s1) s2.
 Proof.
-  intros j g m1 s1 s2 f1 f2 FAP FI SI SZ2 WTF.
+  intros j g m1 s1 s2 f1 f2 FAP FI SI (* SZ2  *)WTF.
   unfold upstar, option_map.
   destruct SI.
   constructor; auto.
@@ -8309,11 +8308,11 @@ Lemma record_stack_blocks_mem_inj_left_zero':
     record_stack_blocks m1 f1 = Some m1' ->
     frame_at_pos (stack_adt m2) O f2 ->
     (exists vf2, In vf2 f2 /\ frame_inject j f1 vf2) ->
-    Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z (stack_adt m2) ->
+    (* Forall (fun f => Forall (fun f => 0 = frame_adt_size f) f)%Z (stack_adt m2) -> *)
     g O = Some O ->
     mem_inj j g m1' m2.
 Proof.
-  intros j g m1 m2 f1 f2 m1' INJ TIN ADT FAP FI SZ2 G0; autospe.
+  intros j g m1 m2 f1 f2 m1' INJ TIN ADT FAP FI G0; autospe.
   inv TIN.
   unfold record_stack_blocks in ADT; repeat destr_in ADT.
   pattern m1'.
@@ -8331,7 +8330,7 @@ Lemma record_stack_block_inject_left_zero':
     (TIN: top_is_new m1)
     (FAP: frame_at_pos (stack_adt m2) 0 f2)
     (FI: exists vf2, In vf2 f2 /\ frame_inject j f1 vf2)
-    (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f)%Z f) (stack_adt m2))
+    (* (SZ2: Forall (fun f => Forall (fun f => 0 = frame_adt_size f)%Z f) (stack_adt m2)) *)
     (G0: g O = Some O)
     (RSB: record_stack_blocks m1 f1 = Some m1'),
     inject j g m1' m2.
@@ -8356,13 +8355,13 @@ Qed.
 Lemma unrecord_stack_inject_left_zero:
   forall j g m1 f s1 s2
     (SI: stack_inject j g m1 (f :: s1) s2)
-    (All0: forall i j0 : nat, g i = Some j0 -> j0 = 0)
+    (* (All0: forall i j0 : nat, g i = Some j0 -> j0 = 0) *)
     (Ginit: g 1 = Some O)
     (TOPNOPERM: forall b : block, is_stack_top (f :: s1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ m1 b o k p),
     stack_inject j (downstar g) m1 s1 s2.
 Proof.
-  intros j g m1 f s1 s2 SI All0 Ginit TOPNOPERM.
-  destruct SI; constructor; auto.
+  intros j g m1 f s1 s2 SI (* All0 *) Ginit TOPNOPERM.
+  inversion SI; constructor; auto.
   + apply wf_stack_tl in stack_src_wf; simpl in *; auto.
   + red; intros.
     simpl in *. eapply stack_inject_mono. 2: apply G1. 2: apply G2. omega.
@@ -8380,22 +8379,24 @@ Proof.
   + intros i j0 GS. 
     eapply stack_inject_range in GS. simpl in *.
     destruct GS; split; omega.
-  + intros. apply All0 in G. subst. omega. 
+  + intros. unfold downstar in G.
+    generalize (fun pf => stack_inject_diff_increases _ _ _ _ _ SI _ _ _ _ Ginit pf G).
+    intro A. trim A; omega.
   + red; intros.
     destruct (stack_inject_surjective j0); eauto.
-    apply All0 in H. subst; eauto.
+    unfold downstar. destruct x; eauto. apply stack_inject_pack in H. assert (j0 = O) by omega. subst. eauto.
 Qed.
 
 Lemma unrecord_stack_block_mem_inj_left_zero:
   forall (m1 m1' m2 : mem) (j : meminj) g,
     mem_inj j g m1 m2 ->
     unrecord_stack_block m1 = Some m1' ->
-    (forall i j, g i = Some j -> j = O) ->
+    (* (forall i j, g i = Some j -> j = O) -> *)
     (forall b, is_stack_top (stack_adt m1) b -> forall o k p, ~ Mem.perm m1 b o k p) ->
     g 1 = Some O ->
     mem_inj j (fun n => g (S n)) m1' m2.
 Proof.
-  intros m1 m1' m2 j g MI USB All0 TOPNOPERM Ginit.
+  intros m1 m1' m2 j g MI USB TOPNOPERM Ginit.
   unfold_unrecord.
   inv MI; constructor; simpl; intros; eauto.
   eapply stack_inject_invariant_strong.
@@ -8408,12 +8409,11 @@ Lemma unrecord_stack_block_inject_left_zero:
   forall (m1 m1' m2 : mem) (j : meminj) g,
     inject j g m1 m2 ->
     unrecord_stack_block m1 = Some m1' ->
-    (forall i j, g i = Some j -> j = O) ->
     (forall b, is_stack_top (stack_adt m1) b -> forall o k p, ~ Mem.perm m1 b o k p) ->
     g 1 = Some O ->
     inject j (fun n => g (S n)) m1' m2.
 Proof.
-  intros m1 m1' m2 j g INJ USB All0  NOPERM Ginit.
+  intros m1 m1' m2 j g INJ USB NOPERM Ginit.
   generalize (unrecord_stack_block_mem_unchanged _ _ USB). simpl. intros (NB & PERM & UNCH & LOAD).
   inv INJ; constructor; eauto.
   - eapply unrecord_stack_block_mem_inj_left_zero; eauto. 
