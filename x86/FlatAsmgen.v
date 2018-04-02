@@ -494,9 +494,6 @@ Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.
   end.
 
 
-Section WITHMEMORYMODELOPS.
-Context `{memory_model_ops: Mem.MemoryModelOps}.
-
 (** Translation of a program *)
 Definition transl_prog_with_map (p:Asm.program) : res program := 
   do (data_sz, data_defs) <- transl_globvars 0 (AST.prog_defs p);
@@ -512,8 +509,6 @@ Definition transl_prog_with_map (p:Asm.program) : res program :=
         (mkSegment code_segid (Ptrofs.repr code_sz), code)
         (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))
       .
-
-End WITHMEMORYMODELOPS.
 
 End WITH_LABEL_MAP.
 
@@ -640,12 +635,8 @@ Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE) :=
   OK (ci_map final_ci, ci_lmap final_ci).
 
 
-Section WITHMEMORYMODELOPS.
-Context `{memory_model_ops: Mem.MemoryModelOps}.
-
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=
   do (gmap,lmap) <- update_map p;
   transl_prog_with_map gmap lmap p.
 
-End WITHMEMORYMODELOPS.

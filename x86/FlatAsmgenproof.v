@@ -7,6 +7,7 @@
 
 Require Import Coqlib Integers Values Maps AST.
 Require Import Memtype Memory.
+Require Import Smallstep.
 Require Import Asm RawAsm.
 Require Import FlatAsm FlatAsmgen.
 Require Import Segment.
@@ -2063,6 +2064,39 @@ Proof.
     * eapply extcall_pres_glob_block_valid; eauto.
 Qed.        
 
+Lemma transf_initial_states : forall st1 m0,
+    Genv.init_mem prog = Some m0 ->
+    RawAsm.initial_state prog (Pregmap.init Vundef) m0 st1  ->
+    exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
+Proof.
+Admitted.
+  (* intros st1 m0 IMEM IST. *)
+  (* inversion IST. *)
+  
+
+Lemma transf_final_states:
+  forall st1 st2 r,
+  match_states st1 st2 -> Asm.final_state st1 r -> FlatAsm.final_state st2 r.
+Proof.
+Admitted.
+
+Theorem transf_program_correct m:
+  (* asm_prog_no_rsp ge -> *)
+  Genv.init_mem prog = Some m ->
+  forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef) m) (FlatAsm.semantics tprog).
+Proof.
+  intros IM.
+  eapply forward_simulation_step with match_states.
+  - simpl. admit.
+  - simpl. intros s1 IS. 
+    exploit transf_initial_states. eauto. eauto.
+    intros (s2 & IS' & MIS); eexists; split; eauto.
+  - simpl. intros s1 s2 r MS FS. eapply transf_final_states; eauto.
+  - simpl. intros s1 t s1' STEP s2 MS. 
+    edestruct step_simulation as (STEP' & MS'); eauto.
+Admitted.
+
 End PRESERVATION.
+
 
 End WITHMEMORYMODEL.

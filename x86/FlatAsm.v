@@ -1031,8 +1031,12 @@ Definition init_rsp (ge:genv) (p:program) : val :=
        (segsize (p.(stack_seg))).
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall m0 main,
-      init_mem p = Some m0 ->
+  | initial_state_intro: 
+      let bstack := 2%positive in
+      forall m0 m1 m2 main
+      (INITMEM: init_mem p = Some m0)
+      (MDROP: Mem.drop_perm m0 bstack 0 (Mem.stack_limit) Writable = Some m1)
+      (MRSB: Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m2),
       let ge := (globalenv p) in
       get_main_fun_ptr ge p = Some main ->
       let rs0 :=
@@ -1040,7 +1044,7 @@ Inductive initial_state (p: program): state -> Prop :=
         # PC <- main
         # RA <- Vnullptr
         # RSP <- (init_rsp ge p) in
-      initial_state p (State rs0 m0).
+      initial_state p (State rs0 m2).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m r,
@@ -1104,7 +1108,10 @@ Ltac Equalities :=
   eapply external_call_trace_length; eauto.
 - (* initial states *)
   inv H; inv H0. subst ge ge0. assert (main = main0) by congruence. subst.
-  subst. f_equal. congruence.
+  f_equal. 
+  assert (m0 = m3) by congruence. subst. subst bstack bstack0.
+  assert (m1 = m4) by congruence. subst.
+  congruence.
 - (* final no step *)
   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
   { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. }
