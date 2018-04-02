@@ -367,8 +367,6 @@ Fixpoint no_rsp_builtin_preg (b: builtin_res preg) :=
 Section WITHEXTERNALCALLS.
 Context `{external_calls_prf: ExternalCalls}.
 
-Variable init_sp: val.
-
 Section RELSEM.
 
 
@@ -739,19 +737,6 @@ Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
   | _ => false
   end.
 
-Definition parent_pointer (m: mem) : val :=
-  match Mem.stack_adt m with
-  | nil => init_sp
-  | _ :: nil => init_sp
-  | _::(fr::_)::_ =>
-    match frame_adt_blocks fr with
-      (b,fi)::nil =>
-      (Vptr b Ptrofs.zero)
-    | _ => Vundef
-    end
-  | _ => Vundef
-  end.
-
 Local Open Scope list_scope.
 
 (** Error monad with options or lists  (stolen from cfronted/Cexec.v *)
@@ -768,15 +753,8 @@ Notation "'do' X , Y , Z <- A ; B" := (match A with Some (X, Y, Z) => B | None =
 Notation " 'check' A ; B" := (if A then B else Stuck)
   (at level 200, A at level 100, B at level 200).
 
-Definition check_init_sp_in_stack (m: mem) :=
-  match init_sp with
-    Vptr b o =>
-    in_stack_dec (Mem.stack_adt m) b 
-  | _ => true
-  end.
-
-Definition is_def (v: val) :=
-  match v with Vundef => None | _ => Some v end.
+Definition is_ptr (v: val) :=
+  match v with Vptr _ _ => Some v | _ => None end.
 
 Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instr_with_info) (rs: regset) (m: mem): outcome :=
   let sz := Ptrofs.repr (instr_size i) in
@@ -1136,15 +1114,14 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
           check (check_top_frame m (Some stk) sz');
             do m' <- Mem.free m stk 0 sz';
             do m' <- Mem.clear_stage m';
-            check (check_init_sp_in_stack m');
-            do sp <- is_def (parent_pointer m);
+            do sp <- is_ptr (parent_sp (Mem.stack_adt m));
             Next (nextinstr (rs#RSP <- sp #RA <- ra) sz) m'
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz' =>
     check (check_top_frame m None sz');
       check (Sumbool.sumbool_not _ _ (preg_eq rd RSP));
-      Next (nextinstr (rs#rd <- (parent_pointer m)) sz) m
+      Next (nextinstr (rs#rd <- (parent_sp (Mem.stack_adt m))) sz) m
   | Pcfi_adjust n => Next rs m
   
   | Pbuiltin ef args res =>

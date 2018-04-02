@@ -19,7 +19,7 @@ Section WITHEXTCALLS.
   Context `{external_calls: ExternalCalls}.
 
 Section WITHINITSP.
-  Variables init_sp init_ra: val.
+  Variables init_ra: val.
   Variable return_address_offset: function -> code -> ptrofs -> Prop.
   Variable ge: genv.
 
@@ -27,16 +27,19 @@ Section WITHINITSP.
   | match_states_regular s f sp c rs m m'
                          (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
                          (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m'))
+                         (NONIL: Forall (fun tf => tf <> nil) (Mem.stack_adt m'))
                          (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (State s f sp c rs m) (State s f sp c rs m')
   | match_states_call s fb rs m m'
                       (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
                       (SH: same_head ( (Mem.stack_adt m)) ( (Mem.stack_adt m')))
+                      (NONIL: Forall (fun tf => tf <> nil) (tl (Mem.stack_adt m')))
                       (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (Callstate s fb rs m) (Callstate s fb rs m')
   | match_states_return s rs m m'
                         (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
                         (SH: same_head ( (Mem.stack_adt m)) ( (Mem.stack_adt m')))
+                        (NONIL: Forall (fun tf => tf <> nil) (tl (Mem.stack_adt m')))
                         (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (Returnstate s rs m) (Returnstate s rs m').
 
@@ -188,34 +191,46 @@ Section WITHINITSP.
     eapply Mem.unrecord_push_unchanged; eauto.
   Qed.
 
-  Lemma step_correct:
-    forall S1 t S2 (STEP: Mach.step init_sp init_ra return_address_offset ge S1 t S2)
-      S1' (MS: match_states S1 S1') (CSC: call_stack_consistency init_sp ge S1'),
-    exists S2',
-      Mach2.step init_sp init_ra return_address_offset ge S1' t S2' /\ match_states S2 S2'.
+  Variable init_sg: signature.
+  Variable init_stk: stack_adt.
+
+  Lemma parent_sp_same:
+    forall s1 s2
+      (SH: same_head s1 s2)
+      (NONIL: Forall (fun tf => tf <> nil) (tl s2)),
+      parent_sp s1 = parent_sp s2.
   Proof.
-    destruct 1; intros S1' MS CSC; inv MS.
+    intros. inv SH. auto. simpl in *.
+    inv H0. auto. inv NONIL.
+    repeat destr_in H1. auto.
+  Qed.
+
+  Lemma step_correct:
+    forall S1 t S2 (STEP: Mach.step init_ra return_address_offset ge S1 t S2)
+      S1' (MS: match_states S1 S1') (CSC: call_stack_consistency ge init_sg init_stk S1'),
+    exists S2',
+      Mach2.step init_ra return_address_offset ge S1' t S2' /\ match_states S2 S2'.
+  Proof.
+    destruct 1; intros S1' MS CSC; inv MS; unfold store_stack in *.
     - eexists; split. econstructor; eauto.
       constructor; auto.
     - eexists; split. econstructor; eauto. eapply loadstack_unchanged_on; simpl; eauto. simpl. auto.
       constructor; auto.
-    - edestruct storestack_unchanged_on as (m1' & STORE' & UNCH'); eauto. simpl; auto.
+    - edestruct storev_unchanged_on_1 as (m1' & STORE' & UNCH'); eauto. simpl; auto.
       eexists; split. econstructor; eauto.
-      constructor; auto. unfold store_stack in *. repeat rewrite_stack_blocks. auto.
-      unfold store_stack in *. rewnb; auto.
+      constructor; auto; repeat rewrite_stack_blocks; rewnb; auto.
     - eexists; split. econstructor; eauto. eapply loadstack_unchanged_on; simpl; eauto. simpl. auto.
+      erewrite <- parent_sp_same; eauto.
+      apply Forall_tl; auto.
       constructor; auto.
     - erewrite eval_operation_unchanged in H; eauto.
       eexists; split; econstructor; eauto.
     - eexists; split; econstructor; eauto. eapply loadv_unchanged_on; eauto. simpl; auto.
     - edestruct storev_unchanged_on_1 as (m1' & STORE' & UNCH'); eauto. simpl; auto.
-      eexists; split; econstructor; eauto.
-      repeat rewrite_stack_blocks. auto.
-      rewnb; auto.
-    - eexists; split; econstructor; eauto.
+      eexists; split; econstructor; eauto; repeat rewrite_stack_blocks; rewnb; auto.
+    - eexists; split; econstructor; eauto; repeat rewrite_stack_blocks; rewnb; auto.
       apply Mem.push_new_stage_strong_unchanged_on. auto.
       repeat rewrite_stack_blocks. constructor; auto.
-      rewnb. auto.
     - edestruct Mem.unchanged_on_free as (m2' & FREE' & UNCH'); eauto.
       inv CSC. rewrite FIND in H0; inv H0.
       edestruct (clear_stage_unchanged _ _ UNCH') as (m3' & USB & UNCH'').
@@ -224,6 +239,7 @@ Section WITHINITSP.
       repeat rewrite_stack_blocks; auto.
       inv CallStackConsistency. rewrite <- H6 in SH. inv SH. simpl. constructor; auto.
       destr.
+      repeat  rewrite_stack_blocks; simpl; auto. inv NONIL; auto; constructor.
       rewnb. auto.
     - edestruct ec_unchanged_on as (m2' & EXTCALL & UNCH' & NB'). apply external_call_spec. 4: eauto.
       apply Mem.push_new_stage_strong_unchanged_on. eauto.
@@ -235,6 +251,7 @@ Section WITHINITSP.
       eauto.
       eexists; split; econstructor; eauto.
       eapply unchanged_on_builtin_args; eauto.
+      repeat rewrite_stack_blocks; eauto.
       repeat rewrite_stack_blocks; eauto.
       rewnb; auto.
     - eexists; split; econstructor; eauto.
@@ -251,6 +268,7 @@ Section WITHINITSP.
       eexists; split; econstructor; eauto. eapply loadstack_unchanged_on; eauto. simpl; auto.
       repeat rewrite_stack_blocks; auto. simpl.
       inv CallStackConsistency. rewrite <- H in SH. inv SH. constructor; simpl; auto. destr.
+      repeat rewrite_stack_blocks; auto. simpl. apply Forall_tl; auto.
       rewnb. auto.
     - destruct (Mem.alloc m' 0 (fn_stacksize f)) as (m1' & stk') eqn:ALLOC.
       assert (stk = stk').
@@ -268,17 +286,23 @@ Section WITHINITSP.
       revert EQ1 EQ0; repeat rewrite_stack_blocks. intros A B; rewrite A, B in SH.
       inv CSC. red in TIN. rewrite B in TIN. inv TIN.
       inv SH. constructor; auto.
+      unfold store_stack in *.
+      repeat rewrite_stack_blocks. revert EQ1; repeat rewrite_stack_blocks. intro EQ1; rewrite EQ1 in NONIL.
+      simpl in NONIL. constructor; auto. congruence.
       unfold store_stack in *; rewnb. congruence.
     - edestruct ec_unchanged_on as (m2' & EXTCALL & UNCH' & NB').  5: eauto. apply external_call_spec.
       eauto. auto. auto.
       eexists; split; econstructor; eauto.
+      erewrite <- parent_sp_same; eauto.
       eapply unchanged_on_extcall_args; eauto.
+      repeat rewrite_stack_blocks; eauto.
       repeat rewrite_stack_blocks; eauto.
     - edestruct Mem.unchanged_on_unrecord as (m1' & USB & UNCH''). apply UNCH.
       eapply list_forall2_length; eauto.
       eauto.
       eexists; split; econstructor; eauto.
       repeat rewrite_stack_blocks; eauto. inv SH; auto. constructor.
+      repeat rewrite_stack_blocks; eauto.
       rewnb; auto.
   Qed.
 
@@ -293,6 +317,7 @@ End WITHINITSP.
     - apply Mem.unchanged_on_refl.
     - repeat rewrite_stack_blocks. simpl.
       repeat constructor; auto.
+    - repeat rewrite_stack_blocks. simpl. repeat constructor. congruence.
   Qed.
 
   Lemma final_transf:
@@ -310,20 +335,24 @@ End WITHINITSP.
   Proof.
     intros rao p SIZE.
     set (ge := Genv.globalenv p).
-    eapply forward_simulation_step with (match_states := fun s1 s2 => match_states s1 s2 /\ call_stack_consistency (Vptr (Genv.genv_next ge) Ptrofs.zero) ge s2).
+    eapply forward_simulation_step with (match_states :=
+                                           fun s1 s2 =>
+                                             match_states s1 s2 /\
+                                             call_stack_consistency
+                                               ge signature_main
+                                               ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil)::nil) s2).
     - reflexivity.
     - simpl; intros s1 IS. eexists; split; eauto. split. eapply initial_transf; eauto.
-      inv IS. constructor. simpl. constructor. split. inversion 1. subst.
-      repeat rewrite_stack_blocks.  simpl. repeat eexists.
-      apply Mem.alloc_result in H1. subst. apply Genv.init_mem_genv_next in H. rewrite <- H.
-      fold ge. reflexivity.
-      intros (fsp & fr & r & EQ & GFB).
-      revert EQ. repeat rewrite_stack_blocks. simpl. inversion 1. subst. f_equal.
-      unfold ge. erewrite Genv.init_mem_genv_next; eauto.
-      symmetry. eapply Mem.alloc_result; eauto. inv GFB. eauto.
-      repeat rewrite_stack_blocks. simpl. repeat constructor.
-      red. rewrite_stack_blocks. constructor; auto.
-      constructor.
+      inv IS. constructor.
+      + simpl. constructor. repeat rewrite_stack_blocks. simpl.
+        apply Mem.alloc_result in H1; subst. rewnb. reflexivity.
+        repeat rewrite_stack_blocks. simpl.
+        constructor. constructor.
+        change (size_arguments signature_main) with 0. intros; simpl. unfold Stacklayout.fe_ofs_arg in H3. omega.
+        repeat rewrite_stack_blocks. simpl.
+        repeat constructor.
+      + red. repeat rewrite_stack_blocks. constructor; auto.
+      + constructor.
     - simpl. intros s1 s2 r (MS & CSC). eapply final_transf; eauto.
     - simpl; intros s1 t s1' STEP s2 (MS & CSC).
       edestruct step_correct as (s2' & STEP' & MS'); eauto.

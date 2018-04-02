@@ -3421,5 +3421,39 @@ Proof.
     apply Z.max_le_compat_l. apply size_frames_pos.
 Qed.
 
+(* For use in Mach and Asm, the parent_sp pointer is now computed on the stack
+   adt rather than on the abstract semantic callstack in Mach or with an extra
+   stored pointer in Asm. *)
+
+Definition current_frame_sp (tf: tframe_adt) : val :=
+  match tf with
+  | fr :: _ =>
+    match frame_adt_blocks fr with
+    | (b,fi)::nil => Vptr b Integers.Ptrofs.zero
+    | _ => Vundef
+    end
+  | _ => Vnullptr
+  end.
+
+Definition current_sp (stk: stack_adt) : val :=
+  match stk with
+    fr :: _ => current_frame_sp fr
+  | _ => Vnullptr
+  end.
+
+Definition parent_sp (stk: stack_adt) : val :=
+  match stk with
+    nil => Vundef
+  | _ :: tl => current_sp tl
+  end.
+
+Lemma type_parent_sp:
+  forall stk,
+  Val.has_type (parent_sp stk) Tptr.
+Proof.
+  unfold parent_sp, current_sp, current_frame_sp. intros.
+  repeat destr; try now (simpl; auto).
+Qed.
+
 
 End INJ.

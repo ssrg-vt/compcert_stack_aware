@@ -22,8 +22,6 @@ Section WITHMEMORYMODEL.
 Section WITHGE.
   Variable ge : Genv.t Asm.fundef unit.
 
-  Definition bstack: block := Genv.genv_next ge.
-
   Definition exec_instr f i' rs (m: mem) :=
     match i' with
     | (i,isz) =>
@@ -50,7 +48,7 @@ Section WITHGE.
     | Pcall_r r sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (rs r)) m
     | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
-    | _ => Asm.exec_instr Vnullptr ge f i' rs m
+    | _ => Asm.exec_instr ge f i' rs m
     end
     end.
   
@@ -142,7 +140,7 @@ End WITHGE.
       eapply Events.external_call_trace_length; eauto.
     - (* initial states *)
       inv H; inv H0.
-      assert (m1 = m0 /\ bstack1 = bstack0) by intuition congruence. destruct H; subst.
+      assert (m1 = m0 /\ bstack = bstack0) by intuition congruence. destruct H; subst.
       assert (m2 = m4) by congruence. subst.
       f_equal. congruence.
     - (* final no step *)

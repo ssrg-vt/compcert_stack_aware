@@ -28,7 +28,7 @@ Require Import Smallstep.
 Require Import Op.
 Require Import Locations.
 Require Import Conventions.
-Require Stacklayout.
+Require Import Stacklayout.
 
 (** * Abstract syntax *)
 
@@ -277,13 +277,7 @@ Section WITHEXTERNALCALLSOPS.
 Context `{external_calls: ExternalCalls}.
 
 Section RELSEM.
-Variables init_sp init_ra: val.
-
-Definition parent_sp (s: list stackframe) : val :=
-  match s with
-  | nil => init_sp
-  | Stackframe f sp ra c :: s' => Vptr sp Ptrofs.zero
-  end.
+Variables init_ra: val.
 
 Definition parent_ra (s: list stackframe) : val :=
   match s with
@@ -296,13 +290,7 @@ Variable return_address_offset: function -> code -> ptrofs -> Prop.
 Variable ge: genv.
 
 Definition check_alloc_frame (f: frame_info) (fn: function) :=
-  (* (forall o, *)
-  (*     Ptrofs.unsigned (fn_link_ofs fn) <= o < Ptrofs.unsigned (fn_link_ofs fn) + size_chunk Mptr \/ *)
-  (*     Ptrofs.unsigned (fn_retaddr_ofs fn) <= o < Ptrofs.unsigned (fn_retaddr_ofs fn) + size_chunk Mptr -> *)
-  (*     frame_readonly f o) /\ *)
-  (* disjointb  (Ptrofs.unsigned (fn_link_ofs fn)) (size_chunk Mptr) (Ptrofs.unsigned (fn_retaddr_ofs fn)) (size_chunk Mptr) = true /\ *)
-  0 < (frame_size f) (* /\ *)
-  (* exists fl, frame_link f = fl :: nil /\ seg_ofs fl = Ptrofs.unsigned (fn_link_ofs fn) *).
+  0 < (frame_size f).
 
 Inductive step: state -> trace -> state -> Prop :=
   | exec_Mlabel:
@@ -324,7 +312,7 @@ Inductive step: state -> trace -> state -> Prop :=
       forall s fb f sp ofs ty dst c rs m v rs',
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       (* load_stack m sp Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
-      load_stack m (parent_sp s) ty ofs = Some v ->
+      load_stack m (parent_sp (Mem.stack_adt m)) ty ofs = Some v ->
       rs' = (rs # temp_for_parent_frame <- Vundef # dst <- v) ->
       step (State s fb sp (Mgetparam ofs ty dst :: c) rs m)
         E0 (State s fb sp c rs' m)
@@ -412,8 +400,8 @@ Inductive step: state -> trace -> state -> Prop :=
         E0 (Returnstate s rs m')
   | exec_function_internal:
       forall s fb rs m f m1 m1_ m3 stk rs',
-        Genv.find_funct_ptr ge fb = Some (Internal f) ->
-        check_alloc_frame (fn_frame f) f  ->
+      Genv.find_funct_ptr ge fb = Some (Internal f) ->
+      check_alloc_frame (fn_frame f) f  ->
       Mem.alloc m 0 f.(fn_stacksize) = (m1, stk) ->
       let sp := Vptr stk Ptrofs.zero in
       (* store_stack m1 sp Tptr f.(fn_link_ofs) (parent_sp s) = Some m2 -> *)
@@ -425,7 +413,7 @@ Inductive step: state -> trace -> state -> Prop :=
   | exec_function_external:
       forall s fb rs m t rs' ef args res m',
       Genv.find_funct_ptr ge fb = Some (External ef) ->
-      extcall_arguments rs m (parent_sp s) (ef_sig ef) args ->
+      extcall_arguments rs m (parent_sp (Mem.stack_adt m)) (ef_sig ef) args ->
       external_call ef ge args m t res m' ->
       rs' = set_pair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
       step (Callstate s fb rs m)
@@ -436,7 +424,6 @@ Inductive step: state -> trace -> state -> Prop :=
       step (Returnstate (Stackframe f sp ra c :: s) rs m)
         E0 (State s f (Vptr sp Ptrofs.zero) c rs m').
 
-
 Inductive callstack_function_defined : list stackframe -> Prop :=
 | cfd_empty:
     callstack_function_defined nil
@@ -446,12 +433,27 @@ Inductive callstack_function_defined : list stackframe -> Prop :=
       (CFD: callstack_function_defined cs'),
       callstack_function_defined (Stackframe fb sp' ra c' :: cs').
 
-Hypothesis init_sp_ofs_zero:
-  forall b o, init_sp = Vptr b o -> o = Ptrofs.zero.
+Variable init_sg: signature.
+Variable init_stk: stack_adt.
+
+Inductive single_block_prop (P: block -> frame_info -> Prop) : list (block * frame_info) -> Prop :=
+| sbp_intro:
+    forall b fi
+      (PROP: P b fi),
+      single_block_prop P ((b,fi)::nil).
+
+Inductive init_sp_stackinfo : stack_adt -> Prop :=
+| iss_intro
+    fr tf s
+    (PRIV: single_block_prop
+             (fun b fi =>
+                forall o, fe_ofs_arg <= o < 4 * size_arguments init_sg ->
+                     frame_private fi o /\ Ptrofs.unsigned (Ptrofs.repr (fe_ofs_arg + o)) = fe_ofs_arg + o)
+             (frame_adt_blocks fr)):
+    init_sp_stackinfo ((fr::tf)::s).
 
 Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
-| list_prefix_nil s: (forall b, init_sp = Vptr b Ptrofs.zero <-> exists fsp fr r, s = (fsp::fr)::r /\ get_frame_blocks fsp = b::nil) ->
-                     list_prefix nil s
+| list_prefix_nil s (STKEQ: s = init_stk) (INIT: init_sp_stackinfo s): list_prefix nil s
 | list_prefix_cons lsp s f r sp bi
                    (REC: list_prefix lsp s)
                    (FSIZE: frame_adt_size f = frame_size bi)
@@ -535,73 +537,17 @@ Proof.
     revert EQ1; rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
     auto.
     simpl.
-    erewrite <- SIZECORRECT. apply Z.max_r. red in H0. omega. eauto.
+    erewrite <- SIZECORRECT. apply Z.max_r. apply frame_size_pos. eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
   - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     simpl in *; eauto. rewrite FINDF in CallStackConsistency. eauto.
 Qed.
-
-Inductive callstack_not_init : list stackframe -> Prop :=
-| cni_empty:
-    callstack_not_init nil
-| cni_cons:
-    forall fb sp' ra c' cs' 
-      (NI: forall b o, init_sp = Vptr b o -> b <> sp')
-      (CNI: callstack_not_init cs'),
-      callstack_not_init (Stackframe fb sp' ra c' :: cs').
 
 Definition block_prop P v :=
   match v with
     Vptr b o => P b
   | _ => True
   end.
-
-Require Import Stacklayout.
-
-
-Variable init_m: mem.
-Variable init_sg: signature.
-
-Definition init_sp_has_stackinfo (m: mem) : Prop :=
-  match init_sp with
-    Vptr b i1 =>
-    exists fi,
-    in_stack' (Mem.stack_adt m) (b,fi)
-          /\ (forall o,
-                Ptrofs.unsigned i1 + fe_ofs_arg <= o < Ptrofs.unsigned i1 + 4 * size_arguments init_sg ->
-                frame_private fi o
-            )
-          /\ (forall o, fe_ofs_arg <= o < 4 * size_arguments init_sg ->
-                  Ptrofs.unsigned (Ptrofs.add i1 (Ptrofs.repr (fe_ofs_arg + o))) =
-                  Ptrofs.unsigned i1 + (fe_ofs_arg + o))
-  | _ => True
-  end.
-
-
-Inductive nextblock_properties_mach : state -> Prop :=
-| nextblock_properties_mach_intro:
-    forall c cs' fb sp' rs m' 
-      (ISP'VALID: block_prop (Mem.valid_block m') init_sp)
-      (ISP'NST: block_prop (fun b => ~ is_stack_top (Mem.stack_adt m') b) init_sp)
-      (MSISHS: init_sp_has_stackinfo m')
-      (INIT_VB': Ple (Mem.nextblock init_m) (Mem.nextblock m'))
-      (SP_NOT_INIT: forall b o, init_sp = Vptr b o -> b <> sp')
-      (NI: callstack_not_init cs'),
-      nextblock_properties_mach (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
-| nextblock_properties_mach_call:
-      forall  cs' fb rs m' 
-         (INIT_VB': Ple (Mem.nextblock init_m) (Mem.nextblock m'))
-         (ISP'VALID: block_prop (Mem.valid_block m') init_sp)
-         (MSISHS: init_sp_has_stackinfo m')
-         (NI: callstack_not_init cs'),
-        nextblock_properties_mach (Callstate cs' fb rs m')
-  | nextblock_properties_mach_return:
-      forall cs' rs m' 
-        (INIT_VB': Ple (Mem.nextblock init_m) (Mem.nextblock m'))
-        (ISP'VALID: block_prop (Mem.valid_block m') init_sp)
-        (MSISHS: init_sp_has_stackinfo m')
-        (NI: callstack_not_init cs'),
-        nextblock_properties_mach (Returnstate cs' rs m').
 
 Lemma store_stack_nextblock:
   forall m v ty p v1 m',
@@ -611,111 +557,6 @@ Proof.
   unfold store_stack; intros.
   destruct (Val.offset_ptr v p); simpl in *; inv H;  eauto with mem.
 Qed.
-
-Ltac rewnb :=
-  repeat
-    match goal with
-    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
-    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
-    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_free _ _ _ _ _ H)
-    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
-    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
-    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
-    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
-    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
-      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
-    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
-      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
-    end.
-
-Opaque Z.mul Z.add.
-
-Lemma lp_has_init_sp s m:
-  list_prefix s m ->
-  forall b,
-    init_sp = Vptr b Ptrofs.zero ->
-    in_stack m b.
-Proof.
-  induction 1; simpl; intros; eauto.
-  unfold in_stack.
-  unfold get_stack_blocks.
-  rewrite H in H0. revert H0.
-  unfold get_stack_top_blocks.
-  intros (fsp & fr & r & EQ & BLOCKS). subst. simpl. unfold get_frames_blocks. simpl. rewrite BLOCKS. 
-  rewrite in_app. rewrite in_app. left; left; left. reflexivity.
-  rewrite in_stack_cons. right; eauto.    
-Qed.
-
-Theorem np_step:
-  forall s1 t s2,
-    step s1 t s2 ->
-    call_stack_consistency s1 ->
-    nextblock_properties_mach s1 ->
-    nextblock_properties_mach s2.
-Proof.
-  destruct 1; simpl; intros CSC NPM; inv NPM;
-    constructor;
-    unfold block_prop, store_stack, init_sp_has_stackinfo, Mem.valid_block in *; simpl in *;
-      try (destr;[idtac]); repeat rewrite_stack_blocks;
-        rewnb; eauto;
-          try assumption.
-  - destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto.
-    simpl; auto.
-  - constructor; auto.
-  - xomega.
-  - revert EQ1; repeat rewrite_stack_blocks. intro.
-    unfold is_stack_top. simpl. intros [A|A].
-    subst b.
-    eapply Mem.fresh_block_alloc in ISP'VALID; eauto.
-    revert Heqv. inv CSC. 
-    intros.
-    eapply lp_has_init_sp in CallStackConsistency; eauto.
-    rewrite EQ1 in CallStackConsistency. simpl in CallStackConsistency.
-    exploit Mem.stack_norepet. intro ND. rewrite EQ1 in ND. revert Heqv. inv ND.
-    eapply H7 in CallStackConsistency; eauto.
-    rewrite Heqv; f_equal. eauto.
-  - revert EQ1; repeat rewrite_stack_blocks. intro.
-    rewrite EQ1 in MSISHS.
-    destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto. simpl. simpl in INS. clear - INS. intuition.
-  - xomega.
-  - intros; subst. intro; subst stk.
-    eapply Mem.fresh_block_alloc; eauto.
-  - rewrite EQ. simpl. revert Heqv. inv CSC.
-    rewrite EQ in CallStackConsistency. simpl in CallStackConsistency.
-    inv CFD. rewrite FINDF in CallStackConsistency. inv CallStackConsistency.
-    intros Heqv.
-    eapply lp_has_init_sp in REC; eauto.
-    unfold is_stack_top. simpl.
-    exploit Mem.stack_norepet. intro ND. rewrite <- H4 in ND. revert Heqv. inv ND.
-    intros. intro INFR.
-    eapply H3 in REC; eauto.
-    rewrite Heqv; f_equal. eauto.
-  - destruct MSISHS as (fi & INS & O).
-    exists fi; split; eauto. rewrite EQ. simpl. rewrite EQ in INS.  simpl in INS.
-    revert Heqv. inv CSC. intro.
-    exploit init_sp_ofs_zero; eauto. intro; subst i.
-    eapply lp_has_init_sp in CallStackConsistency; eauto. rewrite EQ in CallStackConsistency; simpl in CallStackConsistency.
-    destruct INS; auto. 
-    exfalso.
-    exploit Mem.stack_norepet. intro ND. rewrite EQ in ND. revert Heqv. inv ND.
-    intros. 
-    eapply H4 in CallStackConsistency; eauto.
-    rewrite in_frames'_rew in H0. destruct H0 as (fr & IFR & INF0).
-    eapply in_frame_in_frames; eauto.
-    change b with (fst (b,fi)). apply in_map. auto.
-  - intros; intro; subst. inv NI.
-    eapply NI0; eauto.
-  - inv NI; auto.
-Qed.
-
 
 End RELSEM.
 
@@ -735,6 +576,6 @@ Inductive final_state: state -> int -> Prop :=
       final_state (Returnstate nil rs m) retcode.
 
 Definition semantics (rao: function -> code -> ptrofs -> Prop) (p: program) :=
-  Semantics (step (Vptr (Genv.genv_next (Genv.globalenv p)) Ptrofs.zero) Vnullptr rao) (initial_state p) final_state (Genv.globalenv p).
+  Semantics (step Vnullptr rao) (initial_state p) final_state (Genv.globalenv p).
 
 End WITHEXTERNALCALLSOPS.
