@@ -2374,11 +2374,6 @@ Definition fn_stack_requirements (i: ident) : Z :=
 
 Variable init_m: mem.
 
-Inductive mem_has_stack m s : Prop :=
-| mhs_intro: tl (Mem.stack_adt m) = s -> mem_has_stack m s.
-
-Hypothesis init_mem_stack: mem_has_stack init_m init_stk.
-
 Inductive match_states: Linear.state -> Mach.state -> Prop :=
 | match_states_intro:
     forall sg_ cs f sp c ls m cs' fb sp' rs m' j tf
@@ -4164,9 +4159,6 @@ Proof.
   destruct H0. destruct H1.
   exploit transf_step_correct'; eauto. 
   + apply Val.Vnullptr_has_type.
-  + inv H1.  simpl. constructor.
-    repeat rewrite_stack_blocks. simpl.
-    erewrite Mem.alloc_result with (b0:=b); eauto. rewnb. reflexivity.
   + eapply stacking_frame_correct; eauto.
   + simpl. inversion 1. auto.
   + intros [s2' [A B]].

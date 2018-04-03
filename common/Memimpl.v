@@ -6280,10 +6280,9 @@ Qed.
 Theorem inject_compose:
   forall f f' g g' m1 m2 m3,
     inject f g m1 m2 -> inject f' g' m2 m3 ->
-    frameinj_surjective g (length (stack_adt m2)) ->
     inject (compose_meminj f f') (compose_frameinj g g') m1 m3.
 Proof.
-  intros f f' g g' m1 m2 m3 H H0 SURJ.
+  intros f f' g g' m1 m2 m3 H H0.
   unfold compose_meminj; inv H; inv H0. constructor.
 (* inj *)
   eapply mem_inj_compose; eauto.
@@ -6410,10 +6409,9 @@ Qed.
 
 Lemma inject_extends_compose:
   forall f g m1 m2 m3,
-    frameinj_surjective g (length (stack_adt m2)) ->
     inject f g m1 m2 -> extends m2 m3 -> inject f g m1 m3.
 Proof.
-  intros f g m1 m2 m3 SURJ H H0. inv H; inversion H0. constructor; intros.
+  intros f g m1 m2 m3 H H0. inv H; inversion H0. constructor; intros.
 (* inj *)
   replace f with (compose_meminj f inject_id).
   replace g with (compose_frameinj g (flat_frameinj (length (stack_adt m2)))).
