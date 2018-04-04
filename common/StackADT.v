@@ -3287,19 +3287,35 @@ Lemma stack_equiv_refl:
 Proof.
   induction s; constructor; eauto using list_forall2_refl.
 Qed.
+End INJ.
 
-Definition same_head (m m': stack_adt) :=
+
+
+Program Definition inject_perm_upto_writable: InjectPerm :=
+  {|
+    inject_perm_condition := fun p => perm_order Writable p
+  |}.
+
+Program Definition inject_perm_all: InjectPerm :=
+  {|
+    inject_perm_condition := fun p => True
+  |}.
+
+
+Definition same_head (P: perm_type) (m m': stack_adt) :=
   list_forall2
     (fun tf1 tf2 =>
        match tf1, tf2 with
        | _, nil => True
        | a::r, b::nil => a = b
        | _, _ => False
-       end)
+       end
+       /\ forall f1, In f1 tf1 -> has_perm_frame (injperm:=inject_perm_all) P inject_id f1 -> In f1 tf2
+    )
     m m'.
 
 Lemma same_head_get_frame_info:
-  forall s1 s2 (SH: same_head s1 s2)
+  forall P s1 s2 (SH: same_head P s1 s2)
     (ND: nodup s1)
     b f (GFI: get_frame_info s2 b = Some f),
     get_frame_info s1 b = Some f.
@@ -3324,7 +3340,7 @@ Proof.
 Qed.
 
 Lemma same_head_in_impl:
-  forall s1 s2, same_head s1 s2 -> forall b, in_stack s2 b -> in_stack s1 b.
+  forall P s1 s2, same_head P s1 s2 -> forall b, in_stack s2 b -> in_stack s1 b.
 Proof.
   induction 1; simpl; intros; rewrite ? in_stack_cons in *; eauto.
   repeat destr_in H.
@@ -3338,8 +3354,71 @@ Proof.
     easy.
 Qed.
 
+Lemma same_head_in_stack':
+  forall P s1 s2, same_head P s1 s2 -> forall b fi, in_stack' s2 (b,fi) -> in_stack' s1 (b,fi).
+Proof.
+  induction 1; simpl; intros; eauto.
+  repeat destr_in H.
+  - destruct H1. easy. apply IHlist_forall2 in H; auto.
+  - destruct H1; auto. easy.
+  - simpl. destruct H1; auto.
+    destruct H; auto.
+    easy.
+Qed.
+
+Lemma same_head_fap:
+  forall P s1 s2 (SH: same_head P s1 s2)
+         f1 i (FAP1: f1 @ s1 : i),
+  exists f2, f2 @ s2 : i /\ (forall ff1, In ff1 f1 -> has_perm_frame (injperm:= inject_perm_all) P inject_id ff1 -> In ff1 f2).
+Proof.
+  induction 1; simpl; intros; eauto.
+  destruct i.
+  - apply frame_at_pos_last in FAP1. subst.
+    exists b1; split. constructor; reflexivity.
+    destruct H. apply H0.
+  - apply frame_at_pos_cons_inv in FAP1.
+    eapply IHSH in FAP1. destruct FAP1 as (f2 & FAP2 & PROP).
+    exists f2; split. apply frame_at_pos_cons. auto. eauto. omega.
+Qed.
+
+Lemma has_perm_frame_impl {injperm: InjectPerm}:
+  forall (P1 P2: perm_type) j f tf,
+    has_perm_frame P1 j f ->
+    frame_inject j f tf ->
+    (forall b1 b2 delta o k p, j b1 = Some (b2, delta) -> P1 b1 o k p -> inject_perm_condition p -> P2 b2 (o + delta)%Z k p) ->
+    has_perm_frame P2 inject_id tf.
+Proof.
+  intros P1 P2 j f tf (b & o & k & p & NONE & IFR & PERM1 & IPC) FI PERMS.
+  red in FI.
+  apply in_frame_info in IFR. destruct IFR as (fi & IFR).
+  rewrite Forall_forall in FI; specialize (FI _ IFR).
+  simpl in FI.
+  destruct (j b) eqn:?; try congruence. destruct p0.
+  specialize (FI _ _ eq_refl).
+  destruct FI as (fi' & IN' & IFI).
+  exists b0, (o + z)%Z, k, p. split. unfold inject_id. congruence.
+  split. eapply in_frame'_in_frame; eauto. split; eauto.
+Qed.
+
+Lemma same_head_more_perm {injperm: InjectPerm}:
+  forall (P1 P2: perm_type) s1 s2
+         (SH: same_head P1 s1 s2)
+         (SAMEPERM: forall b o k p, in_stack s1 b -> P2 b o k p -> P1 b o k p),
+    same_head P2 s1 s2.
+Proof.
+  induction 1; simpl; intros; constructor; auto.
+  - destruct H; split; auto.
+    intros; eapply H0; eauto.
+    destruct H2 as (b & o & k & p & NONE & IFR & PERM & IPC).
+    exists b, o, k, p; repeat split; eauto. eapply SAMEPERM; eauto.
+    rewrite in_stack_cons; left.
+    eapply in_frame_in_frames; eauto.
+  - apply IHSH. intros. eapply SAMEPERM; eauto.
+    apply in_stack_tl. simpl; auto.
+Qed.
+
 Lemma public_stack_access_same_head:
-  forall s1 (ND: nodup s1) s2 (SH: same_head s1 s2) b lo hi
+  forall s1 (ND: nodup s1) s2 P (SH: same_head P s1 s2) b lo hi
          (PSA: public_stack_access s1 b lo hi),
     public_stack_access s2 b lo hi.
 Proof.
@@ -3351,7 +3430,7 @@ Definition stack_top_is_new s :=
   top_tframe_prop (fun tf => tf = nil) s.
 
 Lemma is_stack_top_same_head:
-  forall P s1 (WF: wf_stack P inject_id s1) (ND: nodup s1) s2 (SH: same_head s1 s2) b
+  forall P s1 (WF: wf_stack P inject_id s1) (ND: nodup s1) s2 P2 (SH: same_head P2 s1 s2) b
          o k p (PERM: P b o k p)
          (IST: is_stack_top s1 b),
     is_stack_top s2 b \/ ~ in_stack s2 b.
@@ -3362,7 +3441,7 @@ Proof.
   - right. intro IS. rewrite in_stack_cons in IS. destruct IS as [IFR|IS]. easy.
     eapply same_head_in_impl in IS; eauto.
     inv ND.
-    eapply H3 in IS; eauto.
+    eapply H5 in IS; eauto.
   - red in IST. simpl in IST.
     left. assert (in_frame f0 b).
     {
@@ -3370,8 +3449,8 @@ Proof.
       rewrite in_app in IST. destruct IST; auto.
       rewrite concat_In in H. destruct H as (lb & INlb & INblocs).
       exfalso. inv WF.
-      red in H2. simpl in H2.
-      eapply H2; eauto. unfold inject_id; congruence.
+      red in H3. simpl in H3.
+      eapply H3; eauto. unfold inject_id; congruence.
       red. unfold get_frames_blocks. rewrite concat_In.  eexists; split. 2: apply INblocs. eauto.
     }
     red; simpl. unfold get_frames_blocks.
@@ -3379,7 +3458,7 @@ Proof.
 Qed.
 
 Lemma stack_access_same_head:
-  forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 (SH: same_head s1 s2) b lo hi k p
+  forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 P2 (SH: same_head P2 s1 s2) b lo hi k p
          (R: forall o, (lo <= o < hi)%Z -> P b o k p)
          (SA: stack_access s1 b lo hi),
     stack_access s2 b lo hi.
@@ -3395,7 +3474,8 @@ Qed.
 
 Lemma stack_access_same_head_or_not_in_stack:
   forall s1 P (ND: nodup s1) (WF: wf_stack P inject_id s1) s2 b
-         (SH: same_head s1 s2 \/ ~ in_stack s2 b) lo hi k p
+         P2
+         (SH: same_head P2 s1 s2 \/ ~ in_stack s2 b) lo hi k p
          (R: forall o, (lo <= o < hi)%Z -> P b o k p)
          (SA: stack_access s1 b lo hi),
     stack_access s2 b lo hi.
@@ -3407,8 +3487,8 @@ Proof.
 Qed.
 
 Lemma same_head_size:
-  forall s1 s2,
-    same_head s1 s2 ->
+  forall P s1 s2,
+    same_head P s1 s2 ->
     (size_stack s2 <= size_stack s1)%Z.
 Proof.
   induction 1; simpl; intros; rewrite ? size_stack_cons. omega.
@@ -3456,4 +3536,3 @@ Proof.
 Qed.
 
 
-End INJ.

@@ -355,7 +355,7 @@ Qed.
 
 Section WITHEXTERNALCALLS.
   Local Existing Instance Events.symbols_inject_instance.
-  Local Existing Instance Memory.inject_perm_all.
+  Local Existing Instance StackADT.inject_perm_all.
   Context `{external_calls_prf: Events.ExternalCalls
                                   (symbols_inject_instance := Events.symbols_inject_instance) }.
   Context {i64_helpers_correct_prf: SplitLongproof.I64HelpersCorrect mem}.

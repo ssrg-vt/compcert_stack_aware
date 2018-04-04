@@ -9131,15 +9131,14 @@ Proof.
 Qed.
 
 Lemma store_unchanged_on_1:
-    forall P chunk m m' b ofs v m1
-      (UNCH: Mem.unchanged_on P m m')
-      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
-      (PERMALL: forall b o, P b o)
+    forall chunk m m' b ofs v m1
+      (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
+      (SH: same_head (perm m) (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
       (STORE: Mem.store chunk m b ofs v = Some m1),
     exists m1',
-      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1'.
+      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on (fun _ _ => True) m1 m1'.
 Proof.
-  intros P chunk m m' b ofs v m1 UNCH SH PERMALL STORE.
+  intros chunk m m' b ofs v m1 UNCH SH STORE.
   unfold store in STORE |- *; repeat destr_in STORE.
   destr.
   - eexists; split; eauto.
@@ -9160,15 +9159,14 @@ Proof.
 Qed.
 
 Lemma storebytes_unchanged_on_1:
-    forall P m m' b ofs v m1
-      (UNCH: Mem.unchanged_on P m m')
-      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
-      (PERMALL: forall b o, P b o)
+    forall m m' b ofs v m1
+      (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
+      (SH: same_head (perm m) (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
       (STORE: Mem.storebytes m b ofs v = Some m1),
     exists m1',
-      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1'.
+      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on (fun _ _ => True) m1 m1'.
 Proof.
-  intros P m m' b ofs v m1 UNCH SH PERMALL STORE.
+  intros m m' b ofs v m1 UNCH SH STORE.
   unfold storebytes in STORE |- *; repeat destr_in STORE.
   repeat destr.
   - eexists; split; eauto.
@@ -9184,7 +9182,7 @@ Proof.
     eapply wf_stack_mem. eauto. eauto. eauto.
   - contradict n.
     red; intros. apply r in H.
-    erewrite <- unchanged_on_perm; eauto. eapply perm_valid_block; eauto.
+    erewrite <- unchanged_on_perm; eauto. simpl; auto. eapply perm_valid_block; eauto.
 Qed.
 
 Lemma valid_pointer_unchanged:
@@ -9257,7 +9255,7 @@ Lemma unchanged_on_record:
     forall m1 m2,
       Mem.unchanged_on (fun _ _ => True) m1 m2 ->
       Mem.nextblock m1 = Mem.nextblock m2 ->
-      same_head ((Mem.stack_adt m1)) ((Mem.stack_adt m2)) ->
+      same_head (perm m1) ((Mem.stack_adt m1)) ((Mem.stack_adt m2)) ->
       forall m1' fi,
         Mem.record_stack_blocks m1 fi = Some m1' ->
         exists m2',
@@ -9290,7 +9288,7 @@ Proof.
   - contradict n. eapply Forall_impl. 2: apply f. simpl.
     intros. rewrite <- H in pf. inv pf. intros INS; apply H4; clear H4.
     eapply same_head_in_impl; eauto.
-    rewrite <- H, <- H0. constructor; auto.
+    rewrite <- H, <- H0. constructor; eauto.
   - contradict n. red. red. rewrite <- NB. auto.
     Unshelve.
     2: rewrite <- H0; simpl; eauto.
@@ -9328,7 +9326,37 @@ Proof.
   unfold perm in H0. simpl in H0. rewrite PMap.gso in H0; auto.
 Qed.
 
-
+Lemma inject_unchanged_compose:
+  forall f g m1 m2 m3,
+    inject f g m1 m2 ->
+    unchanged_on (fun _ _ => True) m2 m3 ->
+    same_head (perm m2) (Mem.stack_adt m2) (Mem.stack_adt m3) ->
+    inject f g m1 m3.
+Proof.
+  intros f g m1 m2 m3 INJ UNCH SH. inversion INJ; inversion UNCH.  constructor; intros; eauto.
+  - inversion mi_inj0. constructor; intros; eauto.
+    + eapply unchanged_on_perm0; eauto.
+    + erewrite unchanged_on_contents0; eauto. eapply mi_perm; eauto. apply inject_perm_condition_writable. constructor.
+    + clear - SH mi_stack_blocks0 mi_perm0.
+      {
+        inv mi_stack_blocks0; constructor; intros; eauto.
+        - edestruct stack_inject_frame_inject as (f2 & FAP2 & TFI); eauto.
+          edestruct same_head_fap as (f3 & FAP3 & IMPL2); eauto. 
+          exists f3; split; auto. red. intros.
+          edestruct TFI as (ff2 & INf2 & INJf2); eauto.
+          exists ff2; split; eauto. apply IMPL2; auto.
+          eapply (has_perm_frame_impl) in H0; eauto.
+          edestruct H0 as (b & o & k & p & NONE & IFR & PERM & _).
+          exists b, o, k, p; repeat split; auto.
+        - eapply same_head_in_stack' in FI; eauto.
+        - setoid_rewrite <- (list_forall2_length SH).
+          auto.
+        - setoid_rewrite <- (list_forall2_length SH). auto.
+      }
+  - red. eapply mi_mappedblocks0 in H. red in H. xomega.
+  - eapply mi_perm_inv0; eauto.
+    eapply unchanged_on_perm0; eauto.
+Qed.
 
 
 End WITHINJPERM.
@@ -9669,6 +9697,8 @@ Proof.
   apply unchanged_on_record.
   apply unrecord_push_unchanged.
   apply unchanged_on_alloc.
+
+  simpl; intros; eapply inject_unchanged_compose; eauto.
 
 Qed.
 

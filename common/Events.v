@@ -747,7 +747,7 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
   ec_unchanged_on:
     forall ge m1 m2
       (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
-      (SH: same_head (Mem.stack_adt m1) (Mem.stack_adt m2))
+      (SH: same_head (Mem.perm m1) (Mem.stack_adt m1) (Mem.stack_adt m2))
       (NB: Mem.nextblock m1 = Mem.nextblock m2)
       args res t m1'
       (SEM1: sem ge args m1 res t m1'),
@@ -1070,7 +1070,7 @@ Proof.
   exists f; exists Vundef; exists m2'; intuition. constructor; auto. red; intros; congruence.
 - inv SEM1. inv H.
   eexists; split. econstructor. constructor; eauto. split; auto.
-  edestruct (Mem.store_unchanged_on_1 _ chunk _ _ _ _ _ _ UNCH (or_introl SH) (fun _ _ => I) H1)
+  edestruct (Mem.store_unchanged_on_1 chunk _ _ _ _ _ _ UNCH (or_introl SH) H1)
             as (m2' & STORE2 & UNCH').
   eexists; split. econstructor. constructor; eauto.
   red. destr. red in H2.
@@ -1177,9 +1177,13 @@ Proof.
     apply Mem.alloc_result in H. apply Mem.alloc_result in ALLOC'. congruence.
   } subst.
   exploit Mem.unchanged_on_alloc. apply UNCH. exact H. exact ALLOC'. intro UNCHALLOC.
-  edestruct (fun sh => Mem.store_unchanged_on_1 _ Mptr _ _ _ _ _ _ UNCHALLOC sh (fun _ _ => I) H0)
+  edestruct (fun sh => Mem.store_unchanged_on_1 Mptr _ _ _ _ _ _ UNCHALLOC sh H0)
     as (m3' & STORE2 & UNCH').
-  left. rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H), (Mem.alloc_stack_blocks _ _ _ _ _ ALLOC'). auto.
+  left. rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H), (Mem.alloc_stack_blocks _ _ _ _ _ ALLOC').
+  eapply (same_head_more_perm (injperm:=inject_perm_all)). apply SH. intros.
+  eapply Mem.perm_alloc_inv in H2; eauto. destr_in H2.
+  subst.
+  eapply Mem.in_frames_valid in H1. eapply Mem.fresh_block_alloc in H1; eauto. destruct H1.
   eexists; split. econstructor; eauto. split; auto.
   apply Mem.nextblock_alloc in H. apply Mem.nextblock_store in H0.
   apply Mem.nextblock_alloc in ALLOC'. apply Mem.nextblock_store in STORE2. congruence.

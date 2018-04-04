@@ -2139,22 +2139,20 @@ wf_stack_mem:
 
 
  store_unchanged_on_1:
-    forall P chunk m m' b ofs v m1
-      (UNCH: Mem.unchanged_on P m m')
-      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
-      (PERMALL: forall b o, P b o)
+    forall chunk m m' b ofs v m1
+      (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
+      (SH: same_head (perm m) (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
       (STORE: Mem.store chunk m b ofs v = Some m1),
     exists m1',
-      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1';
+      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on (fun _ _ => True) m1 m1';
 
  storebytes_unchanged_on_1:
-    forall P m m' b ofs v m1
-      (UNCH: Mem.unchanged_on P m m')
-      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
-      (PERMALL: forall b o, P b o)
+    forall m m' b ofs v m1
+      (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
+      (SH: same_head (perm m) (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
       (STORE: Mem.storebytes m b ofs v = Some m1),
     exists m1',
-      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1';
+      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on (fun _ _ => True) m1 m1';
 
  
  valid_pointer_unchanged:
@@ -2189,7 +2187,7 @@ wf_stack_mem:
     forall m1 m2,
       Mem.unchanged_on (fun _ _ => True) m1 m2 ->
       nextblock m1 = nextblock m2 ->
-      same_head ((stack_adt m1)) ((stack_adt m2)) ->
+      same_head (perm m1) ((stack_adt m1)) ((stack_adt m2)) ->
       forall m1' fi,
         Mem.record_stack_blocks m1 fi = Some m1' ->
         exists m2',
@@ -2206,7 +2204,14 @@ wf_stack_mem:
      lo hi m1' b (ALLOC1: Mem.alloc m1 lo hi = (m1', b))
      m2' (ALLOC2: Mem.alloc m2 lo hi = (m2', b)),
      Mem.unchanged_on (fun _ _ => True) m1' m2';
- 
+
+ inject_unchanged_compose {injperm: InjectPerm}:
+   forall f g m1 m2 m3,
+     inject f g m1 m2 ->
+     unchanged_on (fun _ _ => True) m2 m3 ->
+     same_head (perm m2) (Mem.stack_adt m2) (Mem.stack_adt m3) ->
+     inject f g m1 m3;
+
 }.
 
 Section WITHMEMORYMODEL.
