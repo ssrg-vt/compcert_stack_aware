@@ -9334,6 +9334,29 @@ Proof.
   unfold perm in H0. simpl in H0. rewrite PMap.gso in H0; auto.
 Qed.
 
+Lemma stack_inject_same_head_compose:
+  forall (P1 P2: perm_type) s2 s3
+    (SH: same_head P2 s2 s3)
+    f g s1
+    (PERMS : forall b1 b2 delta ofs k p, f b1 = Some (b2, delta) -> P1 b1 ofs k p -> inject_perm_condition p -> P2 b2 (ofs + delta)%Z k p)
+    (SI: stack_inject f g P1 s1 s2),
+    stack_inject f g P1 s1 s3.
+Proof.
+  intros. inv SI; constructor; intros; eauto.
+  - edestruct stack_inject_frame_inject as (f2 & FAP2 & TFI); eauto.
+    edestruct same_head_fap as (f3 & FAP3 & IMPL2); eauto. 
+    exists f3; split; auto. red. intros.
+    edestruct TFI as (ff2 & INf2 & INJf2); eauto.
+    exists ff2; split; eauto. apply IMPL2; auto.
+    eapply (has_perm_frame_impl) in H0; eauto.
+    edestruct H0 as (b & o & k & p & NONE & IFR & PERM & _).
+    exists b, o, k, p; repeat split; auto.
+  - eapply same_head_in_stack' in FI; eauto.
+  - setoid_rewrite <- (list_forall2_length SH).
+    auto.
+  - setoid_rewrite <- (list_forall2_length SH). auto.
+Qed.
+
 Lemma inject_unchanged_compose:
   forall f g m1 m2 m3,
     inject f g m1 m2 ->
@@ -9345,25 +9368,32 @@ Proof.
   - inversion mi_inj0. constructor; intros; eauto.
     + eapply unchanged_on_perm0; eauto.
     + erewrite unchanged_on_contents0; eauto. eapply mi_perm; eauto. apply inject_perm_condition_writable. constructor.
-    + clear - SH mi_stack_blocks0 mi_perm0.
-      {
-        inv mi_stack_blocks0; constructor; intros; eauto.
-        - edestruct stack_inject_frame_inject as (f2 & FAP2 & TFI); eauto.
-          edestruct same_head_fap as (f3 & FAP3 & IMPL2); eauto. 
-          exists f3; split; auto. red. intros.
-          edestruct TFI as (ff2 & INf2 & INJf2); eauto.
-          exists ff2; split; eauto. apply IMPL2; auto.
-          eapply (has_perm_frame_impl) in H0; eauto.
-          edestruct H0 as (b & o & k & p & NONE & IFR & PERM & _).
-          exists b, o, k, p; repeat split; auto.
-        - eapply same_head_in_stack' in FI; eauto.
-        - setoid_rewrite <- (list_forall2_length SH).
-          auto.
-        - setoid_rewrite <- (list_forall2_length SH). auto.
-      }
+    + eapply stack_inject_same_head_compose; eauto.
   - red. eapply mi_mappedblocks0 in H. red in H. xomega.
   - eapply mi_perm_inv0; eauto.
     eapply unchanged_on_perm0; eauto.
+Qed.
+
+Lemma extends_unchanged_compose:
+  forall m1 m2 m3,
+    extends m1 m2 ->
+    unchanged_on (fun _ _ => True) m2 m3 ->
+    nextblock m2 = nextblock m3 ->
+    same_head (perm m2) (Mem.stack_adt m2) (Mem.stack_adt m3) ->
+    extends m1 m3.
+Proof.
+  intros m1 m2 m3 INJ UNCH NB SH. inversion INJ; inversion UNCH.  constructor; intros; eauto.
+  - congruence.
+  - inversion mext_inj0. constructor; intros; eauto.
+    + eapply unchanged_on_perm0; eauto.
+      eauto using perm_valid_block.
+    + erewrite unchanged_on_contents0; eauto. eapply mi_perm0; eauto. apply inject_perm_condition_writable. constructor.
+    + eapply stack_inject_same_head_compose; eauto.
+  - eapply mext_perm_inv0; eauto.
+    eapply unchanged_on_perm0; eauto.
+    red; rewrite NB; eapply perm_valid_block; eauto.
+  - rewrite <- mext_length_stack0.
+    symmetry. eapply list_forall2_length. eauto.
 Qed.
 
 
@@ -9707,7 +9737,7 @@ Proof.
   apply unchanged_on_alloc.
 
   simpl; intros; eapply inject_unchanged_compose; eauto.
-
+  simpl; intros; eapply extends_unchanged_compose; eauto.
 Qed.
 
 End Mem.

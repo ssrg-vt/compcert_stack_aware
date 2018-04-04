@@ -2211,6 +2211,11 @@ wf_stack_mem:
      unchanged_on (fun _ _ => True) m2 m3 ->
      same_head (perm m2) (Mem.stack_adt m2) (Mem.stack_adt m3) ->
      inject f g m1 m3;
+ extends_unchanged_compose {injperm: InjectPerm}: forall (m1 m2 m3 : mem),
+       Mem.extends m1 m2 ->
+       Mem.unchanged_on (fun (_ : Values.block) (_ : Z) => True) m2 m3 ->
+       Mem.nextblock m2 = Mem.nextblock m3 ->
+       same_head (Mem.perm m2) (Mem.stack_adt m2) (Mem.stack_adt m3) -> Mem.extends m1 m3;
 
 }.
 
