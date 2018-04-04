@@ -205,33 +205,22 @@ Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop 
                    (BLOCKS: frame_adt_blocks f = (sp,bi)::nil):
     list_prefix (Some (sp,bi) :: lsp) ( (f :: nil) :: s).
 
-Definition stack_blocks_of_callstack (l : list stackframe) : list (option (block * frame_info)) :=
-  map (fun x =>
-         match x with
-           Stackframe fb sp _ _ =>
-           match Genv.find_funct_ptr ge fb with
-             Some (Internal f) =>
-             Some (sp, fn_frame f)
-           | _ => None
-           end
-         end) l.
-
 Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_intro:
     forall c cs' fb sp' rs m' tf
       (FIND: Genv.find_funct_ptr ge fb = Some (Internal tf))
-      (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack cs') (Mem.stack_adt m'))
+      (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack ge cs') (Mem.stack_adt m'))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
 | call_stack_consistency_call:
     forall cs' fb rs m'
-      (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
+      (CallStackConsistency: list_prefix (stack_blocks_of_callstack ge cs') (tl (Mem.stack_adt m')))
       (TIN: Mem.top_is_new m')
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:
     forall cs' rs m'
-      (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack_adt m')))
+      (CallStackConsistency: list_prefix (stack_blocks_of_callstack ge cs') (tl (Mem.stack_adt m')))
       (TIN: Mem.top_is_new m')
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Returnstate cs' rs m').

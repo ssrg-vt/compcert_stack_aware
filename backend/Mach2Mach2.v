@@ -191,38 +191,72 @@ Section WITHINITSP.
   Variable init_sg: signature.
   Variable init_stk: stack_adt.
 
-  Lemma parent_sp_same:
-    forall P s1 s2
-      (SH: same_head P s1 s2)
-      (NONIL: Forall (fun tf => tf <> nil) (tl s2)),
+  Lemma parent_sp_same_tl:
+    forall s1 s2 cs
+           (LP1: Mach.list_prefix init_sg init_stk cs (tl s1)) (LP2: list_prefix init_sg init_stk cs (tl s2)) (LEN: length s1 = length s2),
       parent_sp s1 = parent_sp s2.
   Proof.
-    intros. inv SH. auto. simpl in *.
-    inv H0. auto. inv NONIL.
-    repeat destr_in H1. auto.
+    intros. destruct s1; destruct s2; simpl in LEN; try omega. auto. simpl in *.
+    inv LP1; inv LP2.
+    auto. simpl.
+    rewrite BLOCKS, BLOCKS0. auto.
   Qed.
-Lemma zle_zlt_false:
-  forall lo hi o,
-    zle lo o && zlt o hi = false <-> ~ (lo <= o < hi)%Z.
-Proof.
-  intros.
-  destruct (zle lo o), (zlt o hi); intuition; try congruence; try omega.
-Qed.
 
-Hypothesis frame_correct:
-  forall (fb : block) (f : function),
-    Genv.find_funct_ptr (Genv.globalenv prog) fb = Some (Internal f) ->
-    frame_size (fn_frame f) = fn_stacksize f.
+  Lemma mach_list_prefix_length:
+    forall cs s,
+      Mach.list_prefix init_sg init_stk cs s ->
+      length s = (length init_stk + length cs)%nat.
+  Proof.
+    induction 1; simpl; intros; eauto. subst; omega.
+    rewrite IHlist_prefix. omega.
+  Qed.
 
-Existing Instance inject_perm_all.
+  Lemma list_prefix_length:
+    forall cs s,
+      list_prefix init_sg init_stk cs s ->
+      length s = (length init_stk + length cs)%nat.
+  Proof.
+    induction 1; simpl; intros; eauto. subst; omega.
+    rewrite IHlist_prefix. omega.
+  Qed.
+
+  Lemma parent_sp_same:
+    forall s1 s2 cs
+           (LP1: Mach.list_prefix init_sg init_stk cs s1) (LP2: list_prefix init_sg init_stk cs s2),
+      parent_sp s1 = parent_sp s2.
+  Proof.
+    intros.
+    inv LP1; inv LP2. auto.
+    eapply parent_sp_same_tl; simpl; eauto. f_equal.
+    apply list_prefix_length in REC0.
+    apply mach_list_prefix_length in REC.
+    congruence.
+  Qed.
+
+  Lemma zle_zlt_false:
+    forall lo hi o,
+      zle lo o && zlt o hi = false <-> ~ (lo <= o < hi)%Z.
+  Proof.
+    intros.
+    destruct (zle lo o), (zlt o hi); intuition; try congruence; try omega.
+  Qed.
+
+  Hypothesis frame_correct:
+    forall (fb : block) (f : function),
+      Genv.find_funct_ptr (Genv.globalenv prog) fb = Some (Internal f) ->
+      frame_size (fn_frame f) = fn_stacksize f.
+
+  Existing Instance inject_perm_all.
 
   Lemma step_correct:
     forall S1 t S2 (STEP: Mach.step init_ra return_address_offset ge S1 t S2)
-      S1' (MS: match_states S1 S1') (CSC: call_stack_consistency ge init_sg init_stk S1'),
+           S1' (MS: match_states S1 S1')
+           (CSC1: Mach.call_stack_consistency ge init_sg init_stk S1)
+           (CSC: call_stack_consistency ge init_sg init_stk S1'),
     exists S2',
       Mach2.step init_ra return_address_offset ge S1' t S2' /\ match_states S2 S2'.
   Proof.
-    destruct 1; intros S1' MS CSC; inv MS; unfold store_stack in *.
+    destruct 1; intros S1' MS CSC1 CSC; inv MS; unfold store_stack in *.
     - eexists; split. econstructor; eauto.
       constructor; auto.
     - eexists; split. econstructor; eauto. eapply loadstack_unchanged_on; simpl; eauto. simpl. auto.
@@ -232,8 +266,8 @@ Existing Instance inject_perm_all.
       constructor; auto; repeat rewrite_stack_blocks; rewnb; auto.
       eapply same_head_more_perm; eauto. intros b o k p INS. rewrite_perms. auto.
     - eexists; split. econstructor; eauto. eapply loadstack_unchanged_on; simpl; eauto. simpl. auto.
-      erewrite <- parent_sp_same; eauto.
-      apply Forall_tl; auto.
+      inv CSC1. inv CSC.
+      erewrite <- parent_sp_same; eauto. congruence.
       constructor; auto.
     - erewrite eval_operation_unchanged in H; eauto.
       eexists; split; econstructor; eauto.
@@ -253,10 +287,12 @@ Existing Instance inject_perm_all.
       repeat rewrite_stack_blocks; auto.
       inv CallStackConsistency. rewrite <- H6 in SH. inv SH. simpl. constructor; auto.
       {
-        split. destr.
-        intros. destruct H5. destr_in H5. subst.
+        split. 2: easy.
+        intros. exfalso.
+        inv CSC1. rewrite FIND in FIND0; inv FIND0. rewrite <- H0 in CallStackConsistency.
+        inv CallStackConsistency.
         exfalso.
-        assert (f1 = f0).
+        assert (f1 = f).
         destruct H3; auto.
         destruct H4 as (b & o & k & p & NONE & IFR & PERMS & IPC).                 
         exploit Mem.wf_stack_mem. rewrite <- H0.
@@ -267,15 +303,15 @@ Existing Instance inject_perm_all.
         eapply (H9 b); eauto. subst.
         destruct H4 as (b & o & k & p & NONE & IFR & PERMS & IPC).
         revert PERMS. rewrite_perms.
-        unfold in_frame, get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [IFR|[]].
+        unfold in_frame, get_frame_blocks in IFR. rewrite BLOCKS0 in IFR. destruct IFR as [IFR|[]].
         inv IFR. simpl in *.
         rewrite Ptrofs.unsigned_zero. simpl.
         destr. rewrite <- andb_assoc in Heqb. rewrite andb_false_iff in Heqb.
         destruct Heqb. contradict H4. destruct peq; simpl; auto. congruence.
         apply zle_zlt_false in H4. intro.
         exploit Mem.agree_perms_mem. rewrite <- H0. left. reflexivity. left. reflexivity.
-        rewrite BLOCKS.
-        left; reflexivity. apply H5. erewrite frame_correct; eauto.
+        rewrite BLOCKS0.
+        left; reflexivity. apply H8. erewrite frame_correct; eauto.
       }
       eapply same_head_more_perm. apply H7. intros b o k p H3.
       rewrite_perms. destr.
@@ -313,10 +349,12 @@ Existing Instance inject_perm_all.
       repeat rewrite_stack_blocks; auto. simpl.
       inv CallStackConsistency. rewrite <- H in SH. inv SH. constructor; simpl; auto.
       {
-        split. destr.
-        intros. destruct H5. destr_in H5. subst.
+        split. 2: easy.
+        intros. exfalso.
+        inv CSC1. rewrite FIND in FIND0; inv FIND0. rewrite <- H2 in CallStackConsistency.
+        inv CallStackConsistency.
         exfalso.
-        assert (f1 = f0).
+        assert (f1 = f).
         destruct H3; auto.
         destruct H4 as (b & o & k & p & NONE & IFR & PERMS & IPC).                 
         exploit Mem.wf_stack_mem. rewrite <- H2.
@@ -327,15 +365,15 @@ Existing Instance inject_perm_all.
         eapply (H8 b); eauto. subst.
         destruct H4 as (b & o & k & p & NONE & IFR & PERMS & IPC).
         revert PERMS. rewrite_perms.
-        unfold in_frame, get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [IFR|[]].
+        unfold in_frame, get_frame_blocks in IFR. rewrite BLOCKS0 in IFR. destruct IFR as [IFR|[]].
         inv IFR. simpl in *.
         rewrite Ptrofs.unsigned_zero. simpl.
         destr. rewrite <- andb_assoc in Heqb. rewrite andb_false_iff in Heqb.
         destruct Heqb. contradict H4. destruct peq; simpl; auto. congruence.
         apply zle_zlt_false in H4. intro.
         exploit Mem.agree_perms_mem. rewrite <- H2. left. reflexivity. left. reflexivity.
-        rewrite BLOCKS.
-        left; reflexivity. apply H5. erewrite frame_correct; eauto.
+        rewrite BLOCKS0.
+        left; reflexivity. apply H7. erewrite frame_correct; eauto.
       }
       eapply same_head_more_perm. apply H6. intros b o k p H3.
       rewrite_perms. destr.
@@ -370,6 +408,7 @@ Existing Instance inject_perm_all.
         eapply in_frame_in_frames in IFR; eauto.
         eapply (H6 bb); eauto.        
       }
+      intros ? [AA|[]]; inv AA; simpl; auto.
       eapply same_head_more_perm; eauto.
       intros b o k p H4. repeat rewrite_perms. destr. subst.
       exploit Mem.in_frames_valid. rewrite A. rewrite in_stack_cons. right. eauto.
@@ -381,8 +420,10 @@ Existing Instance inject_perm_all.
     - edestruct ec_unchanged_on as (m2' & EXTCALL & UNCH' & NB').  5: eauto. apply external_call_spec.
       eauto. auto. auto.
       eexists; split; econstructor; eauto.
-      erewrite <- parent_sp_same; eauto.
+      inv CSC; inv CSC1.
+      erewrite <- parent_sp_same_tl; eauto.
       eapply unchanged_on_extcall_args; eauto.
+      eapply list_forall2_length. eauto.
       repeat rewrite_stack_blocks; eauto.
       eapply same_head_more_perm; eauto. intros b0 o k p H2.
       repeat rewrite_perms. auto. auto.
@@ -409,7 +450,7 @@ End WITHINITSP.
     - apply Mem.unchanged_on_refl.
     - repeat rewrite_stack_blocks.
       repeat constructor; auto.
-      destr_in H3; auto. easy.
+      destr_in H3; auto. easy. destruct H3; subst; easy.
     - repeat rewrite_stack_blocks. simpl. repeat constructor. congruence.
   Qed.
 
@@ -431,12 +472,25 @@ End WITHINITSP.
     eapply forward_simulation_step with (match_states :=
                                            fun s1 s2 =>
                                              match_states s1 s2 /\
-                                             call_stack_consistency
+                                                 Mach.call_stack_consistency
+                                               ge signature_main
+                                               ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil)::nil) s1 /\
+                                                 call_stack_consistency
                                                ge signature_main
                                                ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil)::nil) s2).
     - reflexivity.
     - simpl; intros s1 IS. eexists; split; eauto. split. eapply initial_transf; eauto.
-      inv IS. constructor.
+      inv IS. split; constructor.
+      + simpl. constructor. repeat rewrite_stack_blocks. simpl.
+        apply Mem.alloc_result in H1; subst. rewnb. reflexivity.
+        repeat rewrite_stack_blocks. simpl.
+        constructor. constructor.
+        change (size_arguments signature_main) with 0. intros; simpl. unfold Stacklayout.fe_ofs_arg in H3. omega.
+
+      + repeat rewrite_stack_blocks. simpl.
+        repeat constructor.
+        red. repeat rewrite_stack_blocks. easy.
+      + constructor.
       + simpl. constructor. repeat rewrite_stack_blocks. simpl.
         apply Mem.alloc_result in H1; subst. rewnb. reflexivity.
         repeat rewrite_stack_blocks. simpl.
@@ -444,12 +498,12 @@ End WITHINITSP.
         change (size_arguments signature_main) with 0. intros; simpl. unfold Stacklayout.fe_ofs_arg in H3. omega.
         repeat rewrite_stack_blocks. simpl.
         repeat constructor.
-      + red. repeat rewrite_stack_blocks. constructor; auto.
+      + red. repeat rewrite_stack_blocks. easy.
       + constructor.
     - simpl. intros s1 s2 r (MS & CSC). eapply final_transf; eauto.
-    - simpl; intros s1 t s1' STEP s2 (MS & CSC).
+    - simpl; intros s1 t s1' STEP s2 (MS & CSC1  & CSC2).
       edestruct step_correct as (s2' & STEP' & MS'); eauto.
-      eexists; split; eauto. split; auto. eapply csc_step; eauto.
+      eexists; split; eauto. split; auto. split. eapply Mach.csc_step; eauto. eapply csc_step; eauto.
   Qed.
 
 End WITHEXTCALLS.

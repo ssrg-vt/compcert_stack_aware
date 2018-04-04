@@ -9153,8 +9153,9 @@ Proof.
     + red; intros. inv UNCH. eapply unchanged_on_perm0; eauto.
       eapply perm_valid_block. eapply v1; eauto.
     + intros; trim v3; auto.
-      eapply stack_access_same_head_or_not_in_stack; eauto.
+      eapply stack_access_same_head_or_not_in_stack. 4: eauto. all: eauto.
       eapply stack_inv_norepet, mem_stack_inv.
+      eapply stack_inv_norepet', mem_stack_inv.
       eapply wf_stack_mem.
 Qed.
 
@@ -9179,6 +9180,7 @@ Proof.
   - contradict n.
     eapply stack_access_same_head_or_not_in_stack.
     eapply stack_inv_norepet, mem_stack_inv.
+    eapply stack_inv_norepet', mem_stack_inv.
     eapply wf_stack_mem. eauto. eauto. eauto.
   - contradict n.
     red; intros. apply r in H.
@@ -9275,14 +9277,20 @@ Proof.
     intros a INBLOCKS. destr. intros PERMS o k p PERM.
     eapply PERMS. erewrite unchanged_on_perm0; eauto. eapply perm_valid_block in PERM.
     red; rewrite NB; auto.
-  - contradict n. rewrite <- H0. inv t. rewrite <- H in H3; inv H3.
+  - contradict n. rewrite <- H0. inv t. rewrite <- H in H3; inv H3. 
     constructor.
-    red; intros. intro P. erewrite <- unchanged_on_perm0 in P; eauto.
+    red; intros. intro P.
+    assert (IFa1: in_frames a1 b).
+    {
+      eapply in_frames_in_frame_ex in H5. destruct H5 as (fr & IFRS & IFR).
+      apply in_frame_info in IFR. destruct IFR as (ffi & IFR).
+      eapply in_frame_in_frames.
+      eapply in_frame'_in_frame; eauto. apply H1. auto.
+    }
+    erewrite <- unchanged_on_perm0 in P; eauto.
     eapply H4; eauto.
-    repeat destr_in H1. easy. rewrite in_frames_cons in H5. destruct H5 as [IFR|[]].
-    rewrite in_frames_cons; auto. eapply in_frames_valid.
-    repeat destr_in H1. easy. easy. rewrite in_frames_cons in H5. destruct H5 as [IFR|[]].
-    rewrite <- H, in_stack_cons; auto. rewrite in_frames_cons; auto.
+    eapply in_frames_valid.
+    rewrite <- H, in_stack_cons; auto.
   - contradict g. rewrite <- H0. apply same_head_size in H2. simpl.
     rewrite <- H in l. simpl in l. omega.
   - contradict n. eapply Forall_impl. 2: apply f. simpl.

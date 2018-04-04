@@ -1075,7 +1075,7 @@ Proof.
   eexists; split. econstructor. constructor; eauto.
   red. destr. red in H2.
   erewrite same_head_get_frame_info in H2; eauto.
-  intros. eapply Mem.stack_norepet. split; auto.
+  eapply Mem.stack_norepet. eapply Mem.stack_norepet'. split; auto.
   apply Mem.nextblock_store in STORE2.
   apply Mem.nextblock_store in H1. congruence.
 (* trace length *)
@@ -1463,8 +1463,8 @@ Proof.
   exploit Mem.loadbytes_unchanged_on; eauto. simpl; auto. intros LB.
   exploit Mem.storebytes_unchanged_on_1; eauto. simpl; auto. intros (m2' & SB & UNCH').
   exists m2'; split; eauto. econstructor; eauto.
-  eapply public_stack_access_same_head; eauto.
-  eapply Mem.stack_norepet. split; auto.
+  eapply public_stack_access_same_head. 3: eauto. all: eauto.
+  eapply Mem.stack_norepet. apply Mem.stack_norepet'. split; auto.
   apply Mem.nextblock_storebytes in SB.
   apply Mem.nextblock_storebytes in H6. congruence.
 - (* trace length *)
