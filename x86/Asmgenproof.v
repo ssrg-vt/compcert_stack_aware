@@ -1441,7 +1441,6 @@ Proof.
            constructor. constructor. replace (size_arguments signature_main) with 0.
            replace (Stacklayout.fe_ofs_arg) with 0. intros; omega. reflexivity.
            reflexivity.
-           repeat constructor.
         -- red. rewrite_stack_blocks. constructor; auto.
         -- constructor.
     + unfold Genv.symbol_address.

@@ -28,19 +28,16 @@ Section WITHINITSP.
   | match_states_regular s f sp c rs m m'
                          (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
                          (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m'))
-                         (NONIL: Forall (fun tf => tf <> nil) (Mem.stack_adt m'))
                          (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (State s f sp c rs m) (State s f sp c rs m')
   | match_states_call s fb rs m m'
                       (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
                       (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m'))
-                      (NONIL: Forall (fun tf => tf <> nil) (tl (Mem.stack_adt m')))
                       (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (Callstate s fb rs m) (Callstate s fb rs m')
   | match_states_return s rs m m'
                         (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
                         (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m'))
-                        (NONIL: Forall (fun tf => tf <> nil) (tl (Mem.stack_adt m')))
                         (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (Returnstate s rs m) (Returnstate s rs m').
 
@@ -315,7 +312,6 @@ Section WITHINITSP.
       }
       eapply same_head_more_perm. apply H7. intros b o k p H3.
       rewrite_perms. destr.
-      repeat  rewrite_stack_blocks; simpl; auto. inv NONIL; auto; constructor.
       rewnb. auto.
     - edestruct ec_unchanged_on as (m2' & EXTCALL & UNCH' & NB'). apply external_call_spec. 4: eauto.
       apply Mem.push_new_stage_strong_unchanged_on. eauto.
@@ -377,7 +373,6 @@ Section WITHINITSP.
       }
       eapply same_head_more_perm. apply H6. intros b o k p H3.
       rewrite_perms. destr.
-      repeat rewrite_stack_blocks; auto. simpl. apply Forall_tl; auto.
       rewnb. auto.
     - destruct (Mem.alloc m' 0 (fn_stacksize f)) as (m1' & stk') eqn:ALLOC.
       assert (stk = stk').
@@ -413,9 +408,6 @@ Section WITHINITSP.
       intros b o k p H4. repeat rewrite_perms. destr. subst.
       exploit Mem.in_frames_valid. rewrite A. rewrite in_stack_cons. right. eauto.
       intro VB. exfalso; eapply Mem.fresh_block_alloc in VB; eauto.
-      unfold store_stack in *.
-      repeat rewrite_stack_blocks. revert EQ1; repeat rewrite_stack_blocks. intro EQ1; rewrite EQ1 in NONIL.
-      simpl in NONIL. constructor; auto. congruence.
       unfold store_stack in *; rewnb. congruence.
     - edestruct ec_unchanged_on as (m2' & EXTCALL & UNCH' & NB').  5: eauto. apply external_call_spec.
       eauto. auto. auto.
@@ -427,7 +419,6 @@ Section WITHINITSP.
       repeat rewrite_stack_blocks; eauto.
       eapply same_head_more_perm; eauto. intros b0 o k p H2.
       repeat rewrite_perms. auto. auto.
-      repeat rewrite_stack_blocks; eauto.
     - edestruct Mem.unchanged_on_unrecord as (m1' & USB & UNCH''). apply UNCH.
       eapply list_forall2_length; eauto.
       eauto.
@@ -451,7 +442,6 @@ End WITHINITSP.
     - repeat rewrite_stack_blocks.
       repeat constructor; auto.
       destr_in H3; auto. easy. destruct H3; subst; easy.
-    - repeat rewrite_stack_blocks. simpl. repeat constructor. congruence.
   Qed.
 
   Lemma final_transf:
@@ -496,8 +486,6 @@ End WITHINITSP.
         repeat rewrite_stack_blocks. simpl.
         constructor. constructor.
         change (size_arguments signature_main) with 0. intros; simpl. unfold Stacklayout.fe_ofs_arg in H3. omega.
-        repeat rewrite_stack_blocks. simpl.
-        repeat constructor.
       + red. repeat rewrite_stack_blocks. easy.
       + constructor.
     - simpl. intros s1 s2 r (MS & CSC). eapply final_transf; eauto.

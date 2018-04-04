@@ -189,15 +189,7 @@ Variable init_stk: stack_adt.
 Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
 | list_prefix_nil s
                   (INITSTACK: s = init_stk)
-                  (STACKINFO: init_sp_stackinfo init_sg s)
-                  (NONIL: Forall (fun t => match t with
-                                          fr::nil =>
-                                          match frame_adt_blocks fr with
-                                            (b,fi)::nil => True
-                                          | _ => False
-                                          end
-                                        | _ => False
-                                        end) s):
+                  (STACKINFO: init_sp_stackinfo init_sg s):
     list_prefix nil s
 | list_prefix_cons lsp s f sp bi
                    (REC: list_prefix lsp s)
