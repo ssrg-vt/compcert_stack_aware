@@ -19,37 +19,6 @@ Require Import Op Locations Mach Mach2 Conventions Asm.
 Require Import Asmgen Asmgenproof0 Asmgenproof1.
 Require AsmFacts.
 
-Section WITHINSTRSIZEMAP.
-
-Variable instr_size_map : instruction -> Z.
-Hypothesis instr_size_non_zero : forall i, instr_size_map i > 0.
-
-Definition instr_to_with_info := Asmgen.instr_to_with_info instr_size_map instr_size_non_zero.
-
-Definition transf_fundef := Asmgen.transf_fundef instr_size_map instr_size_non_zero.
-Definition transf_program := Asmgen.transf_program instr_size_map instr_size_non_zero.
-Definition transf_function := Asmgen.transf_function instr_size_map instr_size_non_zero.
-Definition transl_code_at_pc := Asmgenproof0.transl_code_at_pc instr_size_map instr_size_non_zero.
-Definition transl_code := Asmgen.transl_code instr_size_map instr_size_non_zero.
-Definition transl_instr := Asmgen.transl_instr instr_size_map instr_size_non_zero.
-Definition mk_mov := Asmgen.mk_mov instr_size_map instr_size_non_zero.
-Definition mk_intconv := Asmgen.mk_intconv instr_size_map instr_size_non_zero.
-Definition mk_shrximm := Asmgen.mk_shrximm instr_size_map instr_size_non_zero.
-Definition mk_shrxlimm := Asmgen.mk_shrxlimm instr_size_map instr_size_non_zero.
-Definition mk_storebyte := Asmgen.mk_storebyte instr_size_map instr_size_non_zero.
-Definition mk_setcc_base := Asmgen.mk_setcc_base instr_size_map instr_size_non_zero.
-Definition mk_setcc := Asmgen.mk_setcc instr_size_map instr_size_non_zero.
-Definition mk_jcc := Asmgen.mk_jcc instr_size_map instr_size_non_zero.
-Definition transl_cond := Asmgen.transl_cond instr_size_map instr_size_non_zero.
-Definition transl_op := Asmgen.transl_op instr_size_map instr_size_non_zero.
-Definition transl_load := Asmgen.transl_load instr_size_map instr_size_non_zero.
-Definition transl_store := Asmgen.transl_store instr_size_map instr_size_non_zero.
-Definition loadind := Asmgen.loadind instr_size_map instr_size_non_zero.
-Definition storeind := Asmgen.storeind instr_size_map instr_size_non_zero.
-
-Definition return_address_offset := Asmgenproof0.return_address_offset instr_size_map instr_size_non_zero.
-
-
 Definition match_prog (p: Mach.program) (tp: Asm.program) :=
   match_program (fun _ f tf => transf_fundef f = OK tf) eq p tp.
 
@@ -97,8 +66,7 @@ Lemma functions_transl:
   Genv.find_funct_ptr tge fb = Some (Internal tf).
 Proof.
   intros. exploit functions_translated; eauto. intros [tf' [A B]].
-  monadInv B. 
-  unfold transf_function in H0. 
+  monadInv B.
   rewrite H0 in EQ; inv EQ; auto.
 Qed.
 
@@ -212,7 +180,7 @@ Remark loadind_label:
   loadind base ofs ty dst k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold loadind; unfold Asmgen.loadind; intros. destruct ty; try discriminate; destruct (preg_of dst); TailNoLabel.
+  unfold loadind; intros. destruct ty; try discriminate; destruct (preg_of dst); TailNoLabel.
 Qed.
 
 Remark storeind_label:
@@ -220,14 +188,14 @@ Remark storeind_label:
   storeind src base ofs ty k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold storeind; unfold Asmgen.storeind; intros. destruct ty; try discriminate; destruct (preg_of src); TailNoLabel.
+  unfold storeind; intros. destruct ty; try discriminate; destruct (preg_of src); TailNoLabel.
 Qed.
 
 Remark mk_setcc_base_label:
   forall xc rd k,
   tail_nolabel k (mk_setcc_base xc rd k).
 Proof.
-  intros. unfold mk_setcc_base. unfold Asmgen.mk_setcc_base. 
+  intros. unfold mk_setcc_base.
   destruct xc; simpl; destruct (ireg_eq rd RAX); simpl; TailNoLabel.
 Qed.
 
@@ -235,7 +203,7 @@ Remark mk_setcc_label:
   forall xc rd k,
   tail_nolabel k (mk_setcc xc rd k).
 Proof.
-  intros. unfold mk_setcc. unfold Asmgen.mk_setcc. destruct (Archi.ptr64 || low_ireg rd).
+  intros. unfold mk_setcc. destruct (Archi.ptr64 || low_ireg rd).
   apply mk_setcc_base_label.
   eapply tail_nolabel_trans. apply mk_setcc_base_label. TailNoLabel.
 Qed.
@@ -244,7 +212,7 @@ Remark mk_jcc_label:
   forall xc lbl' k,
   tail_nolabel k (mk_jcc xc lbl' k).
 Proof.
-  intros. unfold mk_jcc. unfold Asmgen.mk_jcc. destruct xc; simpl; TailNoLabel.
+  intros. unfold mk_jcc. destruct xc; simpl; TailNoLabel.
 Qed.
 
 Remark transl_cond_label:
@@ -252,7 +220,7 @@ Remark transl_cond_label:
   transl_cond cond args k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold transl_cond; unfold Asmgen.transl_cond; intros.
+  unfold transl_cond; intros.
   destruct cond; TailNoLabel.
   destruct (Int.eq_dec n Int.zero); TailNoLabel.
   destruct (Int64.eq_dec n Int64.zero); TailNoLabel.
@@ -267,7 +235,7 @@ Remark transl_op_label:
   transl_op op args r k = OK c ->
   tail_nolabel k c.
 Proof.
-  unfold transl_op; unfold Asmgen.transl_op; intros. destruct op; TailNoLabel.
+  unfold transl_op; intros. destruct op; TailNoLabel.
   destruct (Int.eq_dec n Int.zero); TailNoLabel.
   destruct (Int64.eq_dec n Int64.zero); TailNoLabel.
   destruct (Float.eq_dec n Float.zero); TailNoLabel.
@@ -391,7 +359,7 @@ Proof.
   intros. eapply Asmgenproof0.return_address_exists; eauto.
 - intros. exploit transl_instr_label; eauto.
   destruct i; try (intros [A B]; apply A). intros. subst c0. repeat constructor.
-- intros. unfold Asmgenproof0.transf_function in H0. monadInv H0.
+- intros. unfold transf_function in H0. monadInv H0.
   destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x))); inv EQ0.
   monadInv EQ. rewrite transl_code'_transl_code in EQ0.
   exists x; exists true; split; auto. unfold fn_code. repeat constructor.
@@ -415,8 +383,6 @@ Qed.
   the current Mach code sequence.
 - Mach register values and PPC register values agree.
 *)
-
- Definition match_stack := match_stack instr_size_map instr_size_non_zero.
 
  Inductive match_states: Mach.state -> Asm.state -> Prop :=
   | match_states_intro:
@@ -685,9 +651,7 @@ Qed.
       + intro; subst. contradict H; simpl; congruence.
   Qed.
 
-Definition lessdef_parent_ra := lessdef_parent_ra instr_size_map instr_size_non_zero.
-
-Lemma instr_size_eq : forall i, instr_size_map i = instr_size (Asmgen.instr_to_with_info instr_size_map instr_size_non_zero i).
+Lemma instr_size_eq : forall i, instr_size_map i = instr_size (instr_to_with_info i).
 Proof.
   intros. unfold Asmgen.instr_to_with_info. unfold instr_size. simpl. reflexivity.
 Qed.
@@ -831,7 +795,7 @@ Opaque loadind.
   assert (rs0 x0 = Vptr f' Ptrofs.zero).
     exploit ireg_val; eauto. rewrite H5; intros LD; inv LD; auto.
   generalize (code_tail_next_int _ _ _ _ NOOV H6). intro CT1.
-  set (sz:=(Ptrofs.repr (instr_size (Asmgen.instr_to_with_info instr_size_map instr_size_non_zero (Pcall_r x0 sig))))).
+  set (sz:=(Ptrofs.repr (instr_size (Asmgen.instr_to_with_info (Pcall_r x0 sig))))).
   assert (TCA: transl_code_at_pc ge (Vptr fb (Ptrofs.add ofs sz)) fb f c false tf x).
     econstructor; eauto.
   exploit return_address_offset_correct; eauto. intros; subst ra.
@@ -851,7 +815,7 @@ Opaque loadind.
 
 + (* Direct call *)
   generalize (code_tail_next_int _ _ _ _ NOOV H6). intro CT1.
-  set (sz:=(Ptrofs.repr (instr_size (Asmgen.instr_to_with_info instr_size_map instr_size_non_zero (Pcall_s fid sig))))).
+  set (sz:=(Ptrofs.repr (instr_size (Asmgen.instr_to_with_info (Pcall_s fid sig))))).
   assert (TCA: transl_code_at_pc ge (Vptr fb (Ptrofs.add ofs sz)) fb f c false tf x).
     econstructor; eauto.
   exploit return_address_offset_correct; eauto. intros; subst ra.
@@ -1015,7 +979,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
                    (instr_size
-                      (Asmgen.instr_to_with_info instr_size_map instr_size_non_zero (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
+                      (Asmgen.instr_to_with_info (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
   transitivity (Val.offset_ptr rs0#PC sz). 
   apply frame_size_correct in FIND. rewrite <- FIND. auto. 
   rewrite <- H4. simpl. eauto.
@@ -1046,7 +1010,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
                    (instr_size
-                      (Asmgen.instr_to_with_info instr_size_map instr_size_non_zero
+                      (Asmgen.instr_to_with_info
                          (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
   transitivity (Val.offset_ptr rs0#PC sz).
   apply frame_size_correct in FIND. rewrite <- FIND. auto. 
@@ -1116,7 +1080,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   exploit eval_condition_lessdef. eapply preg_vals; eauto. eauto. eauto. intros EC.
   left; eapply exec_straight_steps_goto; eauto.
   intros. simpl in TR.
-  destruct (transl_cond_correct init_stk tge tf instr_size_map instr_size_non_zero cond args _ _ rs0 m' TR)
+  destruct (transl_cond_correct init_stk tge tf cond args _ _ rs0 m' TR)
   as [rs' [A [B C]]].
   rewrite EC in B.
   destruct (testcond_for_condition cond); simpl in *.
@@ -1135,7 +1099,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   split. eapply agree_exten; eauto.
   unfold exec_instr; simpl. rewrite TC1. auto.
   (* second jcc jumps *)
-  exists (instr_to_with_info (Pjcc c2 lbl)); exists k; exists (nextinstr rs' (instr_size_in_ptrofs instr_size_map (Pjcc c1 lbl))).
+  exists (instr_to_with_info (Pjcc c2 lbl)); exists k; exists (nextinstr rs' (instr_size_in_ptrofs (Pjcc c1 lbl))).
   split. eapply exec_straight_trans. eexact A.
   eapply exec_straight_one. unfold exec_instr; simpl. rewrite TC1. rewrite <- instr_size_eq. auto. auto.
   split. eapply agree_exten; eauto.
@@ -1154,7 +1118,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
 - (* Mcond false *)
   exploit eval_condition_lessdef. eapply preg_vals; eauto. eauto. eauto. intros EC.
   left; eapply exec_straight_steps; eauto. intros. simpl in TR.
-  destruct (transl_cond_correct init_stk tge tf instr_size_map instr_size_non_zero cond args _ _ rs0 m' TR)
+  destruct (transl_cond_correct init_stk tge tf cond args _ _ rs0 m' TR)
   as [rs' [A [B C]]].
   rewrite EC in B.
   destruct (testcond_for_condition cond); simpl in *.
@@ -1177,7 +1141,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
 (* jcc2 *)
   destruct (eval_testcond c1 rs') as [b1|] eqn:TC1;
   destruct (eval_testcond c2 rs') as [b2|] eqn:TC2; inv B.
-  exists (nextinstr rs' (instr_size_in_ptrofs instr_size_map (Pjcc2 c1 c2 lbl))); split.
+  exists (nextinstr rs' (instr_size_in_ptrofs (Pjcc2 c1 c2 lbl))); split.
   eapply exec_straight_trans. eexact A.
   apply exec_straight_one. unfold exec_instr; simpl.
   rewrite TC1; rewrite TC2.
@@ -1260,7 +1224,7 @@ Transparent destroyed_by_jumptable.
     apply pred_dec_true; auto.
 
     apply star_one. eapply exec_step_internal.
-    transitivity (Val.offset_ptr rs0#PC (instr_size_in_ptrofs instr_size_map (Pfreeframe (fn_stacksize tf0) (fn_retaddr_ofs tf0)))). 
+    transitivity (Val.offset_ptr rs0#PC (instr_size_in_ptrofs (Pfreeframe (fn_stacksize tf0) (fn_retaddr_ofs tf0)))). 
     rewrite <- instr_size_eq. auto. rewrite <- H3. simpl. eauto.
     eapply functions_transl; eauto. 
     eapply find_instr_tail. rewrite <- instr_size_eq in CT1. unfold instr_size_in_ptrofs. 
@@ -1487,5 +1451,3 @@ Proof.
 Qed.
 
 End PRESERVATION.
-
-End WITHINSTRSIZEMAP.

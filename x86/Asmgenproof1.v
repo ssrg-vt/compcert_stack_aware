@@ -93,27 +93,8 @@ Variable ge: genv.
 Variable fn: function.
 
 
-Section WITHINSTRSIZEMAP.
-
-Variable instr_size_map : instruction -> Z.
-Hypothesis instr_size_non_zero : forall i, instr_size_map i > 0.
-
 Definition instr_size_in_ptrofs (i:instruction) : ptrofs :=
   Ptrofs.repr (instr_size_map i).
-
-Definition loadind := Asmgen.loadind instr_size_map instr_size_non_zero.
-Definition storeind := Asmgen.storeind instr_size_map instr_size_non_zero.
-Definition mk_mov := Asmgen.mk_mov instr_size_map instr_size_non_zero.
-Definition mk_shrximm := Asmgen.mk_shrximm instr_size_map instr_size_non_zero.
-Definition mk_shrxlimm := Asmgen.mk_shrxlimm instr_size_map instr_size_non_zero.
-Definition mk_intconv := Asmgen.mk_intconv instr_size_map instr_size_non_zero.
-Definition mk_storebyte := Asmgen.mk_storebyte instr_size_map instr_size_non_zero.
-Definition mk_setcc_base := Asmgen.mk_setcc_base instr_size_map instr_size_non_zero.
-Definition mk_setcc := Asmgen.mk_setcc instr_size_map instr_size_non_zero.
-Definition transl_cond := Asmgen.transl_cond instr_size_map instr_size_non_zero.
-Definition transl_op := Asmgen.transl_op instr_size_map instr_size_non_zero.
-Definition transl_load := Asmgen.transl_load instr_size_map instr_size_non_zero.
-Definition transl_store := Asmgen.transl_store instr_size_map instr_size_non_zero.
 
 (** Smart constructor for moves. *)
 
@@ -1526,7 +1507,5 @@ Proof.
   apply exec_straight_one. unfold exec_instr; simpl. unfold exec_store. rewrite H1. eauto. auto.
   intros. Simplifs.
 Qed.
-
-End WITHINSTRSIZEMAP.
 
 End CONSTRUCTORS.

@@ -293,6 +293,7 @@ Inductive instruction: Type :=
   | Psubq_ri (rd: ireg) (n: int64).
 
 Axiom instr_size_map : instruction -> Z.
+Axiom instr_size_non_zero : forall i, instr_size_map i > 0.
 
 Record sizeinfo : Type := 
 mk_sizeinfo {

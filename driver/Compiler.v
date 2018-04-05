@@ -121,8 +121,6 @@ Definition partial_if {A: Type}
 
 Local Existing Instance ValueAnalysis.romem_for_wp_instance.
 
-Axiom instr_size_non_zero : forall i, Asm.instr_size_map i > 0.
-
 Definition transf_rtl_program (f: RTL.program) : res Asm.program :=
    OK f
    @@ print (print_RTL 0)
@@ -150,7 +148,7 @@ Definition transf_rtl_program (f: RTL.program) : res Asm.program :=
   @@@ partial_if Compopts.debug (time "Debugging info for local variables" Debugvar.transf_program)
   @@@ time "Mach generation" Stacking.transf_program
    @@ print print_Mach
-   @@@ time "Asm generation" (Asmgen.transf_program Asm.instr_size_map instr_size_non_zero).
+   @@@ time "Asm generation" Asmgen.transf_program.
 
 Definition transf_cminor_program (p: Cminor.program) : res Asm.program :=
    OK p
@@ -250,7 +248,7 @@ Definition CompCert's_passes :=
   ::: mkpass CleanupLabelsproof.match_prog
   ::: mkpass (match_if Compopts.debug Debugvarproof.match_prog)
   ::: mkpass Stackingproof.match_prog
-  ::: mkpass (Asmgenproof.match_prog Asm.instr_size_map instr_size_non_zero)
+  ::: mkpass Asmgenproof.match_prog
   ::: pass_nil _.
 
 (** Composing the [match_prog] relations above, we obtain the relation
@@ -469,9 +467,9 @@ Ltac DestructM :=
   eapply compose_forward_simulations.
     replace (fn_stack_requirements tp) with (Stackingproof.fn_stack_requirements p20).
   eapply Stackingproof.transf_program_correct with
-      (return_address_offset := Asmgenproof0.return_address_offset Asm.instr_size_map instr_size_non_zero);
+      (return_address_offset := Asmgenproof0.return_address_offset);
     try assumption.
-    exact (Asmgenproof.return_address_exists Asm.instr_size_map instr_size_non_zero).
+    exact (Asmgenproof.return_address_exists).
     {
       clear - M19 MM.
       subst.
@@ -494,7 +492,7 @@ Ltac DestructM :=
     subst. unfold init_stk.
     replace (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))
       with (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv p20)).
-    eapply Asmgenproof.transf_program_correct. eassumption. eassumption.
+    eapply Asmgenproof.transf_program_correct. eassumption.
     eapply Stackingproof.stacking_frame_correct; eauto.
     eapply Globalenvs.Genv.senv_transf_partial in M19.
     destruct M19 as (NB & _). simpl in NB. auto.

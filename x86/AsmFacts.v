@@ -13,7 +13,7 @@ Require Import Globalenvs.
 Require Import Events.
 Require Import Values.
 Require Import Conventions1.
-Require Asmgen.
+Require Import Asmgen.
 Require Asmgenproof0.
 Require Import Errors.
 
@@ -174,20 +174,6 @@ Section WITHMEMORYMODEL.
            end.
 
 
-Section WITHINSTRSIZEMAP.
-
-Variable instr_size_map : instruction -> Z.
-Hypothesis instr_size_non_zero : forall i, instr_size_map i > 0.
-
-Definition loadind := Asmgen.loadind instr_size_map instr_size_non_zero.
-Definition storeind := Asmgen.storeind instr_size_map instr_size_non_zero.
-Definition mk_mov := Asmgen.mk_mov instr_size_map instr_size_non_zero.
-Definition mk_setcc := Asmgen.mk_setcc instr_size_map instr_size_non_zero.
-Definition transl_cond := Asmgen.transl_cond instr_size_map instr_size_non_zero.
-Definition mk_jcc := Asmgen.mk_jcc instr_size_map instr_size_non_zero.
-Definition transf_function := Asmgen.transf_function instr_size_map instr_size_non_zero.
-
-
   Lemma loadind_no_change_rsp:
     forall i t m x0 x1 r,
       asm_code_no_rsp x0 ->
@@ -312,8 +298,8 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       asm_instr_no_rsp i.
   Proof.
     intros x0 x2 i c A H1.
-    unfold mk_jcc, Asmgen.mk_jcc in H1.
-    destr_in H1; simpl_cinfo; intuition subst; simpl in *; auto; ainr;
+    unfold mk_jcc in H1.
+    destr_in H1; simpl in *; intuition subst; simpl in *; unfold instr_to_with_info; auto; ainr;
       repeat destr_in EI; eauto using goto_label_rsp.
   Qed.
   
@@ -323,7 +309,7 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       transl_cond cond l (mk_jcc (Asmgen.testcond_for_condition cond) x2 x0) = OK x1 ->
       asm_code_no_rsp x1.
   Proof.
-    unfold transl_cond, Asmgen.transl_cond; simpl.
+    unfold transl_cond; simpl.
     intros x0 x2 x1 cond l ACNR TRANSL.
     repeat destr_in TRANSL;
       try destruct (c: comparison);
@@ -337,8 +323,8 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
       m x3
       (IREG: Asmgen.ireg_of m = OK x3)
       x2 x1 i
-      (REC: forall x2,  asm_instr_no_rsp (Asmgen.instr_to_with_info instr_size_map instr_size_non_zero (i x3 x2)))
-      (CONV: Asmgen.mk_intconv instr_size_map instr_size_non_zero i x3 x2 x0 = OK x1),
+      (REC: forall x2,  asm_instr_no_rsp (Asmgen.instr_to_with_info (i x3 x2)))
+      (CONV: Asmgen.mk_intconv i x3 x2 x0 = OK x1),
       asm_code_no_rsp x1.
   Proof.
     intros.
@@ -356,10 +342,11 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     unfold transf_function, Asmgen.transf_function in TR.
     monadInv TR.
     destr_in EQ0. inv EQ0.
-    unfold Asmgen.transl_function in EQ.
+    unfold transl_function in EQ.
     monadInv EQ. simpl.
+    unfold instr_to_with_info.
     apply asm_code_no_rsp_cons. red; simpl. congruence.
-    unfold Asmgen.transl_code' in EQ0.
+    unfold transl_code' in EQ0.
     revert EQ0.
     set (P := fun f => forall x y, f x = OK y -> asm_code_no_rsp x -> asm_code_no_rsp y).
     assert (P (fun c => OK c)).
@@ -376,9 +363,9 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     Ltac t :=
       match goal with
       | EQ: context [match ?a with _ => _ end] |- _ => destr_in EQ
-      | EQ: Asmgen.loadind _ _ _ _ _ _ _ = OK ?x |- asm_code_no_rsp ?x => eapply loadind_no_change_rsp in EQ; eauto
-      | EQ: Asmgen.storeind _ _ _ _ _ _ _ = OK ?x |- asm_code_no_rsp ?x => eapply storeind_no_change_rsp in EQ; eauto
-      | EQ: Asmgen.mk_intconv _ _ _ _ _ _ = OK ?x |- asm_code_no_rsp ?x => eapply intconv_no_change_rsp in EQ; eauto
+      | EQ: loadind _ _ _ _ _ = OK ?x |- asm_code_no_rsp ?x => eapply loadind_no_change_rsp in EQ; eauto
+      | EQ: Asmgen.storeind _ _ _ _ _ = OK ?x |- asm_code_no_rsp ?x => eapply storeind_no_change_rsp in EQ; eauto
+      | EQ: Asmgen.mk_intconv _ _ _ _ = OK ?x |- asm_code_no_rsp ?x => eapply intconv_no_change_rsp in EQ; eauto
       | EQ: bind _ _ = OK _ |- _ => monadInv EQ
       | EQ: OK _ = OK _ |- _ => inv EQ
       | |- asm_instr_no_rsp _ => now (red; simpl; intros; invasm; solve_rs)
@@ -410,7 +397,6 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     forall F V (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
-
 
   Lemma exec_store_stack:
     forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2 sz,
@@ -567,7 +553,5 @@ Definition transf_function := Asmgen.transf_function instr_size_map instr_size_n
     intros.
     apply val_inject_undef_regs; auto.
   Qed.
-
-End WITHINSTRSIZEMAP.
 
 End WITHMEMORYMODEL.
