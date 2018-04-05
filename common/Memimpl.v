@@ -9598,10 +9598,10 @@ Proof.
   intros; eapply drop_outside_inject; eauto.
   intros; eapply self_inject; eauto.
   {
-    intros; eapply mi_stack_blocks. inv H; auto.
+    inversion 1. inv mi_inj0; inv mi_stack_blocks0; eauto.
   }
   {
-    intros; eapply mi_stack_blocks. inv H; auto.
+    inversion 1. inv mi_inj0; inv mi_stack_blocks0; eauto.
   }
   intros; eapply extends_inject_compose; eauto.
   intros; eapply extends_extends_compose; eauto.
@@ -9667,25 +9667,7 @@ Proof.
   specialize (FI _ (or_introl eq_refl)). auto.
   intros; eapply unrecord_stack_block_inject_left_zero; eauto.
   intros; eapply mem_inject_ext; eauto.
-  (* { *)
-  (*   intros.  simpl in *. unfold record_stack_blocks. *)
-  (*   simpl in *. *)
-  (*   repeat destr; eauto. *)
-  (*   - inversion H3. *)
-  (*     eexists. eapply constr_match. *)
-  (*     instantiate (3 := (f::tf)::r). *)
-  (*     eauto. *)
-  (*   - exfalso; apply n. red. eapply Forall_impl. 2: apply H1. simpl; intros. destruct a. intros. simpl in *; eauto. *)
-  (*   - exfalso; apply n; apply H3. *)
-  (*   - exfalso. rewrite Z.max_r in g by (destruct f; auto). omega. *)
-  (*   - exfalso; apply n. *)
-  (*     rewrite Forall_forall in H0 |- *. *)
-  (*     intros (b & fi) IN. apply H0. apply in_map. auto. *)
-  (*   - exfalso; apply n; apply H. *)
-  (*     Unshelve. *)
-  (*     rewrite <- H4. reflexivity. *)
-  (* } *)
-  
+ 
   simpl; intros; eapply mext_length_stack; eauto.
   simpl; intros; eapply stack_inv_norepet, mem_stack_inv.
   simpl; intros; eapply stack_inv_norepet', mem_stack_inv.

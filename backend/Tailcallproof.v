@@ -972,19 +972,20 @@ Proof.
       eapply tc_sizes_size_stack in SZ. etransitivity.
       apply SZ. apply (size_stack_iter_tl_mono (S n) 1%nat). omega.
       {
-        exploit Mem.inject_stack_adt. apply MLD. destruct 1.
-        intros i2 LT.
-        destruct (stack_inject_surjective (S i2)). rewrite length_tl in LT. omega.
+        generalize (Mem.inject_stack_inj_surjective _ _ _ _ MLD). 
+        intros SURJ i2 LT.
+        destruct (SURJ (S i2)). rewrite length_tl in LT. omega.
         destruct (lt_dec x (S n)).
         rewrite (proj1 CFG) in H1 by omega. inv H1.
         exists (x - S n)%nat. replace (S n + (x - S n))%nat with x by omega.
         rewrite H1. reflexivity.        
       }
       {
-        exploit Mem.inject_stack_adt. apply MLD. destruct 1. unfold option_map.
-        simpl. intros i j0 EQ.
+        generalize (Mem.inject_stack_inj_range _ _ _ _ MLD).
+        unfold option_map.
+        simpl. intros RNG i j0 EQ.
         destr_in EQ. repeat destr_in Heqo. inv EQ.
-        generalize (stack_inject_range _ _ H2). intros (AA & B).
+        generalize (RNG _ _ H2). intros (AA & B).
         rewrite ! length_tl, length_iter_tl.
         split. omega.
         destruct (Mem.stack_adt m'0); simpl in *. omega.

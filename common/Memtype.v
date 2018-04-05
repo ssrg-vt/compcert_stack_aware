@@ -1511,15 +1511,16 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
        f b' <> None) ->
   inject f (flat_frameinj (length (stack_adt m))) m m;
 
- inject_stack_adt {injperm: InjectPerm}:
+ inject_stack_inj_surjective {injperm: InjectPerm}:
    forall f g m1 m2,
      inject f g m1 m2 ->
-     stack_inject f g (perm m1) ( (stack_adt m1)) ( (stack_adt m2));
+     frameinj_surjective g (length (stack_adt m2));
 
- extends_stack_adt {injperm: InjectPerm}:
-   forall m1 m2,
-     extends m1 m2 ->
-     stack_inject inject_id (flat_frameinj (length (stack_adt m1))) (perm m1) (stack_adt m1) (stack_adt m2);
+ inject_stack_inj_range {injperm: InjectPerm}:
+   forall f g m1 m2,
+     inject f g m1 m2 ->
+     forall i j (Gi: g i = Some j),
+       (i < length (stack_adt m1) /\ j < length (stack_adt m2))%nat;
 
 (* Needed by Stackingproof, with Linear2 to Mach,
    to compose extends (in Linear2) and inject. *)
@@ -2614,52 +2615,6 @@ Qed.
 
 Context {injperm: InjectPerm}.
 
-Lemma frameinj_order_strict_0:
-  forall g j m1 m2,
-    inject j g m1 m2 ->
-    frameinj_order_strict g ->
-    g O = Some O ->
-    forall i j0 : nat, g i = Some j0 -> (0 < i)%nat -> (0 < j0)%nat.
-Proof.
-  intros. eapply inject_stack_adt in H.
-  eapply H0; eauto.
-Qed.
-
-Lemma frameinj_order_strict_pop:
-  forall g j m1 m2,
-    inject j g m1 m2 ->
-    g O = Some O ->
-    frameinj_order_strict g ->
-    frameinj_order_strict (fun n : nat => option_map Init.Nat.pred (g (Datatypes.S n))).
-Proof.
-  red; intros g j m1 m2 INJ GO. intros.
-  unfold option_map in H1, H2.
-  destr_in H1; destr_in H2. inv H1; inv H2.
-  exploit H. 2: exact Heqo. 2: exact Heqo0. omega. intros.
-  exploit stack_inject_pack. apply inject_stack_adt. eauto. apply Heqo.
-  exploit stack_inject_pack. apply inject_stack_adt. eauto. apply Heqo0.
-  eapply frameinj_order_strict_0 in Heqo; eauto. omega. omega.
-Qed.
-
-Lemma unrecord_stack_block_inject_parallel_strict:
-   forall (m1 m1' m2 : mem) (j : meminj) g,
-     inject j g m1 m2 ->
-     frameinj_order_strict g ->
-     unrecord_stack_block m1 = Some m1' ->
-     g O = Some O ->
-     (* size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) -> *)
-     exists m2',
-       unrecord_stack_block m2 = Some m2'
-       /\ inject j (fun n => option_map pred (g (S n))) m1' m2'
-       /\ frameinj_order_strict (fun n => option_map pred (g (S n))).
-Proof.
-  intros.
-  generalize (frameinj_order_strict_0 _ _ _ _ H H0 H2). intros.
-  generalize (frameinj_order_strict_pop _ _ _ _ H H2 H0). intros.
-  exploit unrecord_stack_block_inject_parallel; eauto.
-  intros (m2' & USB & INJ); eauto.
-Qed.
-
 Lemma storev_nextblock :
   forall m chunk addr v m',
     storev chunk m addr v = Some m' ->
@@ -2688,56 +2643,6 @@ Proof.
   intros; destruct addr; simpl in *; try congruence.
   eapply perm_store_2; eauto.
 Qed.
-
-(* Lemma frameinj_surjective_free_list_unrecord: *)
-(*   forall g j m P tm tm' tm'' l, *)
-(*     free_list tm l = Some tm' -> *)
-(*     unrecord_stack_block tm' = Some tm'' -> *)
-(*     stack_inject j g P (stack_adt m) (stack_adt tm) -> *)
-(*     frameinj_surjective g (length (stack_adt tm)) -> *)
-(*     frameinj_surjective (fun n : nat => option_map Init.Nat.pred (g (Datatypes.S n))) *)
-(*                         (length (stack_adt tm'')). *)
-(* Proof. *)
-(*   intros g j m P tm tm' tm'' l FL USB SI SURJ. *)
-(*   intros. erewrite <- free_list_stack_blocks in SURJ by eauto. *)
-(*   edestruct unrecord_stack_adt as (x & EQ). eauto. rewrite EQ in SURJ. *)
-(*   red; intros. *)
-(*   destruct (SURJ (S j0)) as (? & G). *)
-(*   simpl; omega. *)
-(*   destruct (Nat.eq_dec x0 O). subst. *)
-(*   { *)
-(*     erewrite stack_inject_g0_0 in G. inv G. eauto. eapply stack_inject_range in G; eauto. tauto. *)
-(*     eapply stack_inject_range in G; eauto. omega. *)
-(*   } *)
-(*   exists (pred x0). *)
-(*   replace (S (pred x0)) with x0 by omega. rewrite G. simpl. auto. *)
-(* Qed. *)
-
-
-(* Lemma frameinj_surjective_free_unrecord: *)
-(*   forall g j m P tm tm' tm'' b lo hi, *)
-(*     free tm b lo hi = Some tm' -> *)
-(*     unrecord_stack_block tm' = Some tm'' -> *)
-(*     stack_inject j g P (stack_adt m) (stack_adt tm) -> *)
-(*     frameinj_surjective g (length (stack_adt tm)) -> *)
-(*     frameinj_surjective (fun n : nat => option_map Init.Nat.pred (g (Datatypes.S n))) *)
-(*                         (length (stack_adt tm'')). *)
-(* Proof. *)
-(*   intros g j m P tm tm' tm'' b lo hi FL USB SI SURJ. *)
-(*   intros. erewrite <- free_stack_blocks in SURJ by eauto. *)
-(*   edestruct unrecord_stack_adt as (x & EQ). eauto. rewrite EQ in SURJ. *)
-(*   red; intros. *)
-(*   destruct (SURJ (S j0)) as (? & G). *)
-(*   simpl; omega. *)
-(*   destruct (Nat.eq_dec x0 O). subst. *)
-(*   { *)
-(*     erewrite stack_inject_g0_0 in G. inv G. eauto. eapply stack_inject_range in G; eauto. tauto. *)
-(*     eapply stack_inject_range in G; eauto. omega. *)
-(*   } *)
-(*   exists (pred x0). *)
-(*   replace (S (pred x0)) with x0 by omega. rewrite G. simpl. auto.   *)
-(* Qed. *)
-
 
 Lemma frame_inject_flat:
   forall thr f,
@@ -2848,41 +2753,6 @@ Proof.
     destr.
     apply record_stack_blocks_top_tframe_no_perm in RSB. inv RSB. reflexivity.
     rewrite Mem.push_new_stage_stack; reflexivity.
-Qed.
-
-Lemma unrecord_parallel_inject_equiv:
-  forall j m1 m2,
-    Mem.inject j (flat_frameinj (length (Mem.stack_adt m1))) m1 m2 ->
-    stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
-    forall m1',
-      Mem.unrecord_stack_block m1 = Some m1' ->
-      exists m2',
-        Mem.unrecord_stack_block m2 = Some m2' /\
-        Mem.inject j (flat_frameinj (length (Mem.stack_adt m1'))) m1' m2'.
-Proof.
-  intros.
-  edestruct Mem.stack_inject_unrecord_parallel_frameinj_flat as (m2' & USB & INJ).
-  - erewrite (stack_equiv_length) in H by eauto. eauto.
-  - eapply stack_equiv_length; eauto.
-  - eauto.
-  - exists m2'; split; eauto.
-    eapply Mem.mem_inject_ext. eauto.
-    unfold flat_frameinj.
-    edestruct unrecord_stack_adt. exact H1.
-    edestruct unrecord_stack_adt. exact USB.
-    rewrite H3. simpl.
-    apply stack_equiv_length in H0.
-    rewrite H2, H3 in H0. simpl in H0. inv H0. rewrite H5. reflexivity.
-Qed.
-
-Lemma extends_maybe_push:
-  forall m1 m2,
-    Mem.extends m1 m2 ->
-    forall b: bool,
-      Mem.extends (if b then m1 else Mem.push_new_stage m1)
-                  (if b then m2 else Mem.push_new_stage m2).
-Proof.
-  intros; destruct b; eauto using extends_push.
 Qed.
 
 Lemma push_new_stage_loadv:

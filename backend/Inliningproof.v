@@ -2098,15 +2098,13 @@ Proof.
   + auto.
   + repeat rewrite_stack_blocks.
     eapply inline_sizes_le; eauto.
-
-    exploit Mem.inject_stack_adt. apply MINJ. destruct 1.
+    generalize (Mem.inject_stack_inj_surjective _ _ _ _ MINJ); intro SURJ.
     intros i2 LT.
-    destruct (stack_inject_surjective (S i2)). rewrite length_tl in LT. omega.
+    destruct (SURJ (S i2)). rewrite length_tl in LT. omega.
     exists (pred x). unfold down, downstar, option_map. rewrite Nat.succ_pred. rewrite H9. reflexivity.
     intro; subst.
     rewrite (proj1 CFINJ') in H9. inv H9. omega.
-    exploit Mem.inject_stack_adt. apply MINJ. destruct 1.
-    auto.
+    eapply Mem.inject_stack_inj_range; eauto.
 
   + intros (m2' & P & Q).
     left; econstructor; split.
