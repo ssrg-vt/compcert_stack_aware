@@ -1904,23 +1904,21 @@ End PRESERVATION.
     generalize (Mem.stack_limit_range); omega.
   Qed.
   
-  Lemma match_initial_states s m0:
+  Lemma match_initial_states s:
     Asm.initial_state prog s ->
-    Genv.init_mem prog = Some m0 ->
     exists s' j ostack, match_states ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil) :: nil) (Genv.genv_next ge) j ostack s s' /\
-                   RawAsm.initial_state prog (Pregmap.init Vundef) m0 s'.
+                   RawAsm.initial_state prog (Pregmap.init Vundef) s'.
   Proof.
     inversion 1. subst.
     rename H into INIT.
     rename H0 into INITMEM.
     rename H1 into ALLOC.
     rename H2 into RSB.
-    rewrite INITMEM. intro A; inv A.
     exploit Genv.initmem_inject; eauto. intro FLATINJ.
     assert  (ALLOCINJ:
                exists (f' : meminj) (m2' : mem) (b2 : block),
                  Mem.alloc m0 0 Mem.stack_limit = (m2', b2) /\
-                 Mem.inject f' (flat_frameinj (length (Mem.stack m0))) m2 m2' /\
+                 Mem.inject f' (flat_frameinj (length (Mem.stack m0))) m1 m2' /\
                  inject_incr (Mem.flat_inj (Mem.nextblock m0)) f' /\
                  f' b = Some (b2, Mem.stack_limit) /\ (forall b0 : block, b0 <> b -> f' b0 = Mem.flat_inj (Mem.nextblock m2) b0)).
     {
@@ -1959,7 +1957,7 @@ End PRESERVATION.
     } subst.
     edestruct (Mem.range_perm_drop_2) with (p := Writable) as (m3' & DROP).
     red; intros; eapply Mem.perm_alloc_2; eauto.
-    assert (DROPINJ: Mem.inject f' (flat_frameinj (length (Mem.stack m0))) m2 m3').
+    assert (DROPINJ: Mem.inject f' (flat_frameinj (length (Mem.stack m0))) m1 m3').
     {
       eapply Mem.drop_outside_inject. apply ALLOCINJ. eauto.
       intros b' delta ofs k p FB1 PERM RNG.
@@ -1969,7 +1967,7 @@ End PRESERVATION.
     assert (RSB': exists m4',
                Mem.record_stack_blocks (Mem.push_new_stage m3') (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m4' /\
                Mem.inject f'
-                          (flat_frameinj (length (Mem.stack (Mem.push_new_stage m3')))) m3 m4').
+                          (flat_frameinj (length (Mem.stack (Mem.push_new_stage m3')))) m2 m4').
     {
       edestruct Mem.record_stack_blocks_inject_parallel as (m4' & RSB' & RSBinj).
       apply Mem.push_new_stage_inject. apply DROPINJ. 7: eauto.
@@ -2003,7 +2001,7 @@ End PRESERVATION.
     }
     destruct RSB' as (m4' & RSB' & RSBINJ).
     eexists _, f', _; split.
-    2: now (econstructor; eauto).
+    2: now (econstructor; eauto; econstructor; eauto).
     econstructor; eauto.
     - apply Mem.inject_push_new_stage_left. apply RSBINJ.
       repeat rewrite_stack_blocks. congruence.
@@ -2093,19 +2091,18 @@ End PRESERVATION.
     generalize (RINJ RAX). rewrite H5. unfold Vnullptr. destruct ptr64; inversion 1; auto.
   Qed.
   
-  Theorem transf_program_correct m:
+  Theorem transf_program_correct:
     asm_prog_no_rsp ge ->
-    Genv.init_mem prog = Some m ->
     forward_simulation (Asm.semantics prog
                                       ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil) :: nil))
-                       (RawAsm.semantics prog (Pregmap.init Vundef) m).
+                       (RawAsm.semantics prog (Pregmap.init Vundef)).
   Proof.
-    intros APNR IM.
+    intros APNR.
     eapply forward_simulation_step with (fun s1 s2 => exists j o, match_states ((make_singleton_frame_adt (Genv.genv_next ge) 0 0 :: nil) :: nil)  (Genv.genv_next ge) j o s1 s2).
     - simpl. reflexivity. 
-    - simpl. intros s1 IS; inversion IS. rewrite IM in H; inv H.
-      exploit match_initial_states. eauto. eauto.
-      intros (s' & j & ostack & MS & MIS); eexists; split; eauto.
+    - simpl. intros s1 IS; inversion IS.
+      exploit match_initial_states. eauto.
+      intros (s' & j & ostack & MS & MIS); eexists; split; eauto. inv MIS. eauto.
     - simpl. intros s1 s2 r (j & o & MS) FS. eapply transf_final_states; eauto.
     - simpl. intros s1 t s1' STEP s2 (j & o & MS). 
       edestruct step_simulation as (isp' & j' & o' & STEP' & MS'); eauto.
