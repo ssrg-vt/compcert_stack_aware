@@ -507,7 +507,7 @@ Section WITHMEMORYMODEL.
     - repeat (destr_in H1; [idtac]). rewnb. xomega.
     - repeat destr_in H1. apply Ple_refl.
   Qed.
-
+  
   Lemma val_inject_set:
     forall j rs1 rs2
       (RINJ: forall r, Val.inject j (rs1 r) (rs2 r))
@@ -554,4 +554,130 @@ Section WITHMEMORYMODEL.
     apply val_inject_undef_regs; auto.
   Qed.
 
+  Lemma exec_load_unchanged_stack:
+    forall F V (ge: _ F V) chunk m1 a rs1 rd sz rs2 m2 init_stk,
+      exec_load ge chunk m1 a rs1 rd sz = Next rs2 m2 ->
+      Mem.unchanged_on (fun (b : block) (o : Z) => ~ public_stack_access init_stk b o (o + 1)) m1 m2.
+  Proof.
+    intros F V ge chunk m1 a rs1 rd sz rs2 m2 init_stk EL.
+    assert (m1 = m2).
+    - unfold exec_load in EL. destr_in EL.
+    - subst; apply Mem.unchanged_on_refl.
+  Qed.
+
+
+  Lemma public_stack_access_app:
+    forall l s b lo hi
+      (ND: nodup (l ++ s))
+      (NDT: Forall nodupt (l ++ s))
+      (PSA: public_stack_access (l ++ s) b lo hi),
+      public_stack_access s b lo hi.
+  Proof.
+    induction l; simpl; subst; auto.
+    - intros s b lo hi ND NDT PSA.
+      inversion ND; subst. inversion NDT; subst.
+      apply IHl; auto.
+      red. red in PSA. destr.
+      edestruct (get_assoc_spec _ _ _ Heqo) as (fr & tf & INblocks & INtf & INs).
+      erewrite get_assoc_stack_lnr in PSA. eauto. eauto. eauto.
+      eauto. eauto. right; auto.
+  Qed.
+
+  Lemma nodup_app:
+    forall l1 l2,
+      nodup (l1 ++ l2) ->
+      forall b, in_stack l1 b -> in_stack l2 b -> False.
+  Proof.
+    induction l1; simpl; intros; eauto.
+    inv H0.
+    rewrite in_stack_cons in H1. destruct H1; eauto.
+    eapply H6; eauto. rewrite <- in_stack_app. auto.
+  Qed.
+  
+  Lemma exec_store_unchanged_stack:
+    forall F V (ge: _ F V) chunk m1 a rs1 rd rds sz rs2 m2 init_stk l,
+      l <> nil ->
+      Mem.stack m1 = l ++ init_stk ->
+      exec_store ge chunk m1 a rs1 rd rds sz = Next rs2 m2 ->
+      Mem.unchanged_on (fun (b : block) (o : Z) => ~ public_stack_access init_stk b o (o + 1)) m1 m2.
+  Proof.
+    intros F V ge chunk m1 a rs1 rd rds sz rs2 m2 init_stk l NONIL STK ES.
+    unfold exec_store in ES. destr_in ES. inv ES.
+    unfold Mem.storev in Heqo.
+    destr_in Heqo.
+    eapply Mem.store_unchanged_on; eauto.
+    intros i0 RNG NPSA; apply NPSA; clear NPSA.
+    edestruct Mem.store_valid_access_3 as (A & B & C). eauto. trim C. constructor.
+    rewrite STK in C. destruct C as [IST|NPSA].
+    red.
+    destr. apply get_frame_info_in_stack in Heqo0.
+    exploit Mem.stack_norepet. rewrite STK. intro ND.
+    edestruct nodup_app; eauto. red in IST. destruct l. congruence. simpl in IST. rewrite in_stack_cons; eauto.
+    eapply public_stack_access_app; eauto.
+    rewrite <- STK; apply Mem.stack_norepet.
+    rewrite <- STK; apply Mem.stack_norepet'.
+    eapply public_stack_access_inside; eauto. omega. omega.
+  Qed.
+
+  Lemma goto_label_unchanged_stack:
+    forall F V (ge: _ F V) m1 rs1 f lbl rs2 m2 init_stk,
+      goto_label ge f lbl rs1 m1 = Next rs2 m2 ->
+      Mem.unchanged_on (fun (b : block) (o : Z) => ~ public_stack_access init_stk b o (o + 1)) m1 m2.
+  Proof.
+    intros F V ge m1 rs1 f lbl rs2 m2 init_stk GL.
+    unfold goto_label in GL. repeat destr_in GL.
+    apply Mem.unchanged_on_refl.
+  Qed.
+  
+  Lemma exec_instr_unchanged_stack:
+    forall F V (ge: _ F V) f i rs1 m1 rs2 m2 init_stk l,
+      l <> nil ->
+      Mem.stack m1 = l ++ init_stk ->
+      Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
+      Mem.unchanged_on
+        (fun b o => ~ public_stack_access init_stk b o (o+1))
+        m1 m2.
+  Proof.
+    destruct i as [i info].
+    unfold exec_instr.
+    destruct i; intros rs1 m1 rs2 m2 init_stk lstk NONIL STK EI; simpl in EI; repeat destr_in EI;
+      first [ now apply Mem.unchanged_on_refl
+            | now (eapply exec_load_unchanged_stack; eauto)
+            | now (eapply exec_store_unchanged_stack; eauto)
+            | now (eapply goto_label_unchanged_stack; eauto)
+            | idtac
+            ].
+    apply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on.
+    apply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on.
+    apply Mem.strong_unchanged_on_weak, Mem.unrecord_stack_block_unchanged_on; auto.
+    - eapply Mem.unchanged_on_trans.
+      eapply Mem.alloc_unchanged_on; eauto.
+      eapply Mem.unchanged_on_trans.
+      eapply Mem.store_unchanged_on. eauto.
+      intros i0 RNG PSA; apply PSA; clear PSA.
+      red. destr.
+      apply get_frame_info_in_stack in Heqo1. exfalso.
+      assert (INS: in_stack (Mem.stack m1) b).
+      {
+        rewrite STK, <- in_stack_app; auto.
+      }
+      apply Mem.in_frames_valid in INS.
+      eapply Mem.fresh_block_alloc; eauto.
+      apply Mem.strong_unchanged_on_weak. eapply Mem.record_stack_block_unchanged_on. eauto.
+    - eapply Mem.unchanged_on_trans.
+      eapply Mem.free_unchanged_on; eauto.
+      intros i1 RNG NPSA; apply NPSA; clear NPSA.
+      red. destr. apply get_frame_info_in_stack in Heqo3.
+      rewrite STK in i0. red in i0. destruct lstk. congruence. simpl in *.
+      exploit Mem.stack_norepet. rewrite STK. intro ND; inv ND. eapply H3 in i0. rewrite <- in_stack_app in i0.
+      edestruct i0. auto.
+      unfold Mem.clear_stage in Heqo1. repeat destr_in Heqo1.
+      apply Mem.strong_unchanged_on_weak.
+      eapply Mem.strong_unchanged_on_trans.
+      eapply Mem.unrecord_stack_block_unchanged_on. eauto.
+      apply Mem.push_new_stage_unchanged_on.
+      Unshelve.  3: eauto. all: eauto.
+      exact Many32. exact rs. exact Ptrofs.zero.
+  Qed.
+  
 End WITHMEMORYMODEL.

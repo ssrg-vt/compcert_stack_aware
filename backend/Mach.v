@@ -487,6 +487,7 @@ Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_return:
     forall cs' rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack m')))
+      (TTNP: top_tframe_no_perm (Mem.perm m') (Mem.stack m'))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Returnstate cs' rs m').
 
@@ -531,6 +532,16 @@ Proof.
   - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     inv CallStackConsistency. eauto.
+    erewrite <- Mem.free_stack_blocks; eauto. eapply Mem.noperm_top.
+    rewrite_stack_blocks. inv CallStackConsistency.
+    intros b IFR o k p0 P.
+    red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
+    eapply Mem.perm_free_2 in P; eauto.
+    exploit Mem.agree_perms_mem.
+    rewrite <- H6. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
+    eapply Mem.perm_free_3 in P; eauto.
+    erewrite <- SIZECORRECT; eauto. rewrite Ptrofs.unsigned_zero.
+    rewrite H in FIND. inv FIND. omega.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     repeat econstructor; eauto.
     rewrite store_stack_no_abstract in EQ1 by eauto.
@@ -539,8 +550,187 @@ Proof.
     simpl.
     erewrite <- SIZECORRECT. apply Z.max_r. apply frame_size_pos. eauto.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+    inv TTNP.
+    constructor.
+    intros b NONE IFR o k p. rewrite_perms. eauto. rewrite <- H2.
+    rewrite in_stack_cons; left. auto.
   - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     simpl in *; eauto. rewrite FINDF in CallStackConsistency. eauto.
+Qed.
+
+Definition mem_state (s: state) : mem :=
+  match s with
+    State _ _ _ _ _ m
+  | Callstate _ _ _ m
+  | Returnstate _ _ m => m
+  end.
+
+Lemma list_prefix_in_init_stk:
+  forall cs s,
+    list_prefix cs s ->
+    forall b,
+      in_stack init_stk b ->
+      in_stack s b.
+Proof.
+  induction 1; intros. subst; auto.
+  rewrite in_stack_cons; right; eauto.
+Qed.
+
+Lemma list_prefix_stack_top_not_init_stk':
+  forall b b' f fr cs s,
+    nodup (fr::s) ->
+    list_prefix (Some (b',f)::cs) (fr::s) ->
+    in_frames fr b ->
+    get_frame_info init_stk b = None.
+Proof.
+  intros.
+  destruct (get_frame_info init_stk b) eqn:GFI; auto.
+  apply get_frame_info_in_stack in GFI. exfalso.
+  inv H0.
+  inv H.
+  eapply H4. eauto.
+  eapply list_prefix_in_init_stk. eauto. auto.
+Qed.
+
+Lemma list_prefix_stack_top_not_init_stk:
+  forall b b' f cs s,
+    nodup s ->
+    list_prefix (Some (b',f)::cs) s ->
+    is_stack_top s b ->
+    get_frame_info init_stk b = None.
+Proof.
+  intros.
+  inv H0. red in H1. simpl in H1.
+  eapply list_prefix_stack_top_not_init_stk'. eauto. constructor; eauto. auto.
+Qed.
+
+Lemma list_prefix_not_in_init_stk:
+  forall b f cs s,
+    nodup s ->
+    list_prefix (Some (b, f)::cs) s ->
+    get_frame_info init_stk b = None.
+Proof.
+  intros.
+  destruct (get_frame_info init_stk b) eqn:GFI; auto.
+  apply get_frame_info_in_stack in GFI. exfalso.
+  inv H0.
+  inv H.
+  eapply H3. rewrite in_frames_cons. left.
+  eapply in_frame'_in_frame. red. rewrite BLOCKS. left; reflexivity.
+  eapply list_prefix_in_init_stk. eauto. auto.
+Qed.
+
+Lemma public_stack_access_init_stk:
+  forall cs s b lo hi
+         (LP: list_prefix cs s)
+         (ND: nodup s)
+         (NDT: Forall nodupt s)
+         (PSA: public_stack_access s b lo hi),
+    public_stack_access init_stk b lo hi.
+Proof.
+  induction 1; simpl; subst; auto.
+  intros.
+  apply IHLP. inv ND; auto. inv NDT; auto.
+  red. red in PSA. destr.
+  edestruct (get_assoc_spec _ _ _ Heqo) as (fr & tf & INblocks & INtf & INs).
+  erewrite get_assoc_stack_lnr in PSA. eauto. eauto. eauto. eauto. eauto. right; auto.
+Qed.
+
+Lemma public_stack_access_init_stk':
+  forall cs s b lo hi
+         (LP: list_prefix cs s)
+         f
+         (ND: nodup (f::s))
+         (NDT: Forall nodupt (f::s))
+         (PSA: public_stack_access (f::s) b lo hi),
+    public_stack_access init_stk b lo hi.
+Proof.
+  induction 1; simpl; subst; auto.
+  - unfold public_stack_access. simpl.
+    intros. destr.
+    destr_in PSA. destr_in Heqo0.
+    inv ND.
+    exfalso; eapply H2; eauto. eapply get_frame_info_in_stack; eauto.
+    inv Heqo0; auto.
+    repeat destr_in Heqo0.
+    inv ND.
+    exfalso; eapply H3; eauto. eapply get_frame_info_in_stack; eauto.
+  - intros.
+    eapply IHLP. inv ND; eauto. inv NDT; auto.
+    red. red in PSA. destr.
+    edestruct (get_assoc_spec _ _ _ Heqo) as (fr & tf & INblocks & INtf & INs).
+    erewrite get_assoc_stack_lnr in PSA. eauto. eauto. eauto.
+    eauto. eauto. right; auto.
+Qed.
+
+Lemma csc_unchanged_stack:
+  forall s t s',
+    step s t s' ->
+    call_stack_consistency s ->
+    Mem.unchanged_on
+      (fun b o => ~ public_stack_access init_stk b o (o+1))
+      (mem_state s) (mem_state s').
+Proof.
+  intros s t s' STEP CSC. inv STEP; inv CSC; simpl; try apply Mem.unchanged_on_refl.
+  - unfold store_stack in H. simpl in H.
+    eapply Mem.store_unchanged_on; eauto.
+    intros i RNG PSA; apply PSA; clear PSA. red.
+    erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
+  - unfold Mem.storev in H0. destr_in H0.
+    eapply Mem.store_unchanged_on; eauto.
+    intros i0 RNG PSA; apply PSA; clear PSA.
+    edestruct Mem.store_valid_access_3 as (A & B & C). eauto. trim C. constructor.
+    destruct C as [IST|NPSA].
+    red; erewrite list_prefix_stack_top_not_init_stk; eauto. apply Mem.stack_norepet.
+    eapply public_stack_access_inside.
+    eapply public_stack_access_init_stk; eauto. apply Mem.stack_norepet. apply Mem.stack_norepet'.
+    omega. omega.
+  - apply Mem.strong_unchanged_on_weak. apply Mem.push_new_stage_unchanged_on.
+  - eapply Mem.free_unchanged_on; eauto.
+    intros i RNG PSA; apply PSA; clear PSA. red.
+    erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
+  - exploit ec_unchanged_on_private_stack. apply external_call_spec. eauto.
+    intros.
+    eapply Mem.unchanged_on_trans.
+    apply Mem.strong_unchanged_on_weak. eapply Mem.push_new_stage_unchanged_on.
+    eapply Mem.unchanged_on_trans.
+    eapply Mem.unchanged_on_implies. apply H2.
+    simpl.
+    intros b0 ofs NPSA VB PSA.
+    apply NPSA.
+    assert (PSA': public_stack_access (Mem.stack m) b0 ofs (ofs + 1)).
+    {
+      red in PSA. revert PSA. red. rewrite_stack_blocks. simpl.  auto.
+    } clear PSA.
+    eapply public_stack_access_init_stk. 4: eauto. eauto. apply Mem.stack_norepet.
+    apply Mem.stack_norepet'.
+    apply Mem.strong_unchanged_on_weak. eapply Mem.unrecord_stack_block_unchanged_on. eauto.
+  - eapply Mem.free_unchanged_on; eauto.
+    intros i RNG PSA; apply PSA; clear PSA. red.
+    erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
+  - eapply Mem.unchanged_on_trans.
+    eapply Mem.alloc_unchanged_on; eauto.
+    unfold store_stack in H2. subst. simpl in H2.
+    eapply Mem.unchanged_on_trans.
+    eapply Mem.store_unchanged_on. eauto.
+    intros i0 RNG PSA; apply PSA; clear PSA.
+    red. destr.
+    apply get_frame_info_in_stack in Heqo. exfalso.
+    eapply list_prefix_in_init_stk in Heqo; eauto.
+    apply in_stack_tl in Heqo. apply Mem.in_frames_valid in Heqo.
+    eapply Mem.fresh_block_alloc; eauto.
+    apply Mem.strong_unchanged_on_weak. eapply Mem.record_stack_block_unchanged_on. eauto.
+  - exploit ec_unchanged_on_private_stack. apply external_call_spec. eauto.
+    intros.
+    eapply Mem.unchanged_on_implies. apply H2.
+    simpl.
+    intros b0 ofs NPSA VB PSA.
+    apply NPSA. inv TTNP. rewrite <- H3 in CallStackConsistency. simpl in CallStackConsistency.
+    rewrite <- H3 in PSA.
+    eapply public_stack_access_init_stk'.  4: eauto. eauto.
+    rewrite H3; apply Mem.stack_norepet.
+    rewrite H3; apply Mem.stack_norepet'.
+  - apply Mem.strong_unchanged_on_weak. eapply Mem.unrecord_stack_block_unchanged_on. eauto.
 Qed.
 
 Definition block_prop P v :=

@@ -1127,6 +1127,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
         match rs#RSP with
         | Vptr stk ofs =>
           check (check_top_frame m (Some stk) sz');
+            check (is_stack_top_dec (Mem.stack m) stk);
             do m' <- Mem.free m stk 0 sz';
             do m' <- Mem.clear_stage m';
             check (check_init_sp_in_stack_dec m');

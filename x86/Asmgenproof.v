@@ -957,6 +957,17 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   destr. eapply init_sp_csc in Heqv; eauto. destruct Heqv. eapply in_stack'_in_stack; eauto. right. eauto.
 }
 
+assert (IST: is_stack_top (Mem.stack m'0) stk).
+{
+  revert CTF. unfold check_top_frame.
+  rewrite <- SAMEADT, <- H14. red. simpl.
+  unfold get_frames_blocks. rewrite andb_true_iff. simpl.
+  intros (A & B).
+  rewrite app_nil_r. unfold get_frame_blocks. rewrite BLOCKS.
+  simpl. left.
+  destruct Forall_dec; simpl in *; try congruence. rewrite BLOCKS in f. inv f. red in H11. simpl in H11. intuition.
+}
+
   destruct ros as [rf|fid]; simpl in H; monadInv H7.
 + (* Indirect call *)
   assert (rs rf = Vptr f' Ptrofs.zero).
@@ -972,6 +983,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   rewrite C. rewrite <- (sp_val _ _ _ AG). rewrite CTF.
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
+  destr.
   rewrite SEQ, E.
   rewrite CS. rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl.
   apply pred_dec_true. auto.
@@ -1004,6 +1016,7 @@ assert (CISIS: check_init_sp_in_stack init_stk m2').
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
   rewrite CTF, SEQ, E, CS.
+  destr.
   rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl.
   apply pred_dec_true. auto.
 
@@ -1211,7 +1224,17 @@ Transparent destroyed_by_jumptable.
     rewrite <- SAMEADT, <- H12. simpl.
     destr. eapply init_sp_csc in Heqv; eauto. destruct Heqv. eapply in_stack'_in_stack; eauto. right. eauto.
   }
-
+  assert (IST: is_stack_top (Mem.stack m'0) stk).
+  {
+    revert CTF. unfold check_top_frame.
+    rewrite <- SAMEADT, <- H12. red. simpl.
+    unfold get_frames_blocks. rewrite andb_true_iff. simpl.
+    intros (A & B).
+    rewrite app_nil_r. unfold get_frame_blocks. rewrite BLOCKS.
+    simpl. left.
+    destruct Forall_dec; simpl in *; try congruence. rewrite BLOCKS in f. inv f.
+    red in H9. simpl in H9. intuition.
+  }
 
   left; econstructor; split.
   + eapply plus_left. eapply exec_step_internal. eauto.
@@ -1219,7 +1242,7 @@ Transparent destroyed_by_jumptable.
     unfold exec_instr; simpl. rewrite C. rewrite <- (sp_val _ _ _ AG).
     rewrite Ptrofs.unsigned_zero in E; simpl in E.
     generalize (frame_size_correct _ _ FIND). intros SEQ.
-    rewrite SEQ, E, CS, CTF.
+    rewrite SEQ, E, CS, CTF. destr.
     rewrite <- SAMEADT, <- H12; simpl; rewrite EQsp; simpl; eauto.
     apply pred_dec_true; auto.
 

@@ -1224,8 +1224,8 @@ Section WITHMEMORYMODEL.
          destruct (peq b b0); simpl in *; try congruence. subst.
          exploit Mem.stack_norepet. rewrite Heqs. intro ND; inv ND.
          eapply H5 in H0; eauto.
-         rewrite in_frames_cons; left.
-         red. unfold get_frame_blocks. rewrite BLOCKS. left. reflexivity.
+         (* rewrite in_frames_cons; left. *)
+         (* red. unfold get_frame_blocks. rewrite BLOCKS. left. reflexivity. *)
        * red. intros b0 fi0 delta' INSTK JB0 b2 o delta2 k p JB2 PERMS.
          revert INSTK. repeat rewrite_stack_blocks. rewrite Heqs. simpl. intros [[]|INSTK].
          eapply IP with (k:= k) (p:=p); eauto. rewrite Heqs. simpl. right; eauto. 
