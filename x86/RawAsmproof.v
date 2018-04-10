@@ -35,7 +35,7 @@ Section WITHMEMORYMODEL.
   Definition bstack := Genv.genv_next ge.
   Section PRESERVATION.
 
-  Variable init_stk: stack_adt.
+  Variable init_stk: stack.
   Definition init_sp: val := current_sp init_stk.
   Variable binit_sp: block.
   Hypothesis init_sp_ptr: init_sp = Vptr binit_sp Ptrofs.zero.
@@ -78,12 +78,12 @@ Section WITHMEMORYMODEL.
     forall b delta o k p,
       j b = Some (bstack, delta) ->
       Mem.perm m b o k p ->
-      thr <= o + delta /\ in_stack (Mem.stack_adt m) b.
+      thr <= o + delta /\ in_stack (Mem.stack m) b.
 
   Definition agree_sp m1 rs2:=
     forall ostack,
       rs2 # RSP = Vptr bstack ostack ->
-      Ptrofs.unsigned ostack = Mem.stack_limit - StackADT.size_stack (Mem.stack_adt m1).
+      Ptrofs.unsigned ostack = Mem.stack_limit - StackADT.size_stack (Mem.stack m1).
 
   Definition perm_bstack m2:=
     forall (ofs : Z) (k : perm_kind) (p : permission),
@@ -101,7 +101,7 @@ Section WITHMEMORYMODEL.
 
   Definition no_stack m2 :=
     exists fr fi r,
-      Mem.stack_adt m2 = (fr::nil) :: r /\
+      Mem.stack m2 = (fr::nil) :: r /\
       (bstack,fi)::nil = frame_adt_blocks fr /\
       0 = frame_adt_size fr /\
       (forall o, frame_perm fi o = Public) /\
@@ -109,13 +109,13 @@ Section WITHMEMORYMODEL.
 
   Lemma no_stack_no_nil m:
     no_stack m ->
-    Mem.stack_adt m <> nil.
+    Mem.stack m <> nil.
   Proof.
     intros (frstack & fstack & r & EQstk & BLOCKS & ZERO & PUB & SZ).
     rewrite EQstk. congruence.
   Qed.
 
-  Inductive inject_perm_stack (j: meminj) (P: perm_type): stack_adt -> Prop :=
+  Inductive inject_perm_stack (j: meminj) (P: perm_type): stack -> Prop :=
   | inject_perm_stack_nil:
       inject_perm_stack j P nil
   | inject_perm_stack_cons_nil l (IPS_REC: inject_perm_stack j P l):
@@ -130,7 +130,7 @@ Section WITHMEMORYMODEL.
 
   Definition inject_padding (j: meminj) (m: mem) : Prop :=
     forall b fi delta,
-      in_stack' (Mem.stack_adt m) (b,fi) ->
+      in_stack' (Mem.stack m) (b,fi) ->
       j b = Some (bstack, delta) ->
       forall b' o delta' k p,
         j b' = Some (bstack, delta') ->
@@ -142,11 +142,11 @@ Section WITHMEMORYMODEL.
       forall j (rs: regset) (m: mem) (rs': regset) m' g
         (MINJ: Mem.inject j g m m')
         lprog
-        (STK: Mem.stack_adt m = lprog ++ init_stk)
+        (STK: Mem.stack m = lprog ++ init_stk)
         (GSPEC: forall i, g i =
                      if lt_dec i (length lprog)
                      then Some O
-                     else if lt_dec i (length (Mem.stack_adt m))
+                     else if lt_dec i (length (Mem.stack m))
                           then Some (i - (length lprog))%nat
                           else None)
         (RSPzero: exists b, rs # RSP = Vptr b Ptrofs.zero )
@@ -160,14 +160,14 @@ Section WITHMEMORYMODEL.
         ostack
         (RSPEQ: rs' RSP = Vptr bstack ostack)
         (NIB: no_inject_below j m (Ptrofs.unsigned ostack))
-        (IS: inject_perm_stack j (Mem.perm m) (Mem.stack_adt m))
+        (IS: inject_perm_stack j (Mem.perm m) (Mem.stack m))
         (IP: inject_padding j m)
         (GLOBFUN_INJ: forall b f, Genv.find_funct_ptr ge b = Some f -> j b = Some (b,0))
         (GLOBDEF_INJ: forall b f, Genv.find_def ge b = Some f -> j b = Some (b,0))
         (GLOBSYMB_INJ: meminj_preserves_globals' ge j)
         (GlobLe: (Genv.genv_next ge <= Mem.nextblock m)%positive)
         (GlobLeT: (Genv.genv_next ge <= Mem.nextblock m')%positive)
-        (SPinstack: in_stack' (Mem.stack_adt m) (binit_sp, public_frame_info 0)),
+        (SPinstack: in_stack' (Mem.stack m) (binit_sp, public_frame_info 0)),
         match_states j (Ptrofs.unsigned ostack) (State rs m) (State rs' m').
 
   Lemma inject_stack_incr:
@@ -247,8 +247,8 @@ Section WITHMEMORYMODEL.
 
   Lemma perm_stack_eq:
     forall m b fi j
-      (PS: inject_perm_stack j (Mem.perm m) (Mem.stack_adt m))
-      (INBLOCKS: in_stack' (Mem.stack_adt m) (b, fi))
+      (PS: inject_perm_stack j (Mem.perm m) (Mem.stack m))
+      (INBLOCKS: in_stack' (Mem.stack m) (b, fi))
       o k p,
       Mem.perm m b o k p <-> 0 <= o < frame_size fi.
   Proof.
@@ -419,7 +419,7 @@ Section WITHMEMORYMODEL.
       eapply Z.lt_le_trans with (Ptrofs.unsigned ostack).
       generalize (align_le ((frame_size fi)) 8) ((frame_size_pos fi)). omega.
       erewrite <- H1, (AGSP _ RSPEQ); eauto.
-      generalize (size_stack_pos (Mem.stack_adt m1)); intros. omega.
+      generalize (size_stack_pos (Mem.stack m1)); intros. omega.
       simpl in H0. auto.
     }
     trim A.
@@ -503,8 +503,8 @@ Section WITHMEMORYMODEL.
       unfold newostack.
       rewrite <- H1.
       red in AGSP. apply AGSP in RSPEQ.  rewrite RSPEQ.
-        cut (o - size_stack (Mem.stack_adt m1) - align ((frame_size fi)) 8 < 0). omega.
-        generalize (size_stack_pos (Mem.stack_adt m1)).
+        cut (o - size_stack (Mem.stack m1) - align ((frame_size fi)) 8 < 0). omega.
+        generalize (size_stack_pos (Mem.stack m1)).
         cut (o - align ((frame_size fi)) 8 < 0). omega.
         cut (o < align ((frame_size fi)) 8). omega.
         eapply Z.lt_le_trans.
@@ -658,7 +658,7 @@ Section WITHMEMORYMODEL.
           eapply in_stack_inj_below in INSTK; eauto.
           destruct INSTK as (l1 & l2 & EQADT & JB0). rewrite FB0 in JB0. inv JB0.
           rewrite <- H. simpl. rewrite size_frames_nil.
-          cut (size_stack (Mem.stack_adt m1) >= size_stack l2). rewrite <- H.
+          cut (size_stack (Mem.stack m1) >= size_stack l2). rewrite <- H.
           generalize (align_le (frame_size fi) 8). simpl. rewrite size_frames_nil. omega.
           rewrite <- H.
           simpl. rewrite size_stack_app.
@@ -749,14 +749,14 @@ Section WITHMEMORYMODEL.
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
                         EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2 |-
-             context [Mem.stack_adt ?m2] =>
+             context [Mem.stack ?m2] =>
              let AINS_stack := fresh "AINS_stack" in
              edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack;
              clear AINS_stack
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
                         EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2,
-                            H: context [Mem.stack_adt ?m2] |- _ =>
+                            H: context [Mem.stack ?m2] |- _ =>
              let AINS_stack := fresh "AINS_stack" in
              edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack in H;
              clear AINS_stack
@@ -961,7 +961,7 @@ Section WITHMEMORYMODEL.
        assert (RNGframe: 0 <= align (frame_adt_size f0) 8 < Ptrofs.max_unsigned).
        {
          generalize (Mem.size_stack_below m1).
-         generalize (size_stack_pos (Mem.stack_adt m1)). rewrite Heqs.
+         generalize (size_stack_pos (Mem.stack m1)). rewrite Heqs.
          generalize (Mem.stack_limit_range).
          simpl. rewrite size_frames_cons.
          generalize (frame_adt_size_pos f0) (align_le (frame_adt_size f0) 8) (size_stack_pos s).
@@ -974,8 +974,8 @@ Section WITHMEMORYMODEL.
            Mem.inject j g m1 m2 ->
            Mem.clear_stage m1 = Some m1' ->
            g O = Some O -> g 1%nat = Some O ->
-           (forall b : block, is_stack_top (Mem.stack_adt m1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m1 b o k p) ->
-           Mem.stack_adt m2 <> nil ->
+           (forall b : block, is_stack_top (Mem.stack m1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m1 b o k p) ->
+           Mem.stack m2 <> nil ->
            Mem.inject j g m1' m2.
        Proof.
          intros. unfold Mem.clear_stage in H0; repeat destr_in H0.
@@ -1036,10 +1036,10 @@ Section WITHMEMORYMODEL.
        specialize (AGSP _ EQRSP).
        specialize (SPAL _ EQRSP).
        rewrite EQRSP in RSPEQ. inv RSPEQ.
-       assert (0 <= Mem.stack_limit - StackADT.size_stack (Mem.stack_adt m1') <= Ptrofs.max_unsigned) as RNGnewofs. 
+       assert (0 <= Mem.stack_limit - StackADT.size_stack (Mem.stack m1') <= Ptrofs.max_unsigned) as RNGnewofs. 
        {
          generalize (Mem.size_stack_below m1').
-         generalize (size_stack_pos (Mem.stack_adt m1')).
+         generalize (size_stack_pos (Mem.stack m1')).
          generalize (Mem.stack_limit_range).
          omega.
        }
@@ -1071,7 +1071,7 @@ Section WITHMEMORYMODEL.
        * intros; apply val_inject_nextinstr.
          intros; apply val_inject_set; auto.
          intros; apply val_inject_set; auto.
-         assert (v0 = parent_sp (Mem.stack_adt m1)).
+         assert (v0 = parent_sp (Mem.stack m1)).
          revert ISDEF. rewrite Heqs.  simpl. unfold is_ptr. destr. 
          simpl.
          revert ISDEF. simpl. unfold is_ptr. destr. inversion 1; subst. inv ISDEF.
@@ -1095,7 +1095,7 @@ Section WITHMEMORYMODEL.
               etransitivity. 2: apply align_le. auto. omega.
             Qed.
             generalize (Mem.size_stack_below m1).
-            generalize (size_stack_pos (Mem.stack_adt m1)).
+            generalize (size_stack_pos (Mem.stack m1)).
             rewrite Heqs. simpl.
             rewrite ! size_frames_one. rewrite SIZE, SIZE0.
             generalize Mem.stack_limit_range. omega.
@@ -1244,7 +1244,7 @@ Section WITHMEMORYMODEL.
      + (* load parent pointer *)
        unfold Asm.exec_instr in EI; simpl in EI.
        unfold check_top_frame in EI.
-       destruct (Mem.stack_adt m1) eqn:S1; try congruence.
+       destruct (Mem.stack m1) eqn:S1; try congruence.
        repeat destr_in EI.
        repeat destr_in Heqb.
        apply andb_true_iff in H0; destruct H0 as (A & B).
@@ -1253,7 +1253,7 @@ Section WITHMEMORYMODEL.
        assert (RNGframe: 0 <= align (frame_adt_size f0) 8 < Ptrofs.max_unsigned).
        {
          generalize (Mem.size_stack_below m1').
-         generalize (size_stack_pos (Mem.stack_adt m1')). rewrite S1.
+         generalize (size_stack_pos (Mem.stack m1')). rewrite S1.
          generalize (Mem.stack_limit_range).
          simpl. rewrite size_frames_cons.
          generalize (frame_adt_size_pos f0) (align_le (frame_adt_size f0) 8) (size_stack_pos s).
@@ -1591,7 +1591,7 @@ Section WITHMEMORYMODEL.
       unfold upstar. simpl.
       rewrite GSPEC.
       destr. destr.
-      destruct (Mem.stack_adt m) eqn:STK2. simpl in *; easy. simpl in n0. omega. 
+      destruct (Mem.stack m) eqn:STK2. simpl in *; easy. simpl in n0. omega. 
       repeat rewrite_stack_blocks. unfold is_stack_top. simpl. easy.
       intro MemInj'.
       do 3 eexists; split.
@@ -1732,7 +1732,7 @@ Section WITHMEMORYMODEL.
       }
       rewrite JB in H9; inv H9.
       exploit (Mem.unrecord_stack_block_inject_left _ _ _ _ _ MemInj H3).
-      destruct (Mem.stack_adt m) eqn:STK2. simpl in *; easy.
+      destruct (Mem.stack m) eqn:STK2. simpl in *; easy.
       rewrite ! GSPEC. simpl.
       inv TIN. rewrite STK2 in H6; inv H6.
       destruct lprog. simpl in STK. revert init_sp_ptr. unfold init_sp. rewrite <- STK. simpl; inversion 1.
@@ -1920,7 +1920,7 @@ End PRESERVATION.
     assert  (ALLOCINJ:
                exists (f' : meminj) (m2' : mem) (b2 : block),
                  Mem.alloc m0 0 Mem.stack_limit = (m2', b2) /\
-                 Mem.inject f' (flat_frameinj (length (Mem.stack_adt m0))) m2 m2' /\
+                 Mem.inject f' (flat_frameinj (length (Mem.stack m0))) m2 m2' /\
                  inject_incr (Mem.flat_inj (Mem.nextblock m0)) f' /\
                  f' b = Some (b2, Mem.stack_limit) /\ (forall b0 : block, b0 <> b -> f' b0 = Mem.flat_inj (Mem.nextblock m2) b0)).
     {
@@ -1959,7 +1959,7 @@ End PRESERVATION.
     } subst.
     edestruct (Mem.range_perm_drop_2) with (p := Writable) as (m3' & DROP).
     red; intros; eapply Mem.perm_alloc_2; eauto.
-    assert (DROPINJ: Mem.inject f' (flat_frameinj (length (Mem.stack_adt m0))) m2 m3').
+    assert (DROPINJ: Mem.inject f' (flat_frameinj (length (Mem.stack m0))) m2 m3').
     {
       eapply Mem.drop_outside_inject. apply ALLOCINJ. eauto.
       intros b' delta ofs k p FB1 PERM RNG.
@@ -1969,7 +1969,7 @@ End PRESERVATION.
     assert (RSB': exists m4',
                Mem.record_stack_blocks (Mem.push_new_stage m3') (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m4' /\
                Mem.inject f'
-                          (flat_frameinj (length (Mem.stack_adt (Mem.push_new_stage m3')))) m3 m4').
+                          (flat_frameinj (length (Mem.stack (Mem.push_new_stage m3')))) m3 m4').
     {
       edestruct Mem.record_stack_blocks_inject_parallel as (m4' & RSB' & RSBinj).
       apply Mem.push_new_stage_inject. apply DROPINJ. 7: eauto.

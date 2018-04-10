@@ -910,11 +910,11 @@ Theorem external_call_match' :
   forall (ge: genv) vargs m vres m' bc rm am,
   forall (external_call_mem_inject:
             meminj_preserves_globals ge (inj_of_bc bc) ->
-            Mem.inject (inj_of_bc bc) (flat_frameinj (length (Mem.stack_adt m)))  m m ->
+            Mem.inject (inj_of_bc bc) (flat_frameinj (length (Mem.stack m)))  m m ->
             Val.inject_list (inj_of_bc bc) vargs vargs ->
             exists f', exists vres', exists m2',
                                        Val.inject f' vres vres'
-                                       /\ Mem.inject f' (flat_frameinj (length (Mem.stack_adt m')))  m' m2'
+                                       /\ Mem.inject f' (flat_frameinj (length (Mem.stack m')))  m' m2'
                                        /\ Mem.unchanged_on (loc_unmapped (inj_of_bc bc)) m m'
                                        /\ inject_incr (inj_of_bc bc) f'
                                        /\ inject_separated (inj_of_bc bc) f' m m)

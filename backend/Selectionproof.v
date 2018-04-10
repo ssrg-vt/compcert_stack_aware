@@ -780,7 +780,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_cont cunit hf k k')
         (LD: env_lessdef e e')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
       match_states
         (Cminor.State f s k sp e m)
         (State f' s' k' sp e' m')
@@ -790,7 +790,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_call_cont k k')
         (LD: Val.lessdef_list args args')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
       match_states
         (Cminor.Callstate f args k m sz)
         (Callstate f' args' k' m' sz)
@@ -798,7 +798,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_call_cont k k')
         (LD: Val.lessdef v v')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
       match_states
         (Cminor.Returnstate v k m)
         (Returnstate v' k' m')
@@ -810,7 +810,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (LDA: Val.lessdef_list args args')
         (LDE: env_lessdef e e')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m'))
         (EA: list_forall2 (CminorSel.eval_builtin_arg tge sp e' m') al args'),
       forall BUILTIN_ENABLED : builtin_enabled ef,
         match_states
@@ -824,7 +824,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (LDV: Val.lessdef v v')
         (LDE: env_lessdef e e')
         (ME: forall m'', Mem.unrecord_stack_block m = Some m'' -> Mem.extends m'' m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (tl (Mem.stack_adt m)) (Mem.stack_adt m')),
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (tl (Mem.stack m)) (Mem.stack m')),
       match_states
         (Cminor.Returnstate v (Cminor.Kcall optid f sp e k) m)
         (State f' Sskip k' sp (set_builtin_res (sel_builtin_res optid) v' e') m').

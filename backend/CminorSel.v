@@ -602,14 +602,14 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
 
   Inductive stack_inv : state -> Prop :=
   | stack_inv_regular: forall k f s sp m o e
-                         (MSA1: match_stack_adt (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack_adt m)),
+                         (MSA1: match_stack (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack m)),
       stack_inv (State f s k (Vptr sp o) e m)
   | stack_inv_call: forall k fd args m sz
-                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
-                      (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
+                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack m))
+                      (MSA1: match_stack (funs_of_cont k) (tl (Mem.stack m))),
       stack_inv (Callstate fd args k m sz)
   | stack_inv_return: forall k res m 
-                        (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
+                        (MSA1: match_stack (funs_of_cont k) (tl (Mem.stack m))),
       stack_inv (Returnstate res k m).
 
   Lemma funs_of_call_cont:

@@ -88,7 +88,7 @@ Local Existing Instance mem_accessors_default.
 Section CONSTRUCTORS.
 Context `{memory_model_prf: Mem.MemoryModel}.
 
-Variable init_stk: stack_adt.
+Variable init_stk: stack.
 Variable ge: genv.
 Variable fn: function.
 

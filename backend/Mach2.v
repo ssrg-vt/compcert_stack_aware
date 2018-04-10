@@ -61,7 +61,7 @@ Inductive step: state -> trace -> state -> Prop :=
       forall s fb f sp ofs ty dst c rs m v rs',
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       (* load_stack m sp Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
-      load_stack m (parent_sp (Mem.stack_adt m)) ty ofs = Some v ->
+      load_stack m (parent_sp (Mem.stack m)) ty ofs = Some v ->
       rs' = (rs # temp_for_parent_frame <- Vundef # dst <- v) ->
       step (State s fb sp (Mgetparam ofs ty dst :: c) rs m)
         E0 (State s fb sp c rs' m)
@@ -163,7 +163,7 @@ Inductive step: state -> trace -> state -> Prop :=
   | exec_function_external:
       forall s fb rs m t rs' ef args res m',
       Genv.find_funct_ptr ge fb = Some (External ef) ->
-      extcall_arguments rs m (parent_sp (Mem.stack_adt m)) (ef_sig ef) args ->
+      extcall_arguments rs m (parent_sp (Mem.stack m)) (ef_sig ef) args ->
       external_call ef ge args m t res m' ->
       rs' = set_pair (loc_result (ef_sig ef)) res (undef_regs destroyed_at_call rs) ->
       step (Callstate s fb rs m)
@@ -184,9 +184,9 @@ Inductive callstack_function_defined : list stackframe -> Prop :=
       callstack_function_defined (Stackframe fb sp' ra c' :: cs').
 
 Variable init_sg: signature.
-Variable init_stk: stack_adt.
+Variable init_stk: stack.
 
-Inductive list_prefix : list (option (block * frame_info)) -> stack_adt -> Prop :=
+Inductive list_prefix : list (option (block * frame_info)) -> stack -> Prop :=
 | list_prefix_nil s
                   (INITSTACK: s = init_stk)
                   (STACKINFO: init_sp_stackinfo init_sg s):
@@ -201,18 +201,18 @@ Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_intro:
     forall c cs' fb sp' rs m' tf
       (FIND: Genv.find_funct_ptr ge fb = Some (Internal tf))
-      (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack ge cs') (Mem.stack_adt m'))
+      (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack ge cs') (Mem.stack m'))
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
 | call_stack_consistency_call:
     forall cs' fb rs m'
-      (CallStackConsistency: list_prefix (stack_blocks_of_callstack ge cs') (tl (Mem.stack_adt m')))
+      (CallStackConsistency: list_prefix (stack_blocks_of_callstack ge cs') (tl (Mem.stack m')))
       (TIN: Mem.top_is_new m')
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:
     forall cs' rs m'
-      (CallStackConsistency: list_prefix (stack_blocks_of_callstack ge cs') (tl (Mem.stack_adt m')))
+      (CallStackConsistency: list_prefix (stack_blocks_of_callstack ge cs') (tl (Mem.stack m')))
       (TIN: Mem.top_is_new m')
       (CFD: callstack_function_defined cs'),
       call_stack_consistency (Returnstate cs' rs m').

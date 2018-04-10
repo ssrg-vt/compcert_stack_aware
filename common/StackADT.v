@@ -155,7 +155,7 @@ Definition tframe_adt := list frame_adt.
 
 (** Finally, the stack itself is a list of tailcall frames.  *)
 
-Definition stack_adt := list tframe_adt.
+Definition stack := list tframe_adt.
 
 (** Blocks belonging to frames, tframes, stacks.  *)
 
@@ -165,7 +165,7 @@ Definition get_frame_blocks (f: frame_adt) : list block :=
 Definition get_frames_blocks (tf: tframe_adt) : list block :=
   concat (map get_frame_blocks tf).
 
-Definition get_stack_blocks (s: stack_adt) : list block :=
+Definition get_stack_blocks (s: stack) : list block :=
   concat (map get_frames_blocks s).
 
 Definition in_frame (f: frame_adt) (b: block) : Prop :=
@@ -174,7 +174,7 @@ Definition in_frame (f: frame_adt) (b: block) : Prop :=
 Definition in_frames (l: tframe_adt) (b: block) :=
   In b (get_frames_blocks l).
 
-Definition in_stack (s: stack_adt) (b: block) :=
+Definition in_stack (s: stack) (b: block) :=
   In b (get_stack_blocks s).
 
 Definition in_frame' (f: frame_adt) bfi :=
@@ -186,7 +186,7 @@ Fixpoint in_frames' (tf: tframe_adt) b :=
   | f::tf => in_frame' f b \/ in_frames' tf b
   end.
 
-Fixpoint in_stack' (s: stack_adt) b :=
+Fixpoint in_stack' (s: stack) b :=
   match s with
   | nil => False
   | tf::s => in_frames' tf b \/ in_stack' s b
@@ -308,7 +308,7 @@ Fixpoint get_assoc_tframes (l: tframe_adt) (b: block) : option frame_info :=
   | _ => None
   end.
 
-Fixpoint get_assoc_stack (l: stack_adt) (b: block) : option frame_info :=
+Fixpoint get_assoc_stack (l: stack) (b: block) : option frame_info :=
   match l with
     nil => None
   | lfr::r => if in_frames_dec lfr b then
@@ -522,7 +522,7 @@ Definition frame_agree_perms (P: perm_type) (f: frame_adt) : Prop :=
     P b o k p ->
     (0 <= o < frame_size fi)%Z.
 
-Definition stack_agree_perms m (s: stack_adt) :=
+Definition stack_agree_perms m (s: stack) :=
   forall tf,
     In tf s ->
     forall f,
@@ -531,7 +531,7 @@ Definition stack_agree_perms m (s: stack_adt) :=
 
 (** * Finding a frame at a given position  *)
 
-Fixpoint stack_position (s: stack_adt) b : option nat :=
+Fixpoint stack_position (s: stack) b : option nat :=
   match s with
     nil => None
   | f::r => if in_frames_dec f b
@@ -539,7 +539,7 @@ Fixpoint stack_position (s: stack_adt) b : option nat :=
            else option_map S (stack_position r b)
   end.
 
-Inductive frame_at_pos (s: stack_adt) n f :=
+Inductive frame_at_pos (s: stack) n f :=
 | frame_at_pos_intro:
     nth_error s n = Some f -> frame_at_pos s n f.
 
@@ -654,7 +654,7 @@ Qed.
 
 Definition flat_frameinj thr n := if lt_dec n thr then Some n else None.
 
-Definition get_stack_top_blocks (s: stack_adt) : list block :=
+Definition get_stack_top_blocks (s: stack) : list block :=
   match s with
     nil => nil
   | tf::r => get_frames_blocks tf
@@ -709,7 +709,7 @@ Definition wf_tframe (m: perm_type) (j: meminj) (f: tframe_adt) : Prop :=
     forall o k p,
       ~ m b o k p.
 
-Definition wf_stack (m: perm_type) j (s: stack_adt) : Prop :=
+Definition wf_stack (m: perm_type) j (s: stack) : Prop :=
   Forall (wf_tframe m j) s.
 
 
@@ -803,7 +803,7 @@ Section INJ.
      eapply frame_inject_compose; eauto.
    Qed.
 
-   Record stack_inject (f: meminj) (g: frameinj) (m: perm_type) (s1 s2: stack_adt) :=
+   Record stack_inject (f: meminj) (g: frameinj) (m: perm_type) (s1 s2: stack) :=
     {
       stack_src_wf: wf_stack m f s1;
       stack_inject_mono: frameinj_mono g;
@@ -1082,7 +1082,7 @@ Section INJ.
     repeat econstructor; eauto.
   Qed.
 
-  Inductive nodup: stack_adt -> Prop :=
+  Inductive nodup: stack -> Prop :=
   | nodup_nil:
       nodup nil
   | nodup_cons:
@@ -1091,7 +1091,7 @@ Section INJ.
         (forall b, in_frames f b -> ~ in_stack s b) ->
         nodup (f::s).
 
-  Definition nodup' (s: stack_adt) :=
+  Definition nodup' (s: stack) :=
     forall b f1 f2,
       In f1 s ->
       In f2 s ->
@@ -1523,7 +1523,7 @@ Section INJ.
     red; intros. omega.
   Qed.
 
-  Definition stack_access (m: stack_adt) (b: block) (lo hi: Z) : Prop :=
+  Definition stack_access (m: stack) (b: block) (lo hi: Z) : Prop :=
     is_stack_top m b \/ public_stack_access m b lo hi.
 
   Lemma is_stack_top_dec : forall m b,
@@ -1871,7 +1871,7 @@ Section INJ.
 
 
 Lemma in_stack_tl:
-  forall (l: stack_adt)  b,
+  forall (l: stack)  b,
     in_stack ((tl l)) b ->
     in_stack (l) b.
 Proof.
@@ -1898,7 +1898,7 @@ Proof.
 Qed.
 
 Lemma stack_agree_perms_tl:
-  forall P (l: stack_adt),
+  forall P (l: stack),
     stack_agree_perms P l ->
     stack_agree_perms P (tl l).
 Proof.
@@ -2244,7 +2244,7 @@ Qed.
   (* end. *)
 
 
-Fixpoint size_stack (l: stack_adt) : Z :=
+Fixpoint size_stack (l: stack) : Z :=
   match l with
     nil => 0
   | fr::r => size_stack r + size_frames fr
@@ -2918,7 +2918,7 @@ Qed.
 
 
 
-Inductive top_tframe_prop (P: tframe_adt -> Prop) : stack_adt -> Prop :=
+Inductive top_tframe_prop (P: tframe_adt -> Prop) : stack -> Prop :=
 | top_tframe_prop_intro tf r:
     P tf ->
     top_tframe_prop P (tf::r).
@@ -2931,7 +2931,7 @@ Definition wf_tframe_strong (m: perm_type) (j: meminj) (f: tframe_adt) : Prop :=
     forall o k p, ~ m b o k p.
 
 
-Definition top_tframe_no_perm (m: perm_type) (s: stack_adt) : Prop :=
+Definition top_tframe_no_perm (m: perm_type) (s: stack) : Prop :=
   top_tframe_prop (wf_tframe_strong m inject_id) s.
 
 
@@ -3234,7 +3234,7 @@ Proof.
   unfold size_frames. simpl. rewrite H. setoid_rewrite IHLF2. auto.
 Qed.
 
-Inductive stack_equiv (R: frame_adt -> frame_adt -> Prop) : stack_adt -> stack_adt -> Prop :=
+Inductive stack_equiv (R: frame_adt -> frame_adt -> Prop) : stack -> stack -> Prop :=
 | stack_equiv_nil: stack_equiv R nil nil
 | stack_equiv_cons s1 s2 tf1 tf2
                    (SE: stack_equiv R s1 s2)
@@ -3266,13 +3266,13 @@ Qed.
 
 Hint Resolve stack_equiv_tail.
 
-Inductive match_stack_adt : list (option (block * Z)) -> stack_adt -> Prop :=
-| match_stack_adt_nil s: match_stack_adt nil s
-| match_stack_adt_cons lsp s f r sp bi z
-                       (REC: match_stack_adt lsp s)
+Inductive match_stack : list (option (block * Z)) -> stack -> Prop :=
+| match_stack_nil s: match_stack nil s
+| match_stack_cons lsp s f r sp bi z
+                       (REC: match_stack lsp s)
                        (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
                        (SIZE: frame_size bi = Z.max 0 z):
-    match_stack_adt (Some (sp,z) :: lsp) ( (f :: r) :: s).
+    match_stack (Some (sp,z) :: lsp) ( (f :: r) :: s).
 
 Lemma list_forall2_refl:
   forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
@@ -3302,7 +3302,7 @@ Program Definition inject_perm_all: InjectPerm :=
   |}.
 
 
-(* Definition same_head (P: perm_type) (m m': stack_adt) := *)
+(* Definition same_head (P: perm_type) (m m': stack) := *)
 (*   list_forall2 *)
 (*     (fun tf1 tf2 => *)
 (*        match tf1, tf2 with *)
@@ -3314,7 +3314,7 @@ Program Definition inject_perm_all: InjectPerm :=
 (*     ) *)
 (*     m m'. *)
 
-Definition same_head (P: perm_type) (m m': stack_adt) :=
+Definition same_head (P: perm_type) (m m': stack) :=
   list_forall2
     (fun tf1 tf2 =>
        (* match tf1, tf2 with *)
@@ -3535,13 +3535,13 @@ Definition current_frame_sp (tf: tframe_adt) : val :=
   | _ => Vnullptr
   end.
 
-Definition current_sp (stk: stack_adt) : val :=
+Definition current_sp (stk: stack) : val :=
   match stk with
     fr :: _ => current_frame_sp fr
   | _ => Vnullptr
   end.
 
-Definition parent_sp (stk: stack_adt) : val :=
+Definition parent_sp (stk: stack) : val :=
   match stk with
     nil => Vundef
   | _ :: tl => current_sp tl

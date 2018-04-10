@@ -415,7 +415,7 @@ Proof.
     setoid_rewrite frame_at_pos_tl. simpl. apply frame_at_pos_cons_inv in FAP1; eauto. omega.
 Qed.
 
-Definition tc_sizes: frameinj -> stack_adt -> stack_adt -> Prop := sizes.
+Definition tc_sizes: frameinj -> stack -> stack -> Prop := sizes.
 
 Definition tc_sizes_upstar:
   forall g s1 s2,
@@ -463,7 +463,7 @@ Inductive match_states: state -> state -> Prop :=
              (RLD: regs_inject j rs rs')
              (MLD: Mem.inject j g m m')
              (CFG: compat_frameinj (S n :: l) g)
-             (SZ: tc_sizes g (Mem.stack_adt m) (Mem.stack_adt m'))
+             (SZ: tc_sizes g (Mem.stack m) (Mem.stack m'))
              (IG: inject_globals ge j)
              (JB: j sp = Some (sp', 0))
              (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
@@ -476,7 +476,7 @@ Inductive match_states: state -> state -> Prop :=
         (LDargs: Val.inject_list j args args')
         (MLD: Mem.inject j g m m')
         (CFG: compat_frameinj (S n::l) g)
-        (SZ: tc_sizes g (Mem.stack_adt m) (Mem.stack_adt m'))
+        (SZ: tc_sizes g (Mem.stack m) (Mem.stack m'))
         (IG: inject_globals ge j)
         (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
         (SEP: inject_separated (Mem.flat_inj (Mem.nextblock init_m)) j init_m init_m),
@@ -488,7 +488,7 @@ Inductive match_states: state -> state -> Prop :=
         (LDret: Val.inject j v v')
         (MLD: Mem.inject j g m m')
         (CFG: compat_frameinj (S n::l) g)
-        (SZ: tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) (Mem.stack_adt m)) (tl (Mem.stack_adt m')))
+        (SZ: tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) (Mem.stack m)) (tl (Mem.stack m')))
         (IG: inject_globals ge j)
         (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
         (SEP: inject_separated (Mem.flat_inj (Mem.nextblock init_m)) j init_m init_m),
@@ -502,7 +502,7 @@ Inductive match_states: state -> state -> Prop :=
              (SZzero: f.(fn_stacksize) = 0)
              (LDret: Val.inject j (rs#r) v')
              (CFG: compat_frameinj (S n::l) g)
-             (SZ: tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) (Mem.stack_adt m)) (tl (Mem.stack_adt m')))
+             (SZ: tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) (Mem.stack m)) (tl (Mem.stack m')))
              (IG: inject_globals ge j)
              (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
              (SEP: inject_separated (Mem.flat_inj (Mem.nextblock init_m)) j init_m init_m),
@@ -705,7 +705,7 @@ Definition nextblock_inv (s: state) :=
 
 Lemma transf_step_correct:
   forall s1 t s2, step fn_stack_requirements ge s1 t s2 ->
-  forall s1' (MS: match_states s1 s1') (NI1: nextblock_inv s1) (NI2: nextblock_inv s1') (SPV: sp_valid s1) (* (MSA: match_stack_adt s1) *) (MSA: stack_inv s1) (MSA': stack_inv s1'),
+  forall s1' (MS: match_states s1 s1') (NI1: nextblock_inv s1) (NI2: nextblock_inv s1') (SPV: sp_valid s1) (* (MSA: match_stack s1) *) (MSA: stack_inv s1) (MSA': stack_inv s1'),
   (exists s2', step fn_stack_requirements tge s1' t s2' /\ match_states s2 s2')
   \/ (measure s2 < measure s1 /\ t = E0 /\ match_states s2 s1')%nat.
 Proof.
@@ -988,7 +988,7 @@ Proof.
         generalize (RNG _ _ H2). intros (AA & B).
         rewrite ! length_tl, length_iter_tl.
         split. omega.
-        destruct (Mem.stack_adt m'0); simpl in *. omega.
+        destruct (Mem.stack m'0); simpl in *. omega.
         destruct CFG.
         eapply compat_frameinj_rec_above in H2; eauto. omega. omega.
       }

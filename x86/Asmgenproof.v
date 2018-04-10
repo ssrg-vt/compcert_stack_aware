@@ -84,7 +84,7 @@ Qed.
 Section WITHINITSPRA.
 
 Variable init_ra: val.
-Variable init_stk: stack_adt.
+Variable init_stk: stack.
 
 Lemma exec_straight_exec:
   forall fb f c ep tf tc c' rs m rs' m',
@@ -392,20 +392,20 @@ Qed.
         (MEXT: Mem.extends m m')
         (AT: transl_code_at_pc ge (rs PC) fb f c ep tf tc)
         (AG: agree ms (Vptr sp Ptrofs.zero) rs)
-        (AXP: ep = true -> rs#RAX = parent_sp (Mem.stack_adt m))
-        (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m) b -> (Mem.perm m b o k p <-> Mem.perm m' b o k p))
-        (SAMEADT: (Mem.stack_adt m) = (Mem.stack_adt m')),
+        (AXP: ep = true -> rs#RAX = parent_sp (Mem.stack m))
+        (SAMEPERM: forall b o k p, in_stack (Mem.stack m) b -> (Mem.perm m b o k p <-> Mem.perm m' b o k p))
+        (SAMEADT: (Mem.stack m) = (Mem.stack m')),
       match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c ms m)
                    (Asm.State rs m')
   | match_states_call:
       forall s fb ms m m' rs
         (STACKS: match_stack ge s)
         (MEXT: Mem.extends m m')
-        (AG: agree ms (parent_sp (Mem.stack_adt m)) rs)
+        (AG: agree ms (parent_sp (Mem.stack m)) rs)
         (ATPC: rs PC = Vptr fb Ptrofs.zero)
         (ATLR: rs RA = parent_ra init_ra s)
-        (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m) b -> (Mem.perm m b o k p <-> Mem.perm m' b o k p))
-        (SAMEADT: (Mem.stack_adt m) = (Mem.stack_adt m')),
+        (SAMEPERM: forall b o k p, in_stack (Mem.stack m) b -> (Mem.perm m b o k p <-> Mem.perm m' b o k p))
+        (SAMEADT: (Mem.stack m) = (Mem.stack m')),
       match_states (Mach.Callstate s fb ms m)
                    (Asm.State rs m')
   | match_states_return:
@@ -413,11 +413,11 @@ Qed.
         (STACKS: match_stack ge s)
         (USB: Mem.unrecord_stack_block m = Some m2)
         (MEXT: Mem.extends m2 m')
-        (AG: agree ms (parent_sp (Mem.stack_adt m)) rs)
+        (AG: agree ms (parent_sp (Mem.stack m)) rs)
         (RA_VUNDEF: rs RA = Vundef)
         (ATPC: rs PC = parent_ra init_ra s)
-        (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m) b -> (Mem.perm m b o k p <-> Mem.perm m' b o k p))
-        (SAMEADT: Mem.stack_adt m2 = Mem.stack_adt m'),
+        (SAMEPERM: forall b o k p, in_stack (Mem.stack m) b -> (Mem.perm m b o k p <-> Mem.perm m' b o k p))
+        (SAMEADT: Mem.stack m2 = Mem.stack m'),
       match_states (Mach.Returnstate s ms m)
                    (Asm.State rs m').
 
@@ -431,9 +431,9 @@ Lemma exec_straight_steps:
    exists rs2,
        exec_straight init_stk tge tf c rs1 m1' k rs2 m2'
     /\ agree ms2 (Vptr sp Ptrofs.zero) rs2
-    /\ (it1_is_parent ep i = true -> rs2#RAX = parent_sp (Mem.stack_adt m2))) ->
-  forall (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m2) b -> (Mem.perm m2 b o k p <-> Mem.perm m2' b o k p))
-    (SAMEADT: (Mem.stack_adt m2) = (Mem.stack_adt m2')),
+    /\ (it1_is_parent ep i = true -> rs2#RAX = parent_sp (Mem.stack m2))) ->
+  forall (SAMEPERM: forall b o k p, in_stack (Mem.stack m2) b -> (Mem.perm m2 b o k p <-> Mem.perm m2' b o k p))
+    (SAMEADT: (Mem.stack m2) = (Mem.stack m2')),
   exists st',
   plus (step init_stk) tge (State rs1 m1') E0 st' /\
   match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c ms2 m2) st'.
@@ -458,8 +458,8 @@ Lemma exec_straight_steps_goto:
               exec_straight init_stk tge tf c rs1 m1' (jmp :: k') rs2 m2'
               /\ agree ms2 (Vptr sp Ptrofs.zero) rs2
               /\ exec_instr init_stk tge tf jmp rs2 m2' = goto_label tge tf lbl rs2 m2') ->
-    forall (SAMEPERM: forall b o k p, in_stack (Mem.stack_adt m2) b -> (Mem.perm m2 b o k p <-> Mem.perm m2' b o k p))
-      (SAMEADT: (Mem.stack_adt m2) = (Mem.stack_adt m2')),
+    forall (SAMEPERM: forall b o k p, in_stack (Mem.stack m2) b -> (Mem.perm m2 b o k p <-> Mem.perm m2' b o k p))
+      (SAMEADT: (Mem.stack m2) = (Mem.stack m2')),
   exists st',
   plus (step init_stk) tge (State rs1 m1') E0 st' /\
   match_states (Mach.State s fb (Vptr sp Ptrofs.zero) c' ms2 m2) st'.
@@ -537,7 +537,7 @@ Qed.
   Lemma exec_store_stack:
     forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2 sz,
       exec_store ge k m1 a rs1 rs l sz = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1.
+      Mem.stack m2 = Mem.stack m1.
   Proof.
     intros.
     unfold exec_store in H; repeat destr_in H.
@@ -549,7 +549,7 @@ Qed.
   Lemma exec_load_stack:
     forall F V (ge: _ F V) k m1 a rs1 rs rs2 m2 sz,
       exec_load ge k m1 a rs1 rs sz = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1.
+      Mem.stack m2 = Mem.stack m1.
   Proof.
     intros.
     unfold exec_load in H; destr_in H.
@@ -558,7 +558,7 @@ Qed.
   Lemma goto_label_stack:
     forall F V (ge: _ F V) f l m1 rs1 rs2 m2,
       goto_label ge f l rs1 m1 = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1.
+      Mem.stack m2 = Mem.stack m1.
   Proof.
     intros.
     unfold goto_label in H; repeat destr_in H.
@@ -614,20 +614,20 @@ Qed.
 
   Lemma load_parent_pointer_correct:
     forall (tge: genv) fn (rd: ireg) x m1 (rs1: regset) s fb sp c f
-      (PISP_DEF: exists bisp, parent_sp (Mem.stack_adt m1) = Vptr bisp Ptrofs.zero)
+      (PISP_DEF: exists bisp, parent_sp (Mem.stack m1) = Vptr bisp Ptrofs.zero)
       (FFP: Genv.find_funct_ptr ge fb = Some (Internal f))
       (RD: rd <> RSP)
       ms1
       (LP: call_stack_consistency ge init_sg init_stk (Mach.State s fb (Vptr sp Ptrofs.zero) c ms1 m1))
-      m2 (EQSTK: Mem.stack_adt m1 = Mem.stack_adt m2),
+      m2 (EQSTK: Mem.stack m1 = Mem.stack m2),
       exists rs2 sp,
         exec_straight init_stk tge fn (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
-        is_ptr (parent_sp (Mem.stack_adt m1)) = Some sp /\
+        is_ptr (parent_sp (Mem.stack m1)) = Some sp /\
         rs2 rd = sp /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
   Proof.
     intros.
     destruct PISP_DEF as (bisp & PISP_DEF).
-    exists (nextinstr (rs1#rd <- (parent_sp (Mem.stack_adt m1))) 
+    exists (nextinstr (rs1#rd <- (parent_sp (Mem.stack m1))) 
                  (Ptrofs.repr (instr_size (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))))))), (Vptr bisp Ptrofs.zero).
     split; [|split].
     - constructor.
@@ -724,7 +724,7 @@ Opaque loadind.
   simpl; intros. rewrite R; auto.
 (* RAX does not contain parent *)
   monadInv TR.
-  assert (exists bsp, parent_sp (Mem.stack_adt m) = Vptr bsp Ptrofs.zero).
+  assert (exists bsp, parent_sp (Mem.stack m) = Vptr bsp Ptrofs.zero).
   {
     unfold Mem.loadv in H0; repeat destr_in H0. unfold Val.offset_ptr in Heqv0.
     destr_in Heqv0.
@@ -843,9 +843,9 @@ Opaque loadind.
   exploit Mem.free_parallel_extends; eauto. constructor. intros (m2_ & E & F).
 
   Lemma clear_stage_extends:
-    forall m1 m2 (EXT: Mem.extends m1 m2) (SAMEADT: Mem.stack_adt m1 = Mem.stack_adt m2)
+    forall m1 m2 (EXT: Mem.extends m1 m2) (SAMEADT: Mem.stack m1 = Mem.stack m2)
       m1' (CS: Mem.clear_stage m1 = Some m1'),
-    exists m2', Mem.clear_stage m2 = Some m2' /\ Mem.extends m1' m2' /\ Mem.stack_adt m1' = Mem.stack_adt m2'.
+    exists m2', Mem.clear_stage m2 = Some m2' /\ Mem.extends m1' m2' /\ Mem.stack m1' = Mem.stack m2'.
   Proof.
     unfold Mem.clear_stage. intros. destr_in CS. inv CS.
     edestruct Mem.unrecord_stack_block_extends as (m2' & USB & EXT'); eauto. rewrite USB.
@@ -874,7 +874,7 @@ Opaque loadind.
   (* assert (CISIS: check_init_sp_in_stack init_sp m2' = true). *)
   (* { *)
   (*   unfold check_init_sp_in_stack. destr; eauto. *)
-  (*   destruct (in_stack_dec (Mem.stack_adt m2') b); auto. exfalso. *)
+  (*   destruct (in_stack_dec (Mem.stack m2') b); auto. exfalso. *)
   (*   apply n. clear n. inv CSC. inv CallStackConsistency. *)
   (*   exploit lp_has_init_sp. apply REC. f_equal. eapply init_sp_ofs_zero; eauto. *)
   (*   repeat rewrite_stack_blocks. rewrite <- SAMEADT. rewrite <- H14. simpl. rewrite in_stack_cons.  auto.  *)
@@ -1302,7 +1302,7 @@ apply agree_undef_regs with rs0; eauto.
   rewrite EQ0. simpl. Simplifs.
   repeat rewrite_stack_blocks.
   revert EQ0; repeat rewrite_stack_blocks. intros.
-  assert (b = stk \/ in_stack (Mem.stack_adt m) b).
+  assert (b = stk \/ in_stack (Mem.stack m) b).
   {
     rewrite EQ0. rewrite in_stack_cons in H4 |- *; destruct H4 as [[?|?]|?]; auto.
   }

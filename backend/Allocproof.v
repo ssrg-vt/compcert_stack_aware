@@ -1712,7 +1712,7 @@ Inductive match_states: RTL.state -> LTL.state -> Prop :=
         (EQ: transfer f env (pair_codes f tf) pc an!!pc = OK e)
         (SAT: satisf rs ls e)
         (MEM: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m'))
         (WTF: wt_function f env)
         (WTRS: wt_regset env rs),
       match_states (RTL.State s f sp pc rs m)
@@ -1724,7 +1724,7 @@ Inductive match_states: RTL.state -> LTL.state -> Prop :=
         (ARGS: Val.lessdef_list args (map (fun p => Locmap.getpair p ls) (loc_arguments (funsig tf))))
         (AG: agree_callee_save (parent_locset init_ls ts) ls)
         (MEM: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m'))
         (WTARGS: Val.has_type_list args (sig_args (funsig tf))),
       match_states (RTL.Callstate s f args m sz)
                    (LTL.Callstate ts tf ls m' sz)
@@ -1734,7 +1734,7 @@ Inductive match_states: RTL.state -> LTL.state -> Prop :=
         (RES: Val.lessdef res (Locmap.getpair (map_rpair R (loc_result sg)) ls))
         (AG: agree_callee_save (parent_locset init_ls ts) ls)
         (MEM: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m'))
+        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m'))
         (WTRES: Val.has_type res (proj_sig_res sg)),
       match_states (RTL.Returnstate s res m)
                    (LTL.Returnstate ts ls m').

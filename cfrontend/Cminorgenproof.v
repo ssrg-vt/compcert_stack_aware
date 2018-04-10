@@ -877,7 +877,7 @@ Lemma match_callstack_alloc_variables_rec:
     (Frame (cenv_remove cenv vars) tf e1 le te sp lo (Mem.nextblock m1) :: cs)
     (Mem.nextblock m1) (Mem.nextblock tm) ->
   Mem.inject f1 g m1 tm ->
-  ~ in_stack ((Mem.stack_adt tm)) sp ->
+  ~ in_stack ((Mem.stack tm)) sp ->
   exists f2,
     match_callstack f2 m2 tm
       (Frame cenv tf e2 le te sp lo (Mem.nextblock m2) :: cs)
@@ -1678,8 +1678,8 @@ Inductive match_states: Csharpminor.state -> Cminor.state -> Prop :=
       forall fn s k e le m tfn ts tk sp te tm cenv xenv f lo hi cs sz 
       (TRF: transl_funbody cenv sz fn = OK tfn)
       (TR: transl_stmt cenv xenv s = OK ts)
-      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)
-      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
+      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack m))) m tm)
+      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm))
       (MCS: match_callstack f m tm
                (Frame cenv tfn e le te sp lo hi :: cs)
                (Mem.nextblock m) (Mem.nextblock tm))
@@ -1690,8 +1690,8 @@ Inductive match_states: Csharpminor.state -> Cminor.state -> Prop :=
       forall fn s1 s2 k e le m tfn ts1 tk sp te tm cenv xenv f lo hi cs sz 
       (TRF: transl_funbody cenv sz fn = OK tfn)
       (TR: transl_stmt cenv xenv s1 = OK ts1)
-      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)
-      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
+      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack m))) m tm)
+      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm))
       (MCS: match_callstack f m tm
                (Frame cenv tfn e le te sp lo hi :: cs)
                (Mem.nextblock m) (Mem.nextblock tm))
@@ -1701,8 +1701,8 @@ Inductive match_states: Csharpminor.state -> Cminor.state -> Prop :=
   | match_callstate:
       forall fd args k m tfd targs tk tm f cs cenv sz
       (TR: transl_fundef fd = OK tfd)
-      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)
-      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
+      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack m))) m tm)
+      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm))
       (MCS: match_callstack f m tm cs (Mem.nextblock m) (Mem.nextblock tm))
       (MK: match_cont k tk cenv nil cs)
       (ISCC: Csharpminor.is_call_cont k)
@@ -1711,8 +1711,8 @@ Inductive match_states: Csharpminor.state -> Cminor.state -> Prop :=
                    (Callstate tfd targs tk tm sz)
   | match_returnstate:
       forall v k m tv tk tm f cs cenv 
-      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)
-      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
+      (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack m))) m tm)
+      (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm))
       (MCS: match_callstack f m tm cs (Mem.nextblock m) (Mem.nextblock tm))
       (MK: match_cont k tk cenv nil cs)
       (RESINJ: Val.inject f v tv),
@@ -1886,8 +1886,8 @@ Lemma switch_match_states:
   forall fn k e le m tfn ts tk sp te tm cenv xenv f lo hi cs sz ls body tk' 
     (TRF: transl_funbody cenv sz fn = OK tfn)
     (TR: transl_lblstmt cenv (switch_env ls xenv) ls body = OK ts)
-    (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm)
-    (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
+    (MINJ: Mem.inject f (flat_frameinj (length (Mem.stack m))) m tm)
+    (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm))
     (MCS: match_callstack f m tm
                (Frame cenv tfn e le te sp lo hi :: cs)
                (Mem.nextblock m) (Mem.nextblock tm))
@@ -2088,10 +2088,10 @@ Proof.
     auto.
 Qed.
 
-Lemma alloc_variables_stack_adt:
+Lemma alloc_variables_stack:
   forall e m vars e' m',
     alloc_variables e m vars e' m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   induction 1; simpl; intros; eauto.
   rewrite IHalloc_variables.
@@ -2205,7 +2205,7 @@ Proof.
   left; econstructor; split.
   apply plus_one. econstructor; eauto.
   econstructor; eauto.
-  erewrite Mem.storev_stack_adt; eauto.
+  erewrite Mem.storev_stack; eauto.
   repeat rewrite_stack_blocks; eauto.
   inv VINJ1; simpl in H1; try discriminate. unfold Mem.storev in STORE'.
   rewrite (Mem.nextblock_store _ _ _ _ _ _ H1).
@@ -2412,7 +2412,7 @@ Proof.
   exploit match_callstack_function_entry; eauto. simpl; eauto. simpl; auto.
   intros [f2 [MCS2 [MINJ2 [INCR2 SEP2]]]].
   exploit Mem.record_push_inject_flat. 
-  erewrite <- alloc_variables_stack_adt in MINJ2. eauto. eauto.
+  erewrite <- alloc_variables_stack in MINJ2. eauto. eauto.
   7: instantiate(3:=true); simpl; eauto.
   instantiate (1 := make_singleton_frame_adt sp (fn_stackspace tf) (frame_adt_size fa)).
   {
@@ -2468,7 +2468,7 @@ Proof.
   eapply Mem.perm_alloc_4; eauto. intro; subst.
   exploit Mem.in_frames_valid. rewrite <- H4. rewrite in_stack_cons; left. eauto. eapply Mem.fresh_block_alloc; eauto. simpl.
   repeat rewrite_stack_blocks.
-  erewrite (alloc_variables_stack_adt _ _ _ _ _ H2).
+  erewrite (alloc_variables_stack _ _ _ _ _ H2).
   apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   intros (m2' & RSB & INJ3).
   left; econstructor; split.
@@ -2478,7 +2478,7 @@ Proof.
   {
     repeat rewrite_stack_blocks.
     revert EQ0. rewrite_stack_blocks.
-    erewrite (alloc_variables_stack_adt _ _ _ _ _ H2) in EQ1. intro.
+    erewrite (alloc_variables_stack _ _ _ _ _ H2) in EQ1. intro.
     rewrite EQ0, EQ1 in STRUCT.
     inv STRUCT; repeat constructor; auto. simpl.
     rewrite Z.max_r. auto. destruct fa; auto.

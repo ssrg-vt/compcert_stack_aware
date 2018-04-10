@@ -396,12 +396,12 @@ Section WITHMEMORYMODEL.
     stack_invar i = true ->
     forall F V (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
+      Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
 
   Lemma exec_store_stack:
     forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2 sz,
       exec_store ge k m1 a rs1 rs l sz = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
+      Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
   Proof.
     intros F V ge k m1 a rs1 rs l rs2 m2 sz STORE.
     unfold exec_store in STORE; repeat destr_in STORE. 
@@ -416,7 +416,7 @@ Section WITHMEMORYMODEL.
   Lemma exec_load_stack:
     forall F V (ge: _ F V) k m1 a rs1 rs rs2 m2 sz,
       exec_load ge k m1 a rs1 rs sz = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
+      Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
   Proof.
     intros F V ge k m1 a rs1 rs rs2 m2 sz LOAD.
     unfold exec_load in LOAD; destr_in LOAD.
@@ -425,7 +425,7 @@ Section WITHMEMORYMODEL.
   Lemma goto_label_stack:
     forall F V (ge: _ F V) f l m1 rs1 rs2 m2,
       goto_label ge f l rs1 m1 = Next rs2 m2 ->
-      Mem.stack_adt m2 = Mem.stack_adt m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
+      Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
   Proof.
     intros F V ge f l m1 rs1 rs2 m2 GOTO.
     unfold goto_label in GOTO; repeat destr_in GOTO.

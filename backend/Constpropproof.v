@@ -316,7 +316,7 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (PC: match_pc f rs m n pc pc')
            (REGS: regs_lessdef rs rs')
            (MEM: Mem.extends m m')
-           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
       match_states n (State s f sp pc rs m)
                     (State s' (transf_function (romem_for cu) f) sp pc' rs' m')
   | match_states_call:
@@ -325,7 +325,7 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (STACKS: list_forall2 match_stackframes s s')
            (ARGS: Val.lessdef_list args args')
            (MEM: Mem.extends m m')
-           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
       match_states O (Callstate s f args m sz)
                      (Callstate s' (transf_fundef (romem_for cu) f) args' m' sz)
   | match_states_return:
@@ -333,7 +333,7 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (STACKS: list_forall2 match_stackframes s s')
            (RES: Val.lessdef v v')
            (MEM: Mem.extends m m')
-           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
       list_forall2 match_stackframes s s' ->
       match_states O (Returnstate s v m)
                      (Returnstate s' v' m').
@@ -344,7 +344,7 @@ Lemma match_states_succ:
   list_forall2 match_stackframes s s' ->
   regs_lessdef rs rs' ->
   Mem.extends m m' ->
-  stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m') ->
+  stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m') ->
   match_states O (State s f sp pc rs m)
                  (State s' (transf_function (romem_for cu) f) sp pc rs' m').
 Proof.

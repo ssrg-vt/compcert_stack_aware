@@ -27,17 +27,17 @@ Section WITHINITSP.
   Inductive match_states : state -> state -> Prop :=
   | match_states_regular s f sp c rs m m'
                          (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
-                         (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m'))
+                         (SH: same_head (Mem.perm m) (Mem.stack m) (Mem.stack m'))
                          (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (State s f sp c rs m) (State s f sp c rs m')
   | match_states_call s fb rs m m'
                       (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
-                      (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m'))
+                      (SH: same_head (Mem.perm m) (Mem.stack m) (Mem.stack m'))
                       (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (Callstate s fb rs m) (Callstate s fb rs m')
   | match_states_return s rs m m'
                         (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
-                        (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m'))
+                        (SH: same_head (Mem.perm m) (Mem.stack m) (Mem.stack m'))
                         (NB: Mem.nextblock m = Mem.nextblock m'):
       match_states (Returnstate s rs m) (Returnstate s rs m').
 
@@ -68,8 +68,8 @@ Section WITHINITSP.
   Lemma storev_unchanged_on_1:
     forall chunk m m' addr v m1
       (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
-      (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m')
-           \/ forall b o, addr = Vptr b o -> ~ in_stack (Mem.stack_adt m') b
+      (SH: same_head (Mem.perm m) (Mem.stack m) (Mem.stack m')
+           \/ forall b o, addr = Vptr b o -> ~ in_stack (Mem.stack m') b
       )
       (STORE: Mem.storev chunk m addr v = Some m1),
     exists m1',
@@ -83,7 +83,7 @@ Section WITHINITSP.
 
   Lemma storestack_unchanged_on:
     forall m m' sp ty ofs v m1
-      (SH: same_head (Mem.perm m) (Mem.stack_adt m) (Mem.stack_adt m') \/ forall b o, sp = Vptr b o -> ~ in_stack (Mem.stack_adt m') b)
+      (SH: same_head (Mem.perm m) (Mem.stack m) (Mem.stack m') \/ forall b o, sp = Vptr b o -> ~ in_stack (Mem.stack m') b)
       (UNCH: Mem.unchanged_on (fun _ _ => True) m m')
       (STORESTACK: store_stack m sp ty ofs v = Some m1),
     exists m1',
@@ -174,19 +174,19 @@ Section WITHINITSP.
   Lemma clear_stage_unchanged:
     forall m1 m2,
       Mem.unchanged_on (fun _ _  => True) m1 m2 ->
-      length (Mem.stack_adt m2) <> O ->
+      length (Mem.stack m2) <> O ->
       exists m2',
         Mem.clear_stage m2 = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1 m2'.
   Proof.
     unfold Mem.clear_stage. intros.
-    destruct (Mem.stack_adt m2) eqn:?; simpl in *. omega. clear H0.
+    destruct (Mem.stack m2) eqn:?; simpl in *. omega. clear H0.
     edestruct (Mem.unrecord_stack_block_succeeds m2) as (m3 & USB & EQSTK); eauto.
     rewrite USB. subst. eexists; split; eauto.
     eapply Mem.unrecord_push_unchanged; eauto.
   Qed.
 
   Variable init_sg: signature.
-  Variable init_stk: stack_adt.
+  Variable init_stk: stack.
 
   Lemma parent_sp_same_tl:
     forall s1 s2 cs

@@ -50,7 +50,7 @@ Class MemoryModelX (mem: Type) `{memory_model_prf: MemoryModel mem}: Prop :=
        exists v2,
          loadbytes m2 b2 o 1 = Some (v2 :: nil) /\
          memval_inject f v1 v2) ->
-  stack_inject f g (perm m1) (stack_adt m1) (stack_adt m2) ->
+  stack_inject f g (perm m1) (stack m1) (stack m2) ->
   inject f g m1 m2
 }.
 
@@ -844,20 +844,20 @@ Inductive match_states: state -> state -> Prop :=
          (KEPT: forall id, ref_function f id -> kept id)
          (SPINJ: j sp = Some(tsp, 0))
          (REGINJ: regset_inject j rs trs)
-         (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack_adt m))) m tm),
+         (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack m))) m tm),
       match_states (State s f (Vptr sp Ptrofs.zero) pc rs m)
                    (State ts f (Vptr tsp Ptrofs.zero) pc trs tm)
   | match_states_call: forall s fd args m ts targs tm j sz
          (STACKS: match_stacks j s ts (Mem.nextblock m) (Mem.nextblock tm))
          (KEPT: forall id, ref_fundef fd id -> kept id)
          (ARGINJ: Val.inject_list j args targs)
-         (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack_adt m))) m tm),
+         (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack m))) m tm),
       match_states (Callstate s fd args m sz)
                    (Callstate ts fd targs tm sz)
   | match_states_return: forall s res m ts tres tm j 
          (STACKS: match_stacks j s ts (Mem.nextblock m) (Mem.nextblock tm))
          (RESINJ: Val.inject j res tres)
-         (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack_adt m))) m tm),
+         (MEMINJ: Mem.inject j (flat_frameinj (length (Mem.stack m))) m tm),
       match_states (Returnstate s res m)
                    (Returnstate ts tres tm).
 
@@ -1070,7 +1070,7 @@ Proof.
   exploit Mem.storev_mapped_inject; eauto. intros (tm' & D & E).
   econstructor; split. eapply exec_Istore; eauto.
   econstructor; eauto.
-  erewrite Mem.storev_stack_adt; eauto.
+  erewrite Mem.storev_stack; eauto.
     
 - (* call *)
   exploit find_function_inject.
@@ -1331,7 +1331,7 @@ Proof.
 Qed.
 
 Lemma init_mem_inj_2:
-  Mem.inject init_meminj (flat_frameinj (length (Mem.stack_adt m))) m tm.
+  Mem.inject init_meminj (flat_frameinj (length (Mem.stack m))) m tm.
 Proof.
   apply Mem.zero_delta_inject.
 - intros b1 b2 delta H.
@@ -1547,7 +1547,7 @@ Qed.
 Theorem init_mem_inject:
   forall m,
   Genv.init_mem p = Some m ->
-  exists f tm, Genv.init_mem tp = Some tm /\ Mem.inject f (flat_frameinj (length (Mem.stack_adt m))) m tm /\ meminj_preserves_globals f.
+  exists f tm, Genv.init_mem tp = Some tm /\ Mem.inject f (flat_frameinj (length (Mem.stack m))) m tm /\ meminj_preserves_globals f.
 Proof.
   intros.
   exploit init_mem_exists; eauto. intros [tm INIT].
@@ -1575,7 +1575,7 @@ Proof.
     rewrite FNEW in FB; inv FB.
     eexists; split; eauto.
   - erewrite Mem.alloc_stack_blocks; eauto.
-    erewrite Genv.init_mem_stack_adt; eauto.
+    erewrite Genv.init_mem_stack; eauto.
   - intros bb [AA|[]]; inv AA. simpl in *.
     eapply Mem.valid_new_block; eauto.
   - red. simpl. intros b0 fi o k p0 [AA|[]] PERM; inv AA; simpl in *.

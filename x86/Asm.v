@@ -729,7 +729,7 @@ Proof.
 Qed.
 
 Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
-  match Mem.stack_adt m with
+  match Mem.stack m with
     (fr::_)::r =>
     Forall_dec _ (fun bfi => match_frame_dec bfi stk sz) (frame_adt_blocks fr) && zeq sz (frame_adt_size fr)
   | _ => false
@@ -754,13 +754,13 @@ Notation " 'check' A ; B" := (if A then B else Stuck)
 Definition is_ptr (v: val) :=
   match v with Vptr _ _ => Some v | _ => None end.
 
-Variable init_stk: stack_adt.
+Variable init_stk: stack.
 
 Definition init_sp : val := current_sp init_stk.
 
 Definition check_init_sp_in_stack (m: mem) :=
   match init_sp with
-    Vptr b o => in_stack (Mem.stack_adt m) b 
+    Vptr b o => in_stack (Mem.stack m) b 
   | _ => True
   end.
 
@@ -1130,14 +1130,14 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
             do m' <- Mem.free m stk 0 sz';
             do m' <- Mem.clear_stage m';
             check (check_init_sp_in_stack_dec m');
-            do sp <- is_ptr (parent_sp (Mem.stack_adt m));
+            do sp <- is_ptr (parent_sp (Mem.stack m));
             Next (nextinstr (rs#RSP <- sp #RA <- ra) sz) m'
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz' =>
     check (check_top_frame m None sz');
       check (Sumbool.sumbool_not _ _ (preg_eq rd RSP));
-      do sp <- is_ptr (parent_sp (Mem.stack_adt m));
+      do sp <- is_ptr (parent_sp (Mem.stack m));
       Next (nextinstr (rs#rd <- sp) sz) m
   | Pcfi_adjust n => Next rs m
   
@@ -1322,7 +1322,7 @@ Inductive final_state: state -> int -> Prop :=
 
 Local Existing Instance mem_accessors_default.
 
-Definition semantics (p: program) (init_stk: stack_adt) :=
+Definition semantics (p: program) (init_stk: stack) :=
   Semantics (step init_stk) (initial_state p) final_state (Genv.globalenv p).
 
 (** Determinacy of the [Asm] semantics. *)

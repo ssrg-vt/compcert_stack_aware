@@ -487,7 +487,7 @@ Definition transl_expr_prop
   /\ Val.lessdef v rs'#rd
   /\ (forall r, In r pr -> rs'#r = rs#r)
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 Definition transl_exprlist_prop
      (le: letenv) (al: exprlist) (vl: list val) : Prop :=
@@ -502,7 +502,7 @@ Definition transl_exprlist_prop
   /\ Val.lessdef_list vl rs'##rl
   /\ (forall r, In r pr -> rs'#r = rs#r)
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 Definition transl_condexpr_prop
      (le: letenv) (a: condexpr) (v: bool) : Prop :=
@@ -516,7 +516,7 @@ Definition transl_condexpr_prop
   /\ match_env map e le rs'
   /\ (forall r, In r pr -> rs'#r = rs#r)
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 (** The correctness of the translation is a huge induction over
   the CminorSel evaluation derivation for the source program.  To keep
@@ -969,7 +969,7 @@ Definition transl_exitexpr_prop
   /\ nth_error nexits x = Some nd
   /\ match_env map e le rs'
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 Theorem transl_exitexpr_correct:
   forall le a x,
@@ -1227,7 +1227,7 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
         (TK: tr_cont tf.(fn_code) map k ncont nexits ngoto nret rret cs)
         (ME: match_env map e nil rs)
         (MEXT: Mem.extends m tm)
-        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
+        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm)),
       match_states (CminorSel.State f s k sp e m)
                    (RTL.State cs tf sp ns rs tm)
   | match_callstate:
@@ -1236,8 +1236,8 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
         (MS: match_stacks k cs)
         (LD: Val.lessdef_list args targs)
         (MEXT: Mem.extends m tm)
-        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
-        (* (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)) *),
+        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm))
+        (* (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack tm)) *),
       match_states (CminorSel.Callstate f args k m sz)
                    (RTL.Callstate cs tf targs tm sz)
   | match_returnstate:
@@ -1245,7 +1245,7 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
         (MS: match_stacks k cs)
         (LD: Val.lessdef v tv)
         (MEXT: Mem.extends m tm)
-        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
+        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack tm)),
       match_states (CminorSel.Returnstate v k m)
                    (RTL.Returnstate cs tv tm).
 

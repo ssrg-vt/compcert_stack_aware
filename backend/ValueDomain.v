@@ -4361,7 +4361,7 @@ Proof.
 Qed.
 
 Lemma mmatch_inj_strong:
-  forall bc m am, mmatch bc m am -> Mem.inject (inj_of_bc bc) (flat_frameinj (length (Mem.stack_adt m))) m m.
+  forall bc m am, mmatch bc m am -> Mem.inject (inj_of_bc bc) (flat_frameinj (length (Mem.stack m))) m m.
 Proof.
   intros bc m am H.
   apply Mem.self_inject.
@@ -4380,7 +4380,7 @@ Proof.
 Qed.
 
 Lemma mmatch_inj:
-  forall bc m am, mmatch bc m am -> bc_below bc (Mem.nextblock m) -> Mem.inject (inj_of_bc bc) (flat_frameinj (length (Mem.stack_adt m))) m m.
+  forall bc m am, mmatch bc m am -> bc_below bc (Mem.nextblock m) -> Mem.inject (inj_of_bc bc) (flat_frameinj (length (Mem.stack m))) m m.
 Proof.
   intros; eapply mmatch_inj_strong; eauto.
 Qed.

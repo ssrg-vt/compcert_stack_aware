@@ -773,7 +773,7 @@ Ltac TailNoLabel :=
 Section WITHCONFIG.
 
   Local Existing Instance mem_accessors_default.
-  Variable init_stk: stack_adt.
+  Variable init_stk: stack.
 
 Section STRAIGHTLINE.
 

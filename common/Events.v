@@ -582,7 +582,7 @@ Inductive volatile_store (ge: Senv.t):
   | volatile_store_nonvol: forall chunk m b ofs v m',
       Senv.block_is_volatile ge b = Some false ->
       Mem.store chunk m b (Ptrofs.unsigned ofs) v = Some m' ->
-      public_stack_access (Mem.stack_adt m) b (Ptrofs.unsigned ofs) (Ptrofs.unsigned ofs + size_chunk chunk) ->
+      public_stack_access (Mem.stack m) b (Ptrofs.unsigned ofs) (Ptrofs.unsigned ofs + size_chunk chunk) ->
       volatile_store ge chunk m b ofs v E0 m'.
 
 End WITHMEMORYMODELOPS.
@@ -747,7 +747,7 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
   ec_unchanged_on:
     forall ge m1 m2
       (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
-      (SH: same_head (Mem.perm m1) (Mem.stack_adt m1) (Mem.stack_adt m2))
+      (SH: same_head (Mem.perm m1) (Mem.stack m1) (Mem.stack m2))
       (NB: Mem.nextblock m1 = Mem.nextblock m2)
       args res t m1'
       (SEM1: sem ge args m1 res t m1'),
@@ -778,14 +778,14 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
     forall ge vargs m1 t vres m2,
       sem ge vargs m1 t vres m2 ->
       Mem.unchanged_on
-        (fun b o => ~ public_stack_access (Mem.stack_adt m1) b o (o+1))
+        (fun b o => ~ public_stack_access (Mem.stack m1) b o (o+1))
         m1 m2;
 
   ec_perm_frames:
     forall ge args m1 t res m2,
       sem ge args m1 t res m2 ->
       forall b o k p,
-        in_stack (Mem.stack_adt m1) b ->
+        in_stack (Mem.stack m1) b ->
         Mem.perm m2 b o k p <-> Mem.perm m1 b o k p;
 
   ec_perm_unchanged:
@@ -799,7 +799,7 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
   ec_stack_blocks:
     forall ge vargs m1 t vres m2,
       sem ge vargs m1 t vres m2 ->
-      Mem.stack_adt m1 = Mem.stack_adt m2;
+      Mem.stack m1 = Mem.stack m2;
 }.
 
 
@@ -1239,7 +1239,7 @@ Inductive extcall_free_sem (ge: Senv.t):
       Mem.load Mptr m b (Ptrofs.unsigned lo - size_chunk Mptr) = Some (Vptrofs sz) ->
       Ptrofs.unsigned sz > 0 ->
       Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz) = Some m' ->
-      ~ in_stack (Mem.stack_adt m) b ->
+      ~ in_stack (Mem.stack m) b ->
       extcall_free_sem ge (Vptr b lo :: nil) m E0 Vundef m'.
 
 (* Lemma extcall_free_ok: *)
@@ -1346,7 +1346,7 @@ Inductive extcall_memcpy_sem (sz al: Z) (ge: Senv.t):
                    \/ Ptrofs.unsigned odst + sz <= Ptrofs.unsigned osrc ->
       Mem.loadbytes m bsrc (Ptrofs.unsigned osrc) sz = Some bytes ->
       Mem.storebytes m bdst (Ptrofs.unsigned odst) bytes = Some m' ->
-      public_stack_access (Mem.stack_adt m) bdst (Ptrofs.unsigned odst) (Ptrofs.unsigned odst + Z.of_nat (length bytes)) ->
+      public_stack_access (Mem.stack m) bdst (Ptrofs.unsigned odst) (Ptrofs.unsigned odst + Z.of_nat (length bytes)) ->
       extcall_memcpy_sem sz al ge (Vptr bdst odst :: Vptr bsrc osrc :: nil) m E0 Vundef m'.
 
 
@@ -1770,7 +1770,7 @@ Definition external_call_stack_blocks ef := ec_stack_blocks (external_call_spec 
 Definition ec_get_frame_info (sem: extcall_sem) :=
   forall ge vargs m1 t vres m2,
     sem ge vargs m1 t vres m2 ->
-    forall b, get_frame_info (Mem.stack_adt m1) b = get_frame_info (Mem.stack_adt m2) b.
+    forall b, get_frame_info (Mem.stack m1) b = get_frame_info (Mem.stack m2) b.
 Lemma external_call_get_frame_info ef : ec_get_frame_info (external_call ef).
 Proof.
   red; intros.
@@ -2259,7 +2259,7 @@ Qed.
     forall ef ge args m1 t res m2,
       external_call ef ge args m1 t res m2 ->
       forall b o k p,
-        in_stack (Mem.stack_adt m1) b ->
+        in_stack (Mem.stack m1) b ->
         Mem.perm m2 b o k p <-> Mem.perm m1 b o k p.
   Proof.
     intros.
@@ -2311,34 +2311,34 @@ Ltac rewrite_perms_fw :=
     apply (Mem.perm_store_1 _ _ _ _ _ _ H1)
   end.
 
-Arguments Genv.init_mem_stack_adt {mem memory_model_ops _ _ _ _}.
+Arguments Genv.init_mem_stack {mem memory_model_ops _ _ _ _}.
 
 Ltac rewrite_stack_blocks :=
   match goal with
-  | H:Mem.alloc _ _ _ = (?m, _) |- context [ Mem.stack_adt ?m ] => rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
-  | H:Mem.store _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
-  | H:Mem.storev _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.storev_stack_adt _ _ _ _ _ H)
-  | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack_adt ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
-  | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
-  | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
-  | H:Mem.drop_perm _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.drop_perm_stack_adt _ _ _ _ _ _ H)
-  | H: context[ Mem.stack_adt (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
-  | |- context[ Mem.stack_adt (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
-  | H: Genv.init_mem _ = Some ?m |- context [Mem.stack_adt ?m] => rewrite (Genv.init_mem_stack_adt _ _ H)
-  | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
+  | H:Mem.alloc _ _ _ = (?m, _) |- context [ Mem.stack ?m ] => rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
+  | H:Mem.store _ _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
+  | H:Mem.storev _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.storev_stack _ _ _ _ _ H)
+  | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
+  | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
+  | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
+  | H:Mem.drop_perm _ _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.drop_perm_stack _ _ _ _ _ _ H)
+  | H: context[ Mem.stack (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
+  | |- context[ Mem.stack (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
+  | H: Genv.init_mem _ = Some ?m |- context [Mem.stack ?m] => rewrite (Genv.init_mem_stack _ _ H)
+  | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack ?m ] =>
     let f := fresh "f" in
     let r := fresh "r" in
     let EQ1 := fresh "EQ1" in
     let EQ2 := fresh "EQ2" in
     destruct (Mem.record_stack_blocks_stack_eq _ _ _ H) as (f & r & EQ1 & EQ2); rewrite EQ2
   | H:Mem.unrecord_stack_block ?m1 = Some ?m
-    |- context [ Mem.stack_adt ?m ] =>
+    |- context [ Mem.stack ?m ] =>
     let f := fresh "f" in
     let EQ := fresh "EQ" in
-    destruct (Mem.unrecord_stack_adt _ _ H) as (f, EQ); replace (Mem.stack_adt m) with (tl (Mem.stack_adt m1))
+    destruct (Mem.unrecord_stack _ _ H) as (f, EQ); replace (Mem.stack m) with (tl (Mem.stack m1))
       by (rewrite EQ; reflexivity)
-  | H: Mem.clear_stage _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
-    rewrite (Mem.clear_stage_stack_adt _ _ H)
+  | H: Mem.clear_stage _ = Some ?m |- context [ Mem.stack ?m ] =>
+    rewrite (Mem.clear_stage_stack _ _ H)
   end.
 
 Ltac rewrite_perms_bw H :=

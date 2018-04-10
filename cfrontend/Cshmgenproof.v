@@ -976,9 +976,9 @@ Lemma make_memcpy_correct:
   access_mode ty = By_copy ->
   make_memcpy cunit.(prog_comp_env) dst src ty = OK s ->
   forall (STACK_TOP_NO_INFO: forall b,
-             is_stack_top (Mem.stack_adt m) b ->
+             is_stack_top (Mem.stack m) b ->
              forall fi,
-               get_frame_info (Mem.stack_adt m) b = Some fi ->
+               get_frame_info (Mem.stack m) b = Some fi ->
                forall o, frame_perm fi o = Public),
   (step fn_stack_requirements) ge (State f s k e le m) E0 (State f Sskip k e le m').
 Proof.
@@ -1019,9 +1019,9 @@ Lemma make_store_correct:
   eval_expr ge e le m addr (Vptr b ofs) ->
   eval_expr ge e le m rhs v ->
   assign_loc (Clight.globalenv prog) ty m b ofs v m' ->
-  forall (STACK_TOP_NO_INFO: forall b, is_stack_top (Mem.stack_adt m) b ->
+  forall (STACK_TOP_NO_INFO: forall b, is_stack_top (Mem.stack m) b ->
                                        forall fi,
-                                         get_frame_info (Mem.stack_adt m) b = Some fi ->
+                                         get_frame_info (Mem.stack m) b = Some fi ->
                                          forall o, frame_perm fi o = Public),
   (step fn_stack_requirements) ge (State f code k e le m) E0 (State f Sskip k e le m').
 Proof.
@@ -1405,7 +1405,7 @@ Inductive match_cont: composite_env -> type -> nat -> nat -> Clight.cont -> Csha
                  (Clight.Kcall id f e le k)
                  (Kcall id tf te le tk).
 
-Fixpoint nostackinfo (adt: stack_adt) (k: cont) : Prop :=
+Fixpoint nostackinfo (adt: stack) (k: cont) : Prop :=
   match k with
     Kstop => True
   | Kseq _ k
@@ -1427,7 +1427,7 @@ Inductive match_states: Clight.state -> Csharpminor.state -> Prop :=
           (MTR: match_transl ts tk ts' tk')
           (MENV: match_env e te)
           (MK: match_cont cu.(prog_comp_env) (Clight.fn_return f) nbrk ncnt k tk)
-          (TOPNOINFO: nostackinfo (Mem.stack_adt m) (Kcall None tf te le tk)),
+          (TOPNOINFO: nostackinfo (Mem.stack m) (Kcall None tf te le tk)),
         match_states (Clight.State f s k e le m)
                    (State tf ts' tk' te le m)
   | match_callstate:
@@ -1436,15 +1436,15 @@ Inductive match_states: Clight.state -> Csharpminor.state -> Prop :=
           (TR: match_fundef cu fd tfd)
           (MK: match_cont ce Tvoid 0%nat 0%nat k tk)
           (ISCC: Clight.is_call_cont k)
-          (HDNIL: hd_error (Mem.stack_adt m) = Some nil)
-          (TOPNOINFO: nostackinfo (tl (Mem.stack_adt m)) tk)
+          (HDNIL: hd_error (Mem.stack m) = Some nil)
+          (TOPNOINFO: nostackinfo (tl (Mem.stack m)) tk)
           (TY: type_of_fundef fd = Tfunction targs tres cconv),
       match_states (Clight.Callstate fd args k m sz)
                    (Callstate tfd args tk m sz)
   | match_returnstate:
       forall res k m tk ce
         (MK: match_cont ce Tvoid 0%nat 0%nat k tk)
-        (TOPNOINFO: nostackinfo (tl (Mem.stack_adt m)) tk),
+        (TOPNOINFO: nostackinfo (tl (Mem.stack m)) tk),
       match_states (Clight.Returnstate res k m)
                    (Returnstate res tk m).
 
@@ -1454,7 +1454,7 @@ Remark match_states_skip:
   transl_function cu.(prog_comp_env) f = OK tf ->
   match_env e te ->
   match_cont cu.(prog_comp_env) (Clight.fn_return f) nbrk ncnt k tk ->
-  nostackinfo ((Mem.stack_adt m)) (Kcall None tf te le tk) ->
+  nostackinfo ((Mem.stack m)) (Kcall None tf te le tk) ->
   match_states (Clight.State f Clight.Sskip k e le m) (State tf Sskip tk te le m).
 Proof.
   intros. econstructor; eauto. simpl; reflexivity. constructor.
@@ -1581,10 +1581,10 @@ Proof.
   split; auto; econstructor; eauto.
 Qed.
 
-Lemma assign_loc_stack_adt:
+Lemma assign_loc_stack:
   forall ty m b o v m',
     assign_loc ge ty m b o v m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   inversion 1; subst; auto.
   simpl in *. eapply Mem.store_stack_blocks; eauto.
@@ -1629,10 +1629,10 @@ Proof.
     eapply find_label_ls_nostackinfo in H; eauto.
 Qed.
 
-Lemma alloc_variables_stack_adt:
+Lemma alloc_variables_stack:
   forall e m l e' m',
     Clight.alloc_variables ge e m l e' m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   induction 1; simpl; intros; eauto.
   rewrite <- (Mem.alloc_stack_blocks _ _ _ _ _ H).
@@ -1673,7 +1673,7 @@ Proof.
       eapply H4.
       exfalso; apply n. auto.
   + eapply match_states_skip; eauto.
-    erewrite assign_loc_stack_adt; eauto.
+    erewrite assign_loc_stack; eauto.
 
 - (* set *)
   monadInv TR. inv MTR. econstructor; split.
@@ -1891,7 +1891,7 @@ Proof.
   unfold transl_function. rewrite EQ; simpl. rewrite EQ1; simpl. auto.
   constructor. repeat rewrite_stack_blocks.
   revert EQ0.
-  erewrite alloc_variables_stack_adt. 2: eauto. intro EQ0; rewrite EQ0 in TOPNOINFO. simpl in TOPNOINFO; auto.
+  erewrite alloc_variables_stack. 2: eauto. intro EQ0; rewrite EQ0 in TOPNOINFO. simpl in TOPNOINFO; auto.
   split; auto. rewrite EQ0 in HDNIL. simpl in HDNIL. inv HDNIL.
   constructor; auto.
   rewrite H4. rewrite Forall_forall. unfold Clight.blocks_with_info. 

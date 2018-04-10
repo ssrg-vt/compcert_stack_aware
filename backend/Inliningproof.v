@@ -1043,7 +1043,7 @@ Definition blocks_of_stackframe stk :=
   end.
 
 Definition stack_injects j m :=
-  forall b : block, in_stack (Mem.stack_adt m) b -> exists (b' : block) (delta : Z), j b = Some (b', delta).
+  forall b : block, in_stack (Mem.stack m) b -> exists (b' : block) (delta : Z), j b = Some (b', delta).
 
 Section INLINE_SIZES.
 
@@ -1334,7 +1334,7 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (SSZ2: forall ofs, Mem.perm m' sp' ofs Max Nonempty -> 0 <= ofs < f'.(fn_stacksize))
         (SSZ3: forall ofs, Mem.perm m sp ofs Max Nonempty -> 0 <= ofs < f.(fn_stacksize))
         (CFINJ: compat_frameinj (S n::l) g)
-        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
+        (SIZES: inline_sizes g (Mem.stack m) (Mem.stack m')),
       match_states (State stk f (Vptr sp Ptrofs.zero) pc rs m)
                    (State stk' f' (Vptr sp' Ptrofs.zero) (spc ctx pc) rs' m')
 | match_call_states: forall stk fd args m stk' fd' args' m' cunit F g l sz
@@ -1346,7 +1346,7 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (SI: stack_injects F m)
         (CFINJ': compat_frameinj (1%nat::l) g)
         (G0: g O = Some O)
-        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
+        (SIZES: inline_sizes g (Mem.stack m) (Mem.stack m')),
       match_states (Callstate stk fd args m sz)
                    (Callstate stk' fd' args' m' sz)
 | match_call_regular_states: forall stk f vargs m stk' f' sp' rs' m' F g fenv ctx ctx' pc' pc1' rargs n l sz
@@ -1365,7 +1365,7 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (SSZ2: forall ofs, Mem.perm m' sp' ofs Max Nonempty -> 0 <= ofs < f'.(fn_stacksize))
         (CFINJ: compat_frameinj (n::l) (downstar g))
         (G0: g O = Some O)
-        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
+        (SIZES: inline_sizes g (Mem.stack m) (Mem.stack m')),
       match_states (Callstate stk (Internal f) vargs m sz)
                    (State stk' f' (Vptr sp' Ptrofs.zero) pc' rs' m')
 | match_return_states: forall stk v m stk' v' m' F g l
@@ -1376,7 +1376,7 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (CFINJ: compat_frameinj l (down g))
         (Gno0: forall i j : nat, g i = Some j -> (0 < i)%nat -> (0 < j)%nat)
         (G0: g 0%nat = Some O)
-        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
+        (SIZES: inline_sizes g (Mem.stack m) (Mem.stack m')),
       match_states (Returnstate stk v m)
                    (Returnstate stk' v' m')
 | match_return_regular_states: forall stk v m stk' f' sp' rs' m' F g ctx pc' or rinfo n l
@@ -1391,7 +1391,7 @@ Inductive match_states: RTL.state -> RTL.state -> Prop :=
         (SSZ1: 0 <= f'.(fn_stacksize) < Ptrofs.max_unsigned)
         (SSZ2: forall ofs, Mem.perm m' sp' ofs Max Nonempty -> 0 <= ofs < f'.(fn_stacksize))
         (CFINJ: compat_frameinj (n::l) (downstar g))
-        (SIZES: inline_sizes g (Mem.stack_adt m) (Mem.stack_adt m')),
+        (SIZES: inline_sizes g (Mem.stack m) (Mem.stack m')),
       match_states (Returnstate stk v m)
                    (State stk' f' (Vptr sp' Ptrofs.zero) pc' rs' m').
 
@@ -1430,9 +1430,9 @@ Proof.
   destruct H. apply SYMBOLS in FS. rewrite DOMAIN in H6; auto. congruence.
 Qed.
 
-(* Lemma match_stack_adt_noframe: *)
+(* Lemma match_stack_noframe: *)
 (*   forall x y, *)
-(*     match_stack_adt x y -> *)
+(*     match_stack x y -> *)
 (*     nodup y -> *)
 (*     forall f, *)
 (*       In f y -> *)
@@ -1447,24 +1447,24 @@ Qed.
 (*     destruct INFR; try easy. inv H0. *)
 (*     rewrite MSApub. auto. *)
 (*   - inv ND. *)
-(*     specialize (IHmatch_stack_adt H3 _ H0 _ _ sz' INFR). *)
+(*     specialize (IHmatch_stack H3 _ H0 _ _ sz' INFR). *)
 (*     destruct INL; eauto. inv H1. *)
 (*     exfalso; eapply H4. eapply in_frame_blocks_in_frame. rewrite MSAblocks. left; reflexivity. *)
 (*     eapply in_frames_in_frame; eauto. *)
 (*     eapply in_frame_blocks_in_frame; eauto. *)
 (* Qed. *)
 
-(* Lemma match_stack_adt_free: *)
+(* Lemma match_stack_free: *)
 (*   forall m b lo hi m' m'', *)
 (*   forall x y, *)
-(*     match_stack_adt (x::y) (Mem.stack_adt m) -> *)
+(*     match_stack (x::y) (Mem.stack m) -> *)
 (*     Mem.free m b lo hi = Some m' -> *)
 (*     Mem.unrecord_stack_block m' = Some m'' -> *)
-(*     match_stack_adt (y) (Mem.stack_adt m''). *)
+(*     match_stack (y) (Mem.stack m''). *)
 (* Proof. *)
 (*   intros m b lo hi m' m''  x y MSA FREE USB. *)
 (*   inv MSA. *)
-(*   edestruct Mem.unrecord_stack_adt; eauto. *)
+(*   edestruct Mem.unrecord_stack; eauto. *)
 (*   erewrite <- (Mem.free_stack_blocks) in H; eauto. *)
 (*   rewrite H0 in H. inv H. auto. *)
 (* Qed. *)
@@ -1628,8 +1628,8 @@ Qed.
 
 Lemma in_stack'_norepet:
   forall m b bi1 bi2,
-    in_stack' (Mem.stack_adt m) (b, bi1) ->
-    in_stack' (Mem.stack_adt m) (b, bi2) ->
+    in_stack' (Mem.stack m) (b, bi1) ->
+    in_stack' (Mem.stack m) (b, bi2) ->
     bi1 = bi2.
 Proof.
   intros.
@@ -2205,7 +2205,7 @@ Proof.
     assert (bi = fi). eapply in_stack'_norepet; eauto. rewrite <- H14. left. left.
     red. rewrite BLOCKS. left; auto. subst. eauto. 
     intros [F' [A [B [C D]]]].
-  destruct (stack_top_frame_at_position (Mem.stack_adt m'0) sp') as (f0 & FAP & INF).
+  destruct (stack_top_frame_at_position (Mem.stack m'0) sp') as (f0 & FAP & INF).
   inv SI'. red; inv MSA1. simpl. unfold get_frames_blocks. simpl.
   unfold get_frame_blocks. rewrite BLOCKS. simpl. auto.
   exploit Mem.record_stack_blocks_inject_left'. apply A.
@@ -2479,7 +2479,7 @@ Proof.
            repeat rewrite_stack_blocks.
            rewrite ! in_stack_cons.
            intros [[]|[[|[]]|[]]]. simpl in H4; subst. eauto.
-        -- erewrite Genv.init_mem_stack_adt; eauto.
+        -- erewrite Genv.init_mem_stack; eauto.
            simpl. red. simpl.
            split; intros. destr. omega. destr_in Gi. repeat destr_in Gi. omega.
         --

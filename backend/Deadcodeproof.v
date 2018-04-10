@@ -1051,7 +1051,7 @@ Proof.
   eapply stack_inv_initial; eauto.
   inv H; inv A. red. simpl.
   repeat rewrite_stack_blocks.
-  repeat erewrite Genv.init_mem_stack_adt by eauto.
+  repeat erewrite Genv.init_mem_stack by eauto.
   repeat constructor.
 - simpl; intros. destruct H as (? & MS & ?). eapply transf_final_states; eauto.
 - simpl; intros. destruct H0 as (SS & MS & SI & SEI).
