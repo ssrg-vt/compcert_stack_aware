@@ -353,6 +353,30 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Opaque Mem.stack_limit.
+
+  Lemma in_stack_inj_below:
+    forall j P l
+      (IS: inject_perm_stack j P l)
+      b fi
+      (INFRAMES: in_stack' l (b,fi)),
+    exists l1 l2,
+      l = l1 ++ l2 /\
+      j b = Some (bstack, Mem.stack_limit - StackADT.size_stack l2).
+  Proof.
+    induction 1; simpl; intros; eauto. easy.
+    - destruct INFRAMES as [[]|INFRAMES].
+      edestruct IHIS as (l1 & l2 & EQ & JB); eauto. exists (nil::l1),l2; split; auto. simpl. subst. reflexivity.
+    - destruct INFRAMES as [[INFRAME|[]]|INSTACK].
+      + generalize INFRAME. red in INFRAME; rewrite BLOCKS in INFRAME. destruct INFRAME as [EQ|[]]; inv EQ.
+        intro.
+        exists nil,((fr::nil)::l). simpl; split. auto. rewrite size_frames_cons.
+        rewrite Z.max_comm. rewrite SIZE. rewrite Z.sub_add_distr. rewrite JB. f_equal. f_equal. f_equal.
+        rewrite ! Z.max_r. auto. etransitivity. 2: apply align_le.
+        apply frame_size_pos. omega.
+      + edestruct IHIS as (l1 & l2 & EQ & JB'); eauto. exists ((fr::nil)::l1),l2; split; auto. simpl. subst. reflexivity.
+  Qed.
+
+
  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4 sz,
       match_states j (Ptrofs.unsigned ostack) (State rs1 m1) (State rs1' m1') ->
@@ -633,27 +657,6 @@ Section WITHMEMORYMODEL.
           rewrite AGSP; auto.
           rewrite <- H in IS. inv IS.
 
-          Lemma in_stack_inj_below:
-            forall j P l
-              (IS: inject_perm_stack j P l)
-              b fi
-              (INFRAMES: in_stack' l (b,fi)),
-            exists l1 l2,
-              l = l1 ++ l2 /\
-              j b = Some (bstack, Mem.stack_limit - StackADT.size_stack l2).
-          Proof.
-            induction 1; simpl; intros; eauto. easy.
-            - destruct INFRAMES as [[]|INFRAMES].
-              edestruct IHIS as (l1 & l2 & EQ & JB); eauto. exists (nil::l1),l2; split; auto. simpl. subst. reflexivity.
-            - destruct INFRAMES as [[INFRAME|[]]|INSTACK].
-              + generalize INFRAME. red in INFRAME; rewrite BLOCKS in INFRAME. destruct INFRAME as [EQ|[]]; inv EQ.
-                intro.
-                exists nil,((fr::nil)::l). simpl; split. auto. rewrite size_frames_cons.
-                rewrite Z.max_comm. rewrite SIZE. rewrite Z.sub_add_distr. rewrite JB. f_equal. f_equal. f_equal.
-                rewrite ! Z.max_r. auto. etransitivity. 2: apply align_le.
-                apply frame_size_pos. omega.
-              + edestruct IHIS as (l1 & l2 & EQ & JB'); eauto. exists ((fr::nil)::l1),l2; split; auto. simpl. subst. reflexivity.
-          Qed.
 
           eapply in_stack_inj_below in INSTK; eauto.
           destruct INSTK as (l1 & l2 & EQADT & JB0). rewrite FB0 in JB0. inv JB0.
@@ -794,6 +797,53 @@ Section WITHMEMORYMODEL.
       stack_invar i = true.
   Proof.
     intros. destruct i. destruct i eqn:?; simpl in *; try congruence.
+  Qed.
+
+  Lemma clear_stage_inject_left:
+    forall j g m1 m2 m1',
+      Mem.inject j g m1 m2 ->
+      Mem.clear_stage m1 = Some m1' ->
+      g O = Some O -> g 1%nat = Some O ->
+      (forall b : block, is_stack_top (Mem.stack m1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m1 b o k p) ->
+      Mem.stack m2 <> nil ->
+      Mem.inject j g m1' m2.
+  Proof.
+    intros. unfold Mem.clear_stage in H0; repeat destr_in H0.
+    eapply Mem.mem_inject_ext. apply Mem.inject_push_new_stage_left.
+    eapply Mem.unrecord_stack_block_inject_left; eauto. auto.
+    unfold upstar; simpl. intros. destr.
+    auto.
+    rewrite Nat.succ_pred; auto.
+  Qed.
+
+  Lemma zle_zlt:
+    forall lo hi o,
+      zle lo o && zlt o hi = true <-> lo <= o < hi.
+  Proof.
+    intros.
+    destruct (zle lo o), (zlt o hi); intuition; try congruence; try omega.
+  Qed.
+
+  Lemma max_align:
+    forall x, 0 <= x ->
+         Z.max 0 (align x 8) = align (Z.max 0 x) 8.
+  Proof.
+    intros.
+    rewrite ! Z.max_r; auto.
+    etransitivity. 2: apply align_le. auto. omega.
+  Qed.
+
+  Lemma mod_divides:
+    forall a b c,
+      c <> 0 ->
+      (a | c) ->
+      (a | b) ->
+      (a | b mod c).
+  Proof.
+    intros.
+    rewrite Zmod_eq_full.
+    apply Z.divide_sub_r. auto.
+    apply Z.divide_mul_r. auto. auto.
   Qed.
   
   Lemma exec_instr_inject':
@@ -969,22 +1019,6 @@ Section WITHMEMORYMODEL.
          eapply Z.le_lt_trans. apply (Z.le_max_l _ (size_frames t0)). omega.
        }
 
-       Lemma clear_stage_inject_left:
-         forall j g m1 m2 m1',
-           Mem.inject j g m1 m2 ->
-           Mem.clear_stage m1 = Some m1' ->
-           g O = Some O -> g 1%nat = Some O ->
-           (forall b : block, is_stack_top (Mem.stack m1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m1 b o k p) ->
-           Mem.stack m2 <> nil ->
-           Mem.inject j g m1' m2.
-       Proof.
-         intros. unfold Mem.clear_stage in H0; repeat destr_in H0.
-         eapply Mem.mem_inject_ext. apply Mem.inject_push_new_stage_left.
-         eapply Mem.unrecord_stack_block_inject_left; eauto. auto.
-         unfold upstar; simpl. intros. destr.
-         auto.
-         rewrite Nat.succ_pred; auto.
-       Qed.
 
        exploit Mem.free_left_inject. apply MINJ. eauto. intro MINJ'.
        exploit clear_stage_inject_left; eauto.
@@ -1015,13 +1049,6 @@ Section WITHMEMORYMODEL.
          rewrite BLOCKS in f1. inv f1. red in H1. simpl in H1. destruct H1; subst.
          exploit Mem.agree_perms_mem. rewrite Heqs. left; reflexivity. left; reflexivity. rewrite BLOCKS. left; reflexivity. eauto.
          rewrite <- SIZE. intros.
-         Lemma zle_zlt:
-           forall lo hi o,
-             zle lo o && zlt o hi = true <-> lo <= o < hi.
-         Proof.
-           intros.
-           destruct (zle lo o), (zlt o hi); intuition; try congruence; try omega.
-         Qed.
          apply zle_zlt in H. rewrite <- andb_assoc in Heqb. rewrite H in Heqb.
          rewrite andb_true_r in Heqb. destruct peq; simpl in Heqb. congruence. congruence.
        }
@@ -1086,14 +1113,6 @@ Section WITHMEMORYMODEL.
             rewrite size_frames_one.
             rewrite SIZE0.
             rewrite SIZE. rewrite Z.max_r by (apply frame_size_pos). omega.
-            Lemma max_align:
-              forall x, 0 <= x ->
-                   Z.max 0 (align x 8) = align (Z.max 0 x) 8.
-            Proof.
-              intros.
-              rewrite ! Z.max_r; auto.
-              etransitivity. 2: apply align_le. auto. omega.
-            Qed.
             generalize (Mem.size_stack_below m1).
             generalize (size_stack_pos (Mem.stack m1)).
             rewrite Heqs. simpl.
@@ -1123,18 +1142,6 @@ Section WITHMEMORYMODEL.
          rewrite Z.max_r by apply frame_adt_size_pos.
          rewrite Ptrofs.unsigned_repr by omega.
 
-         Lemma mod_divides:
-           forall a b c,
-             c <> 0 ->
-             (a | c) ->
-             (a | b) ->
-             (a | b mod c).
-         Proof.
-           intros.
-           rewrite Zmod_eq_full.
-           apply Z.divide_sub_r. auto.
-           apply Z.divide_mul_r. auto. auto.
-         Qed.
          apply mod_divides. vm_compute. congruence. rewrite Ptrofs.modulus_power.
          exists (two_p (Ptrofs.zwordsize - 3)). change 8 with (two_p 3). rewrite <- two_p_is_exp. f_equal. vm_compute. congruence. omega.
          apply Z.divide_add_r.
@@ -1972,7 +1979,7 @@ End PRESERVATION.
       edestruct Mem.record_stack_blocks_inject_parallel as (m4' & RSB' & RSBinj).
       apply Mem.push_new_stage_inject. apply DROPINJ. 7: eauto.
       instantiate (1 := make_singleton_frame_adt' bstack frame_info_mono 0).
-      - red; red; intros.
+      - red; intros.
         constructor; auto.
         simpl. rewrite F'B. inversion 1.
         eexists; split; eauto.
@@ -2044,7 +2051,7 @@ End PRESERVATION.
       rewnb. destr.
     - repeat rewrite_stack_blocks.
       repeat econstructor; eauto.
-      simpl. rewrite Z.max_r by omega. intros; omega.
+      simpl. rewrite Z.max_r by omega. change (align 0 8) with 0. rewrite F'B. f_equal. f_equal. omega. simpl. rewrite Z.max_r ; intros;  omega.
     - red. repeat rewrite_stack_blocks. simpl.
       intros. destruct H as [[]|[[A|[]]|[]]]. destruct A as [A|[]]; inv A.
       simpl. rewrite Z.max_r by omega. change (align 0 8) with 0. omega.

@@ -2991,6 +2991,13 @@ Qed.
 
 Transparent fe_ofs_arg.
 
+Lemma fe_retaddr_lt_fe_size:
+  forall b, fe_ofs_retaddr (make_env b) < fe_size (make_env b).
+Proof.
+  simpl. intros.
+  destr; omega.
+Qed.
+
 Theorem transf_step_correct:
   forall s1 t s2, Linear.step fn_stack_requirements init_ls ge s1 t s2 ->
              forall (WTS: wt_state init_ls s1) s1'
@@ -3749,12 +3756,6 @@ Proof.
       unfold check_alloc_frame.
       rewrite (unfold_transf_function _ _ TRANSL). simpl fn_frame.
       unfold frame_of_frame_env. unfold frame_size.
-      Lemma fe_retaddr_lt_fe_size:
-        forall b, fe_ofs_retaddr (make_env b) < fe_size (make_env b).
-      Proof.
-        simpl. intros.
-        destr; omega.
-      Qed.
       eapply Z.le_lt_trans. apply fe_ofs_retaddr_pos. apply fe_retaddr_lt_fe_size.
     }
     rewrite <- A1. f_equal.

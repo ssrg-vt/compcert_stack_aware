@@ -493,7 +493,7 @@ Inductive call_stack_consistency: state -> Prop :=
 
 Lemma store_stack_no_abstract:
   forall sp ty o v,
-    Mem.abstract_unchanged (fun m m' => store_stack m sp ty o v = Some m').
+    Mem.stack_unchanged (fun m m' => store_stack m sp ty o v = Some m').
 Proof.
   unfold store_stack, Mem.storev.
   red; simpl; intros.

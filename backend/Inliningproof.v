@@ -2068,7 +2068,7 @@ Proof.
   exploit Mem.record_stack_blocks_inject_parallel.
   apply B. 7: eauto.
   + instantiate (1 := make_singleton_frame_adt sp' (fn_stacksize f') sz).
-    red; red; simpl; intros; auto.
+    red; simpl; intros; auto.
     constructor; auto.
     simpl. rewrite D. inversion 1; subst.
     eexists; split. eauto.
