@@ -2912,8 +2912,15 @@ Proof.
         unfold load_stack in *; simpl in *.
         intros; eapply Mem.load_unchanged_on; eauto.
         eapply external_call_unchanged_on. apply A.
-        intros. simpl. unfold public_stack_access.
-        intro NPSA.
+        intros. simpl.
+        intros [IST | NPSA].
+        {
+          inv TTNP. rewrite <- H2 in IST. red in IST.
+          red in H3.
+          eapply H3. unfold inject_id; congruence. eauto.
+          apply Mem.load_valid_access in H5. destruct H5. apply H4. eauto.
+        }
+        unfold public_stack_access in NPSA.
         edestruct init_sp_csc as (fi & INS & PRIV); eauto.
         unfold get_frame_info in NPSA.
         rewrite in_stack'_rew in INS. destruct INS as (tf & IFR & INS).
@@ -3583,7 +3590,8 @@ Proof.
          eapply external_call_unchanged_on. apply EC.
          eapply Mem.strong_unchanged_on_weak, Mem.unrecord_stack_block_unchanged_on. eauto.
          simpl; intros.
-         rewrite_stack_blocks. intro NPSA.
+         rewrite_stack_blocks. intros [IST|NPSA].
+         red in IST. simpl in IST. auto.
          red in NPSA.
          simpl in NPSA.
 
