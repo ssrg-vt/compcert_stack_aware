@@ -2414,7 +2414,7 @@ Proof.
   7: simpl; eauto.
   instantiate (1 := make_singleton_frame_adt sp (fn_stackspace tf) (frame_adt_size fa)).
   {
-    red; red. rewrite H3. simpl.
+    red. rewrite H3. simpl.
     rewrite Forall_forall. intros b IN.
     unfold blocks_with_info in IN.
     rewrite in_map_iff in IN. destruct IN as [[[bb0 lo] hi] [EQ'  IN]]. simpl in *; subst.

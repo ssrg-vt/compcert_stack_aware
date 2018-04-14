@@ -493,7 +493,7 @@ Inductive call_stack_consistency: state -> Prop :=
 
 Lemma store_stack_no_abstract:
   forall sp ty o v,
-    Mem.abstract_unchanged (fun m m' => store_stack m sp ty o v = Some m').
+    Mem.stack_unchanged (fun m m' => store_stack m sp ty o v = Some m').
 Proof.
   unfold store_stack, Mem.storev.
   red; simpl; intros.
@@ -668,26 +668,26 @@ Lemma csc_unchanged_stack:
     step s t s' ->
     call_stack_consistency s ->
     Mem.unchanged_on
-      (fun b o => ~ public_stack_access init_stk b o (o+1))
+      (fun b o => ~ stack_access init_stk b o (o+1))
       (mem_state s) (mem_state s').
 Proof.
   intros s t s' STEP CSC. inv STEP; inv CSC; simpl; try apply Mem.unchanged_on_refl.
   - unfold store_stack in H. simpl in H.
     eapply Mem.store_unchanged_on; eauto.
     intros i RNG PSA; apply PSA; clear PSA. red.
-    erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
+    right. red. erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
   - unfold Mem.storev in H0. destr_in H0.
     eapply Mem.store_unchanged_on; eauto.
     intros i0 RNG PSA; apply PSA; clear PSA.
     edestruct Mem.store_valid_access_3 as (A & B & C). eauto. trim C. constructor.
     destruct C as [IST|NPSA].
-    red; erewrite list_prefix_stack_top_not_init_stk; eauto. apply Mem.stack_norepet.
-    eapply public_stack_access_inside.
+    right. red; erewrite list_prefix_stack_top_not_init_stk; eauto. apply Mem.stack_norepet.
+    right. eapply public_stack_access_inside.
     eapply public_stack_access_init_stk; eauto. apply Mem.stack_norepet. apply Mem.stack_norepet'.
     omega. omega.
   - apply Mem.strong_unchanged_on_weak. apply Mem.push_new_stage_unchanged_on.
   - eapply Mem.free_unchanged_on; eauto.
-    intros i RNG PSA; apply PSA; clear PSA. red.
+    intros i RNG PSA; apply PSA; clear PSA. right; red.
     erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
   - exploit ec_unchanged_on_private_stack. apply external_call_spec. eauto.
     intros.
@@ -698,15 +698,18 @@ Proof.
     simpl.
     intros b0 ofs NPSA VB PSA.
     apply NPSA.
-    assert (PSA': public_stack_access (Mem.stack m) b0 ofs (ofs + 1)).
+    assert (PSA': stack_access (Mem.stack m) b0 ofs (ofs + 1)).
     {
-      red in PSA. revert PSA. red. rewrite_stack_blocks. simpl.  auto.
+      red in PSA. revert PSA. red. rewrite_stack_blocks. unfold is_stack_top. simpl.  unfold public_stack_access. simpl. auto.
+      intros [[]|P]. right. auto.
     } clear PSA.
-    eapply public_stack_access_init_stk. 4: eauto. eauto. apply Mem.stack_norepet.
-    apply Mem.stack_norepet'.
+    destruct PSA'.
+    right; red. erewrite list_prefix_stack_top_not_init_stk; eauto. apply Mem.stack_norepet.
+    right.
+    eapply public_stack_access_init_stk. 4: eauto. eauto. apply Mem.stack_norepet. apply Mem.stack_norepet'.
     apply Mem.strong_unchanged_on_weak. eapply Mem.unrecord_stack_block_unchanged_on. eauto.
   - eapply Mem.free_unchanged_on; eauto.
-    intros i RNG PSA; apply PSA; clear PSA. red.
+    intros i RNG PSA; apply PSA; clear PSA. right; red.
     erewrite list_prefix_not_in_init_stk; eauto. apply Mem.stack_norepet.
   - eapply Mem.unchanged_on_trans.
     eapply Mem.alloc_unchanged_on; eauto.
@@ -714,7 +717,7 @@ Proof.
     eapply Mem.unchanged_on_trans.
     eapply Mem.store_unchanged_on. eauto.
     intros i0 RNG PSA; apply PSA; clear PSA.
-    red. destr.
+    right; red. destr.
     apply get_frame_info_in_stack in Heqo. exfalso.
     eapply list_prefix_in_init_stk in Heqo; eauto.
     apply in_stack_tl in Heqo. apply Mem.in_frames_valid in Heqo.
@@ -726,8 +729,15 @@ Proof.
     simpl.
     intros b0 ofs NPSA VB PSA.
     apply NPSA. inv TTNP. rewrite <- H3 in CallStackConsistency. simpl in CallStackConsistency.
-    rewrite <- H3 in PSA.
-    eapply public_stack_access_init_stk'.  4: eauto. eauto.
+    destruct PSA.
+    right; red.
+    destr. eapply get_frame_info_in_stack in Heqo.
+    eapply list_prefix_in_init_stk in Heqo; eauto.
+    exploit Mem.stack_norepet. rewrite <- H3. intro ND. inv ND. edestruct H9; eauto.
+    rewrite <- H3 in H5. red in H5. eauto.
+    right.
+    rewrite <- H3 in *.
+    eapply public_stack_access_init_stk' . 4: eauto. eauto.
     rewrite H3; apply Mem.stack_norepet.
     rewrite H3; apply Mem.stack_norepet'.
   - apply Mem.strong_unchanged_on_weak. eapply Mem.unrecord_stack_block_unchanged_on. eauto.

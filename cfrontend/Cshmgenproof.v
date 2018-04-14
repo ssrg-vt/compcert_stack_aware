@@ -992,11 +992,10 @@ Proof.
     red; intros. eapply Mem.push_new_stage_perm. eapply RP. auto.
   }
   {
-    rewrite_stack_blocks. red; intros. right.
     eapply Mem.storebytes_stack_access in H9.
-    red in H9. destruct H9 as [IST | PSA].
-    - red. simpl. destr. red. simpl. intros. eapply STACK_TOP_NO_INFO; eauto.
-    - revert PSA; unfold public_stack_access. simpl. auto.
+    red in H9. red. rewrite_stack_blocks. destruct H9 as [IST | PSA].
+    - right. red. simpl. destr. red. simpl. intros. eapply STACK_TOP_NO_INFO; eauto.
+    - right. revert PSA; unfold public_stack_access. simpl. auto.
   }
   generalize (Mem.push_storebytes_unrecord _ _ _ _ _ _ H9 SB). intro USB.
   econstructor.
@@ -1006,10 +1005,7 @@ Proof.
   apply sizeof_pos.
   apply sizeof_alignof_blockcopy_compat.
   rewrite Mem.loadbytes_push; eauto.
-  rewrite_stack_blocks.
-  apply Mem.storebytes_stack_access in H9.
-  destruct H9; auto.
-  red. simpl. destr. red; red; eauto. auto. auto.
+  auto. auto.
 Qed.
 
 Lemma make_store_correct:

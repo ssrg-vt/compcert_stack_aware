@@ -717,9 +717,9 @@ Section WITHMEMORYMODEL.
       eapply Mem.unchanged_on_trans. eapply Mem.strong_unchanged_on_weak, Mem.push_new_stage_unchanged_on.
       eapply Mem.unchanged_on_trans.
       eapply Mem.unchanged_on_implies. eapply external_call_unchanged_on. eauto.
-      simpl. intros b0 ofs0 NSA VB PSA; apply NSA; clear NSA. right.
+      simpl. intros b0 ofs0 NSA VB PSA; apply NSA; clear NSA.
       revert PSA. repeat rewrite_stack_blocks.
-      rewrite STK. rewrite app_comm_cons. eapply public_stack_access_app.
+      rewrite STK. rewrite app_comm_cons. eapply stack_access_app.
       simpl. constructor. 2: easy. rewrite <- STK; apply Mem.stack_norepet.
       simpl. constructor. constructor. rewrite <- STK; apply Mem.stack_norepet'.
       eapply Mem.strong_unchanged_on_weak, Mem.unrecord_stack_block_unchanged_on; eauto.
@@ -727,9 +727,9 @@ Section WITHMEMORYMODEL.
     - split.
       eapply Mem.unchanged_on_trans.
       eapply Mem.unchanged_on_implies. eapply external_call_unchanged_on. eauto.
-      simpl. intros b0 ofs0 NSA VB PSA; apply NSA; clear NSA. right.
+      simpl. intros b0 ofs0 NSA VB PSA; apply NSA; clear NSA.
       revert PSA.
-      rewrite STK. eapply public_stack_access_app.
+      rewrite STK. eapply stack_access_app.
       rewrite <- STK; apply Mem.stack_norepet.
       rewrite <- STK; apply Mem.stack_norepet'.
       eapply Mem.strong_unchanged_on_weak, Mem.unrecord_stack_block_unchanged_on; eauto.

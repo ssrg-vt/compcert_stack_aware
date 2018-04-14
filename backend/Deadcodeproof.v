@@ -510,9 +510,6 @@ Proof.
   instantiate (1 := nlive ge sp nm). auto.
   intros (tm' & P & Q).
   exists tm'; split. econstructor. econstructor; eauto.
-  eapply Mem.public_stack_access_magree; eauto.
-  eapply Mem.store_valid_access_3; eauto.
-  apply inject_perm_condition_writable; constructor.  
   auto.
 Qed.
 
@@ -839,10 +836,6 @@ Proof.
   constructor. eauto. constructor. eauto. constructor.
   eapply external_call_symbols_preserved. apply senv_preserved.
   simpl in B1; inv B1. simpl in B2; inv B2. econstructor; eauto.
-  eapply Mem.public_stack_access_magree; eauto. apply magree_push; eauto.
-  erewrite <- list_forall2_length; eauto.
-  eapply Mem.storebytes_range_perm; eauto.
-  erewrite <- list_forall2_length; eauto.
   eapply match_succ_states; eauto. simpl; auto.
   apply eagree_set_res; auto.
 

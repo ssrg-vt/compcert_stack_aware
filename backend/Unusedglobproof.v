@@ -1166,7 +1166,7 @@ Proof.
     rewrite_stack_blocks. eauto.
     instantiate (1 := make_singleton_frame_adt tstk (fn_stacksize f) sz).
     {
-      red. red. simpl. constructor; auto.
+      red. simpl. constructor; auto.
       simpl.
       rewrite F. inversion 1; subst.
       eexists; split. eauto.
@@ -1563,7 +1563,7 @@ Proof.
   edestruct Mem.record_push_inject_flat as (m2' & RSB & RSBINJ). 
   8: simpl; now eauto. eauto.
   instantiate (1 := make_singleton_frame_adt b' 0 0).
-  - red; red. rewrite Forall_forall. simpl. intros (bb & fi) [AA|[]] b2 delta FB; inv AA; simpl in *.
+  - red. rewrite Forall_forall. simpl. intros (bb & fi) [AA|[]] b2 delta FB; inv AA; simpl in *.
     rewrite FNEW in FB; inv FB.
     eexists; split; eauto.
   - repeat rewrite_stack_blocks. easy.

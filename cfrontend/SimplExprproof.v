@@ -176,22 +176,26 @@ Qed.
 
 Lemma volatile_store_push:
   forall ge chunk m b o v t m',
+      forall (STACK_TOP_NO_INFO: forall b,
+             is_stack_top (Mem.stack m) b ->
+             forall fi,
+               get_frame_info (Mem.stack m) b = Some fi ->
+               forall o, frame_perm fi o = Public),
     volatile_store ge chunk m b o v t m' ->
     exists m1,
       volatile_store ge chunk (Mem.push_new_stage m) b o v t m1 /\ Mem.unrecord_stack_block m1 = Some m'.
 Proof.
-  intros ge0 chunk m b o v t m' VS; inv VS.
+  intros ge0 chunk m b o v t m' STACK_TOP_NO_INFO VS; inv VS.
   eexists; split. econstructor; eauto. apply Mem.unrecord_push.
   edestruct (Mem.valid_access_store' (Mem.push_new_stage m) chunk b (Ptrofs.unsigned o) v).
   exploit Mem.store_valid_access_3. eauto. intros (V1 & V2 & V3).
   split. red; intros. rewrite Mem.push_new_stage_perm. auto. split; auto.
-  rewrite_stack_blocks. intros. red. right.
-  red; simpl. auto.
+  rewrite_stack_blocks. intros. trim V3. auto. red. right.
+  red; simpl. red in V3. destruct V3; simpl in *; eauto.
+  destr. red; intros. eapply STACK_TOP_NO_INFO; eauto.
   eexists; split.
   econstructor. auto.
   eauto.
-  rewrite_stack_blocks.
-  auto.
   eapply Mem.push_store_unrecord; eauto.
 Qed.
 
@@ -832,6 +836,11 @@ Qed.
 
 Lemma step_make_assign:
   forall a1 a2 ty m b ofs t v m' v2 e le f k,
+      forall (STACK_TOP_NO_INFO: forall b,
+             is_stack_top (Mem.stack m) b ->
+             forall fi,
+               get_frame_info (Mem.stack m) b = Some fi ->
+               forall o, frame_perm fi o = Public),
   Csem.assign_loc ge ty m b ofs v t m' ->
   eval_lvalue tge e le m a1 b ofs ->
   eval_expr tge e le m a2 v2 ->
@@ -844,7 +853,7 @@ Proof.
   unfold make_assign. destruct (chunk_for_volatile_type (typeof a1)) as [chunk|].
 (* volatile case *)
   intros. change le with (set_opttemp None Vundef le) at 2.
-  edestruct volatile_store_push as (m1 & VS & USB). eauto.
+  edestruct volatile_store_push as (m1 & VS & USB). eauto. eauto.
   econstructor.
   econstructor. constructor. eauto.
   simpl. unfold sem_cast. simpl. eauto.
@@ -1011,26 +1020,45 @@ Qed.
 
 (** Matching between states *)
 
+Fixpoint nostackinfo (adt: stack) (k: cont) : Prop :=
+  match k with
+    Kstop => True
+  | Kseq _ k
+  | Kloop1 _ _ k | Kloop2 _ _ k
+  | Kswitch k => nostackinfo adt k
+  | Kcall oi f e te k =>
+    match adt with
+    | (a)::r => nostackinfo r k /\
+                  Forall (fun a => Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)) a
+    | _ => False
+    end
+  end.
+
 Inductive match_states: Csem.state -> state -> Prop :=
   | match_exprstates: forall f r k e m tf sl tk le dest a tmps,
       tr_function f tf ->
       tr_top tge e le m dest r sl a tmps ->
       match_cont_exp dest a k tk ->
+      nostackinfo (Mem.stack m) (Kcall None tf e le tk) ->
       match_states (Csem.ExprState f r k e m)
                    (State tf Sskip (Kseqlist sl tk) e le m)
   | match_regularstates: forall f s k e m tf ts tk le,
       tr_function f tf ->
       tr_stmt s ts ->
       match_cont k tk ->
+      nostackinfo (Mem.stack m) (Kcall None tf e le tk) ->
       match_states (Csem.State f s k e m)
                    (State tf ts tk e le m)
   | match_callstates: forall fd args k m tfd tk sz (SZpos: 0 <= sz),
       tr_fundef fd tfd ->
       match_cont k tk ->
+      hd_error (Mem.stack m) = Some nil ->
+      nostackinfo (tl (Mem.stack m)) tk ->
       match_states (Csem.Callstate fd args k m sz)
                    (Callstate tfd args tk m sz)
   | match_returnstates: forall res k m tk,
       match_cont k tk ->
+      nostackinfo (tl (Mem.stack m)) tk ->
       match_states (Csem.Returnstate res k m)
                    (Returnstate res tk m)
   | match_stuckstate: forall S,
@@ -1396,14 +1424,64 @@ Qed.
 
 Lemma tr_val_gen:
   forall le dst v ty a tmp,
-  typeof a = ty ->
-  (forall `{memory_model_ops: Mem.MemoryModelOps},
-    forall tge e le' m,
-      (forall id, In id tmp -> le'!id = le!id) ->
-      eval_expr tge e le' m a v) ->
-  tr_expr le dst (Csyntax.Eval v ty) (final dst a) a tmp.
+    typeof a = ty ->
+    (forall `{memory_model_ops: Mem.MemoryModelOps},
+        forall tge e le' m,
+          (forall id, In id tmp -> le'!id = le!id) ->
+          eval_expr tge e le' m a v) ->
+    tr_expr le dst (Csyntax.Eval v ty) (final dst a) a tmp.
 Proof.
   intros. destruct dst; simpl; econstructor; auto.
+Qed.
+
+Lemma nostackinfo_public:
+  forall m oi tf e le tk,
+    nostackinfo (Mem.stack m) (Kcall oi tf e le tk) ->
+    forall b,
+      is_stack_top (Mem.stack m) b ->
+      forall fi : frame_info, get_frame_info (Mem.stack m) b = Some fi -> forall o : Z, frame_perm fi o = Public.
+Proof.
+  intros m oi tf e le tk NSI b IST fi GFI o.
+  simpl in NSI. destr_in NSI. unfold is_stack_top, get_frames_blocks in IST.
+  simpl in *. intros.
+  destruct NSI as [_ F].
+  rewrite Forall_forall in F.
+  destr_in GFI. edestruct get_assoc_tframes_in as (ff & INFl & INblocks); eauto.
+  specialize (F _ INFl).
+  rewrite Forall_forall in F.
+  specialize (F _ INblocks).
+  eapply F; eauto.
+  exfalso; apply n. apply IST.
+Qed.
+
+Lemma assign_loc_nostackinfo:
+  forall ge t m b o v t' m',
+    Csem.assign_loc ge t m b o v t' m' ->
+    forall tk oi tf e le oi' tf' e' le',
+      nostackinfo (Mem.stack m) (Kcall oi tf e le tk) ->
+      nostackinfo (Mem.stack m' ) (Kcall oi' tf' e' le' tk).
+Proof.
+  intros ge0 t m b o v t' m' AL tk oi tf e le oi' tf' e' le' NSI.
+  inv AL. rewrite_stack_blocks. simpl in *; auto.
+  inv H1. simpl in *; auto.
+  rewrite_stack_blocks; auto.
+  rewrite_stack_blocks; auto.
+Qed.
+
+Lemma nostackinfo_kseqlist:
+  forall s ts tk,
+    nostackinfo s tk ->
+    nostackinfo s (Kseqlist ts tk).
+Proof.
+  induction ts; simpl; intros; eauto.
+Qed.
+
+Lemma nostackinfo_kseqlist' :
+  forall s ts tk,
+    nostackinfo s (Kseqlist ts tk) ->
+    nostackinfo s tk.
+Proof.
+  induction ts; simpl; intros; eauto.
 Qed.
 
 Lemma estep_simulation:
@@ -1625,7 +1703,7 @@ Proof.
   econstructor. eauto. apply S.
     econstructor; eauto. apply tr_expr_monotone with tmp2; eauto.
     econstructor; eauto.
-  auto. auto.
+  auto. auto. auto.
   econstructor; split.
   left. eapply plus_left. constructor.
   eapply star_trans. apply step_makeif with (b := false) (v1 := v); auto. congruence.
@@ -1635,7 +1713,7 @@ Proof.
   econstructor. eauto. apply S.
     econstructor; eauto. apply tr_expr_monotone with tmp3; eauto.
     econstructor; eauto.
-  auto. auto.
+  auto. auto. auto.
   (* for set *)
   exploit tr_simple_rvalue; eauto. intros [SL [TY EV]].
   subst sl0; simpl Kseqlist. destruct b.
@@ -1648,7 +1726,7 @@ Proof.
   econstructor. eauto. apply S.
     econstructor; eauto. apply tr_expr_monotone with tmp2; eauto.
     econstructor; eauto.
-  auto. auto.
+  auto. auto. auto.
   econstructor; split.
   left. eapply plus_left. constructor.
   eapply star_trans. apply step_makeif with (b := false) (v1 := v); auto. congruence.
@@ -1658,7 +1736,7 @@ Proof.
   econstructor. eauto. apply S.
     econstructor; eauto. apply tr_expr_monotone with tmp3; eauto.
     econstructor; eauto.
-  auto. auto.
+  auto. auto. auto.
 (* assign *)
   exploit tr_top_leftcontext; eauto. clear H12.
   intros [dst' [sl1 [sl2 [a' [tmp' [P [Q [R S]]]]]]]].
@@ -1670,9 +1748,11 @@ Proof.
   econstructor; split.
   left. eapply plus_left. constructor.
   apply star_one. eapply step_make_assign; eauto.
+  eapply nostackinfo_public; eauto.
   rewrite <- TY2; eauto. traceEq.
   econstructor. auto. change sl2 with (nil ++ sl2). apply S.
   constructor. auto. auto. auto.
+  eapply assign_loc_nostackinfo; eauto.
   (* for value *)
   exploit tr_simple_rvalue; eauto. intros [SL2 [TY2 EV2]].
   exploit tr_simple_lvalue. eauto.
@@ -1685,6 +1765,7 @@ Proof.
   eapply star_left. constructor. econstructor. eauto. rewrite <- TY2; eauto. 
   eapply star_left. constructor.
   apply star_one. eapply step_make_assign; eauto.
+  eapply nostackinfo_public; eauto.
   constructor. apply PTree.gss. simpl. eapply cast_idempotent; eauto. 
   reflexivity. reflexivity. traceEq.
   econstructor. auto. apply S.
@@ -1692,6 +1773,7 @@ Proof.
   rewrite H4; auto. apply PTree.gss.
   intros. apply PTree.gso. intuition congruence.
   auto. auto.
+  eapply assign_loc_nostackinfo; eauto.
 (* assignop *)
   exploit tr_top_leftcontext; eauto. clear H15.
   intros [dst' [sl1 [sl2 [a' [tmp' [P [Q [R S]]]]]]]].
@@ -1707,11 +1789,13 @@ Proof.
   econstructor; split.
   left. eapply star_plus_trans. rewrite app_ass. rewrite Kseqlist_app. eexact EXEC.
   eapply plus_two. simpl. econstructor. eapply step_make_assign; eauto.
+  eapply nostackinfo_public; eauto.
     econstructor. eexact EV3. eexact EV2.
     rewrite TY3; rewrite <- TY1; rewrite <- TY2; rewrite comp_env_preserved; auto.
   reflexivity. traceEq.
   econstructor. auto. change sl2 with (nil ++ sl2). apply S.
   constructor. auto. auto. auto.
+  eapply assign_loc_nostackinfo; eauto.
   (* for value *)
   exploit tr_simple_lvalue; eauto. intros [SL1 [TY1 EV1]].
   exploit step_tr_rvalof; eauto. intros [le' [EXEC [EV3 [TY3 INV]]]].
@@ -1731,7 +1815,7 @@ Proof.
     econstructor. econstructor. eexact EV3. eexact EV2.
     rewrite TY3; rewrite <- TY1; rewrite <- TY2; rewrite comp_env_preserved; eauto.
     eassumption.
-  econstructor. eapply step_make_assign; eauto.
+  econstructor. eapply step_make_assign; eauto using nostackinfo_public.
     constructor. apply PTree.gss. simpl. eapply cast_idempotent; eauto.
     reflexivity. traceEq.
   econstructor. auto. apply S.
@@ -1740,7 +1824,7 @@ Proof.
   intros. rewrite PTree.gso. apply INV.
   red; intros; elim H10; auto.
   intuition congruence.
-  auto. auto.
+  auto. auto. eapply assign_loc_nostackinfo; eauto.
 (* assignop stuck *)
   exploit tr_top_leftcontext; eauto. clear H12.
   intros [dst' [sl1 [sl2 [a' [tmp' [P [Q [R S]]]]]]]].
@@ -1777,14 +1861,14 @@ Proof.
   left. rewrite app_ass; rewrite Kseqlist_app.
   eapply star_plus_trans. eexact EXEC.
   eapply plus_two. simpl. constructor.
-  eapply step_make_assign; eauto.
+  eapply step_make_assign; eauto using nostackinfo_public.
   unfold transl_incrdecr. destruct id; simpl in H2.
   econstructor. eauto. constructor. rewrite TY3; rewrite <- TY1; rewrite comp_env_preserved. simpl; eauto.
   econstructor. eauto. constructor. rewrite TY3; rewrite <- TY1; rewrite comp_env_preserved. simpl; eauto.
   destruct id; auto.
   reflexivity. traceEq.
   econstructor. auto. change sl2 with (nil ++ sl2). apply S.
-  constructor. auto. auto. auto.
+  constructor. auto. auto. auto. eapply assign_loc_nostackinfo; eauto.
   (* for value *)
   exploit tr_simple_lvalue; eauto. intros [SL1 [TY1 EV1]].
   exploit tr_simple_lvalue. eauto.
@@ -1796,7 +1880,7 @@ Proof.
   left. eapply plus_four. constructor.
   eapply step_make_set; eauto.
   constructor.
-  eapply step_make_assign; eauto.
+  eapply step_make_assign; eauto using nostackinfo_public.
   unfold transl_incrdecr. destruct id; simpl in H2.
   econstructor. constructor. apply PTree.gss. constructor.
   rewrite comp_env_preserved; simpl; eauto.
@@ -1808,7 +1892,7 @@ Proof.
   apply tr_val_gen. auto. intros. econstructor; eauto.
   rewrite H5; auto. apply PTree.gss.
   intros. apply PTree.gso. intuition congruence.
-  auto. auto.
+  auto. auto. eapply assign_loc_nostackinfo; eauto.
 (* postincr stuck *)
   exploit tr_top_leftcontext; eauto. clear H11.
   intros [dst' [sl1 [sl2 [a' [tmp' [P [Q [R S]]]]]]]].
@@ -1896,7 +1980,9 @@ Proof.
   traceEq.
   constructor; auto. econstructor; eauto.
   intros. change sl2 with (nil ++ sl2). apply S.
-  constructor. auto. auto.
+  constructor. auto. auto. rewrite_stack_blocks. reflexivity.
+  rewrite_stack_blocks. simpl tl. simpl in *; auto. destr_in H14. destruct H14; split; auto.
+  apply nostackinfo_kseqlist; auto.
   (* for value *)
   exploit tr_simple_rvalue; eauto. intros [SL1 [TY1 EV1]].
   exploit tr_simple_exprlist; eauto. intros [SL2 EV2].
@@ -1920,6 +2006,9 @@ Proof.
   auto. intros. constructor. rewrite H5; auto. apply PTree.gss.
   intros. apply PTree.gso. intuition congruence.
   auto.
+  rewrite_stack_blocks; auto.
+  rewrite_stack_blocks; simpl in *; auto. repeat destr_in H14. split; auto.
+  apply nostackinfo_kseqlist. auto.
 
 (* builtin *)
   exploit tr_top_leftcontext; eauto. clear H10.
@@ -1935,6 +2024,7 @@ Proof.
   traceEq.
   econstructor; eauto.
   change sl2 with (nil ++ sl2). apply S. constructor. simpl; auto. auto.
+  repeat rewrite_stack_blocks. simpl tl. simpl in *; auto.
   (* for value *)
   exploit tr_simple_exprlist; eauto. intros [SL EV].
   subst. simpl Kseqlist.
@@ -1947,7 +2037,7 @@ Proof.
   change sl2 with (nil ++ sl2). apply S.
   apply tr_val_gen. auto. intros. constructor. rewrite H3; auto. simpl. apply PTree.gss.
   intros; simpl. apply PTree.gso. intuition congruence.
-  auto.
+  auto. repeat rewrite_stack_blocks. simpl in *; auto.
 Qed.
 
 (** Forward simulation for statements. *)
@@ -1985,6 +2075,61 @@ Proof.
   intros; unfold blocks_of_env, Csem.blocks_of_env.
   unfold block_of_binding, Csem.block_of_binding.
   rewrite comp_env_preserved. auto.
+Qed.
+
+Lemma nostackinfo_callcont:
+  forall s k,
+    nostackinfo s k ->
+    nostackinfo s (call_cont k).
+Proof.
+  induction k; simpl; intros; auto.
+Qed.
+
+
+Lemma nostackinfo_find_label:
+  forall lbl ss s tk ts' tk'
+    (FL: find_label lbl ss tk = Some (ts', tk'))
+    (NSI : nostackinfo s tk),
+    nostackinfo s tk'
+with nostackinfo_find_label_ls:
+       forall lbl ss s tk ts' tk'
+         (FL: find_label_ls lbl ss tk = Some (ts', tk'))
+         (NSI : nostackinfo s tk),
+         nostackinfo s tk'
+.
+Proof.
+  - destruct ss; simpl; intros; eauto; try congruence;
+      repeat destr_in FL; eauto.
+  - destruct ss; simpl; intros; eauto; try congruence;
+      repeat destr_in FL; eauto.
+Qed.
+
+Lemma assign_loc_stack:
+  forall ge t m b o v t' m',
+    Csem.assign_loc ge t m b o v t' m' ->
+    Mem.stack m' = Mem.stack m.
+Proof.
+  intros ge0 t m b o v t' m' AL.
+  inv AL; repeat rewrite_stack_blocks; auto.
+  inv H1; repeat rewrite_stack_blocks; auto.
+Qed.
+
+Lemma bind_parameters_stack:
+  forall ge e m1 pars vargs m2,
+    Csem.bind_parameters ge e m1 pars vargs m2 ->
+    Mem.stack m2 = Mem.stack m1.
+Proof.
+  induction 1; simpl; intros; eauto.
+  eapply assign_loc_stack in H0; eauto. congruence.
+Qed.
+
+Lemma alloc_variables_stack:
+  forall ge e m1 vars e2 m2,
+    Csem.alloc_variables ge e m1 vars e2 m2 ->
+    Mem.stack m2 = Mem.stack m1.
+Proof.
+  induction 1; simpl; intros; eauto.
+  rewrite IHalloc_variables. rewrite_stack_blocks. auto.
 Qed.
 
 Lemma sstep_simulation:
@@ -2164,6 +2309,7 @@ Proof.
   inv H7. econstructor; split.
   left. apply plus_one. econstructor; eauto. rewrite blocks_of_env_preserved; eauto.
   constructor. apply match_cont_call; auto.
+  rewrite_stack_blocks. simpl in H9; repeat destr_in H9. simpl. eauto using nostackinfo_callcont.
 (* return some 1 *)
   inv H6. inv H0. econstructor; split.
   left; eapply plus_left. constructor. apply push_seq. traceEq.
@@ -2175,12 +2321,14 @@ Proof.
   erewrite function_return_preserved; eauto. rewrite blocks_of_env_preserved; eauto.
   eauto. traceEq.
   constructor. apply match_cont_call; auto.
+  rewrite_stack_blocks. simpl in H10; repeat destr_in H10. simpl. eauto using nostackinfo_callcont.
 (* skip return *)
   inv H8.
   assert (is_call_cont tk). inv H9; simpl in *; auto.
   econstructor; split.
   left. apply plus_one. eapply step_skip_call; eauto. rewrite blocks_of_env_preserved; eauto.
   constructor. auto.
+  rewrite_stack_blocks. simpl in H10; repeat destr_in H10. simpl. eauto using nostackinfo_callcont.
 
 (* switch *)
   inv H6. inv H1.
@@ -2222,6 +2370,9 @@ Proof.
   econstructor; split.
   left. apply plus_one. econstructor; eauto.
   econstructor; eauto.
+  simpl in *. repeat destr_in H9. split; auto.
+  eapply nostackinfo_find_label; eauto using nostackinfo_callcont.
+
 
 (* internal function *)
   inv H11. inversion H6; subst.
@@ -2235,6 +2386,13 @@ Proof.
   rewrite H9. eapply bind_parameters_preserved; eauto.
   eauto.
   constructor; auto.
+  erewrite bind_parameters_stack; eauto. rewrite_stack_blocks.
+  erewrite alloc_variables_stack in EQ1; eauto.
+  rewrite EQ1 in H14. simpl in H14.
+  simpl. split; auto.
+  rewrite EQ1 in H13; inv H13. repeat constructor. rewrite H1.
+  rewrite Forall_forall; setoid_rewrite in_map_iff.
+  intros (b & fi) (blohi & EQ & IN). repeat destr_in EQ. reflexivity.
 
 (* external function *)
   inv H6.
@@ -2242,12 +2400,16 @@ Proof.
   left; apply plus_one. econstructor; eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   constructor; auto.
+  rewrite_stack_blocks. auto.
 
 (* return *)
   inv H4.
   econstructor; split.
   left; apply plus_one. constructor. eauto.
   econstructor; eauto.
+  rewrite_stack_blocks. simpl in *; auto.
+  destr_in H5; auto. destruct H5; split; auto.
+  eapply nostackinfo_kseqlist'; eauto.
 Qed.
 
 (** Semantic preservation *)
@@ -2283,6 +2445,8 @@ Proof.
   eauto. eauto.
   destruct TRANSL as ((_ & MAIN & _) & _).
   setoid_rewrite MAIN. constructor. auto. auto. constructor.
+  rewrite_stack_blocks. reflexivity.
+  constructor.
 Qed.
 
 Lemma transl_final_states:

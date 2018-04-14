@@ -457,7 +457,8 @@ Next Obligation.
   rewrite PMap.gi. auto.
 Qed.
 Next Obligation.
-  repeat constructor; easy.
+  repeat constructor; try easy.
+  apply stack_limit_pos.
 Qed.
 Next Obligation.
   rewrite PMap.gi in H. inv H.
@@ -7758,41 +7759,41 @@ Qed.
 
 Lemma store_no_abstract:
   forall (chunk : memory_chunk) (b : block) (o : Z) (v : val),
-    abstract_unchanged (fun m1 m2 : mem => store chunk m1 b o v = Some m2).
+    stack_unchanged (fun m1 m2 : mem => store chunk m1 b o v = Some m2).
 Proof.
   red; intros. eapply store_stack; simpl; eauto. 
 Qed.
 
 Lemma storebytes_no_abstract:
   forall (b : block) (o : Z) (bytes : list memval),
-    abstract_unchanged (fun m1 m2 : mem => storebytes m1 b o bytes = Some m2).
+    stack_unchanged (fun m1 m2 : mem => storebytes m1 b o bytes = Some m2).
 Proof.
   red; intros. eapply storebytes_stack; simpl; eauto. 
 Qed.
 
 Lemma alloc_no_abstract: forall (lo hi : Z) (b : block),
- abstract_unchanged (fun m1 m2 : mem => alloc m1 lo hi = (m2, b)).
+ stack_unchanged (fun m1 m2 : mem => alloc m1 lo hi = (m2, b)).
 Proof.
   red; intros. eapply alloc_stack; simpl; eauto. 
 Qed.
 
 Lemma free_no_abstract:
  forall (lo hi : Z) (b : block),
- abstract_unchanged (fun m1 m2 : mem => free m1 b lo hi = Some m2).
+ stack_unchanged (fun m1 m2 : mem => free m1 b lo hi = Some m2).
 Proof.
   red; intros. eapply free_stack; simpl; eauto. 
 Qed.
 
 Lemma freelist_no_abstract:
  forall bl : list (block * Z * Z),
- abstract_unchanged (fun m1 m2 : mem => free_list m1 bl = Some m2).
+ stack_unchanged (fun m1 m2 : mem => free_list m1 bl = Some m2).
 Proof.
   red; intros. eapply free_list_stack_blocks; simpl; eauto. 
 Qed.
 
 Lemma drop_perm_no_abstract:
  forall (b : block) (lo hi : Z) (p : permission),
- abstract_unchanged (fun m1 m2 : mem => drop_perm m1 b lo hi p = Some m2).
+ stack_unchanged (fun m1 m2 : mem => drop_perm m1 b lo hi p = Some m2).
 Proof.
   red; intros. eapply drop_perm_stack; simpl; eauto. 
 Qed.
