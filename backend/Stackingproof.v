@@ -3330,10 +3330,7 @@ Proof.
     apply mconj_proj1 in SEP.
     apply push_rule in SEP.
     eapply sep_imp. apply SEP.
-    red; split; auto. split; auto. split; auto.
-    simpl. intros. eapply Mem.mem_inject_ext. apply H0.
-    intros; rewrite <- up_flatinj. reflexivity.
-    red. tauto.
+    red; split; auto. split; auto. 
     rewrite ! m_invar_stack_sepconj.
     rewrite stack_contents_invar_stack.
     rewrite frame_contents_invar_stack.
@@ -3507,8 +3504,6 @@ Proof.
   exploit unrecord_stack_block_parallel_rule. 3: eassumption. 2: eassumption.
   rewrite ! m_invar_stack_sepconj.
   rewrite frame_contents_invar_stack, stack_contents_invar_stack; reflexivity.
-  unfold up, flat_frameinj. simpl; intros. destr_in H3. destr_in H3. simpl in H3. inv H3. omega. inv H3.
-  reflexivity.
   intros (m2' & USB & SEP').
   econstructor; split.
   + apply plus_one. econstructor; eauto.
@@ -3552,11 +3547,6 @@ Proof.
       apply mconj_intro. rewrite <- ! sep_assoc.
       rewrite sep_comm. rewrite ! sep_assoc. rewrite sep_swap12.
       repeat rewrite_stack_blocks; eauto.
-      simpl.
-      eapply sep_imp. apply SEP'. repeat split; auto. simpl.
-      intros; eapply Mem.mem_inject_ext. eauto. unfold flat_frameinj, up. simpl; intros.
-      destr.
-      reflexivity.
       split.
       rewrite sep_swap23, sep_swap12 in SEP_init. apply mconj_proj2 in SEP_init.
       apply sep_proj1 in SEP_init. revert SEP_init.
@@ -3875,15 +3865,12 @@ Proof.
   eapply external_call_step_correct; eauto.
   
 - (* return *)
-  inv STACKS. simpl in AGLOCS. simpl in SEP. rewrite sep_assoc in SEP. 
+  inv STACKS. simpl in AGLOCS. simpl in SEP. rewrite sep_assoc in SEP.
+  edestruct Mem.unrecord_stack as (b & EQ). eauto. rewrite EQ in SEP. simpl in SEP.
   exploit unrecord_stack_block_parallel_rule. 3: eauto. 
   2: rewrite sep_swap3 in SEP.
   2: eapply mconj_proj1; eauto.
   rewrite ! m_invar_stack_sepconj, stack_contents_invar_stack, frame_contents_invar_stack. reflexivity.
-  inv CSC. inv CallStackConsistency. inv SE. rewrite <- H4 in H3. simpl in H3; congruence.
-  simpl. unfold flat_frameinj. intros. destr_in H0.
-  inv CSC. inv CallStackConsistency. inv SE. rewrite <- H4 in H3. simpl in H3; congruence.
-  reflexivity.
   intros (m2' & USB & SEP').
   econstructor; split.
   apply plus_one. apply exec_return. eauto.
@@ -3893,11 +3880,7 @@ Proof.
   apply frame_contents_exten with rs0 (parent_locset init_ls s); auto.
   rewrite sep_swap3. apply mconj_intro.
   eapply sep_imp. apply SEP'. repeat split; auto. simpl.
-  intros; eapply Mem.mem_inject_ext. eauto.
-  repeat rewrite_stack_blocks. unfold flat_frameinj. rewrite EQ. simpl.
-  intros. repeat destr. omega. omega.
-  repeat rewrite_stack_blocks.
-  reflexivity.
+  repeat rewrite_stack_blocks. auto.
   split.
   rewrite sep_swap23, sep_swap12 in SEP. apply mconj_proj2 in SEP.
   apply sep_proj1 in SEP. revert SEP.
@@ -3914,7 +3897,7 @@ Proof.
   exploit A3. simpl. repeat eexists; eauto.
   revert H1.
   eapply footprint_impl.
-  intros b0 o; apply footprint_impl.
+  intros b1 o; apply footprint_impl.
   simpl. auto. auto.
   repeat rewrite_stack_blocks.
   eapply stack_equiv_tail; eauto.
@@ -4033,11 +4016,8 @@ Proof.
             unfold Mem.flat_inj; destr. xomega.
             intro; subst. xomega.
         }
-        edestruct Mem.record_stack_block_inject_flat as (m2'' & RSB & INJ' & LEN); eauto.
-        -- rewrite_stack_blocks.
-           eapply Mem.mem_inject_ext.
-           apply Mem.push_new_stage_inject. eauto.
-           simpl. intros; rewrite frameinj_push_flat. rewrite_stack_blocks. auto.
+        edestruct Mem.record_stack_block_inject_flat as (m2'' & RSB & INJ'); eauto.
+        -- apply Mem.push_new_stage_inject_flat. rewrite_stack_blocks. eauto.
         -- eapply frame_inject_ext.         
            apply Mem.frame_inject_flat. simpl. constructor; simpl; auto.
            eapply Mem.valid_new_block. eauto.
@@ -4059,10 +4039,8 @@ Proof.
         -- reflexivity.
         -- assert (m5 = m2'') by congruence. subst.
            eapply Mem.inject_ext.
-           eapply Mem.mem_inject_ext.
-           apply Mem.push_new_stage_inject. eauto.
-           rewrite_stack_blocks. simpl.
-           intros. rewrite frameinj_push_flat. auto. auto.
+           apply Mem.push_new_stage_inject_flat. eauto.
+           auto.
       * simpl. red. simpl. easy.
     + simpl. exists (Mem.nextblock m4); split.
       rewrite Mem.push_new_stage_nextblock.

@@ -362,91 +362,69 @@ Inductive match_stackframes: meminj -> nat -> list nat -> list stackframe -> lis
   relation over memory states. *)
 
 Lemma sizes_upstar:
-  forall g s1 s2,
-    sizes g s1 s2 ->
-    sizes (upstar g) (nil :: s1) s2.
+  forall n g s1 s2,
+    sizes (n :: g) s1 s2 ->
+    sizes (S n :: g) (nil :: s1) s2.
 Proof.
-  intros g s1 s2 SZ i2 f2 FAP2.
-  destruct (SZ _ _ FAP2) as (i1 & f1 & Gi1 & FAP1 & LE).
-  unfold upstar.
-  exists (S i1), f1; simpl. rewrite frame_at_pos_tl. simpl. auto.
+  intros n g s1 s2 SZ.
+  inv SZ. simpl in *. repeat destr_in H2.
+  econstructor; simpl; auto. rewrite Heqo. eauto. right; auto.
 Qed.
 
 Lemma sizes_up:
   forall g s1 s2,
     sizes g s1 s2 ->
-    sizes (up g) (nil :: s1) (nil :: s2).
+    sizes (1%nat :: g) (nil :: s1) (nil :: s2).
 Proof.
-  intros g s1 s2 SZ i2 f2 FAP2.
-  destruct i2. apply frame_at_pos_last in FAP2; auto. subst.
-  exists O, nil; simpl. split; auto. split. constructor; reflexivity. omega.
-  apply frame_at_pos_cons_inv in FAP2. 2: omega. simpl in FAP2.
-  destruct (SZ _ _ FAP2) as (i1 & f1 & G1 & FAP1 & LE).
-  exists (S i1); simpl. unfold up. simpl. rewrite G1. simpl. setoid_rewrite frame_at_pos_tl. simpl. eauto.
+  intros g s1 s2 SZ. econstructor; simpl; eauto.
+  left. omega.
 Qed.
 
 Lemma sizes_record:
   forall g tf1 r1 tf2 r2 fr1 fr2 
-    (G0: g O = Some O)
     (SZ: sizes g (tf1 :: r1) (tf2 :: r2))
     (EQ: frame_adt_size fr1 = frame_adt_size fr2),
     sizes g ((fr1 :: tf1) :: r1) ((fr2 :: tf2) :: r2).
 Proof.
-  red; intros.
-  destruct (Nat.eq_dec i2 O).
-  - subst. apply frame_at_pos_last in FAP2; subst.
-    edestruct (SZ O) as (i1 & ff1 & G1 & FAP1 & LE). constructor; reflexivity.
-    destruct (Nat.eq_dec i1 O).
-    + subst. apply frame_at_pos_last in FAP1. subst.
-      eexists O, _. split; auto. split. constructor; reflexivity.
-      rewrite ! size_frames_cons. rewrite EQ.
-      apply Z.max_le_compat_l; auto.
-    + apply frame_at_pos_cons_inv in FAP1. 2: omega.
-      rewrite size_frames_cons. rewrite Zmax_spec.
-      destr. eexists O, _. split. auto.
-      split. constructor; reflexivity.
-      rewrite size_frames_cons. rewrite EQ. apply Z.le_max_l.
-      exists i1, ff1; split; auto. split. destruct i1. omega.
-      apply frame_at_pos_cons. auto. auto.
-  - destruct i2. omega. apply frame_at_pos_cons_inv in FAP2. 2: omega.
-    simpl in *.
-    edestruct (SZ (S i2)) as (i1 & ff1 & G1 & FAP1 & LE); eauto. apply frame_at_pos_cons. eauto.
-    destruct i1. congruence. exists (S i1); rewrite G1. simpl.
-    setoid_rewrite frame_at_pos_tl. simpl. apply frame_at_pos_cons_inv in FAP1; eauto. omega.
+  intros. inv SZ.
+  simpl in *. repeat destr_in H4.
+  econstructor; simpl; auto. rewrite Heqo. eauto.
+  inv H5.
+  left.
+  rewrite ! size_frames_cons. rewrite EQ. apply Z.max_le_compat_l; auto.
+  rewrite Exists_exists in H0. destruct H0 as (f1 & INf1 & LE).
+  rewrite Exists_exists.
+  rewrite size_frames_cons.
+  rewrite Zmax_spec. destr.
+  exists (fr1::tf1); simpl; split; eauto. rewrite size_frames_cons.
+  rewrite EQ. apply Z.le_max_l.
+  exists f1; split; simpl; eauto.
 Qed.
 
 Definition tc_sizes: frameinj -> stack -> stack -> Prop := sizes.
 
 Definition tc_sizes_upstar:
-  forall g s1 s2,
-    tc_sizes g s1 s2 ->
-    tc_sizes (upstar g) (nil :: s1) s2 := sizes_upstar.
+  forall n g s1 s2,
+    tc_sizes (n :: g) s1 s2 ->
+    tc_sizes (S n :: g) (nil :: s1) s2 := sizes_upstar.
 
 Definition tc_sizes_up:
   forall g s1 s2,
     tc_sizes g s1 s2 ->
-    tc_sizes (up g) (nil :: s1) (nil :: s2) := sizes_up.
-
-Definition tc_sizes_ext:
-  forall g1 g2 s1 s2,
-    tc_sizes g1 s1 s2 -> (forall i, g1 i = g2 i) -> tc_sizes g2 s1 s2 := sizes_ext.
+    tc_sizes (1%nat :: g) (nil :: s1) (nil :: s2) := sizes_up.
 
 Definition tc_sizes_ndown:
-  forall l n g s1 s2,
-    compat_frameinj (S n :: l) g ->
-    tc_sizes g s1 s2 ->
-    tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) s1) (tl s2) := compat_sizes_tl'''.
+  forall n g s1 s2,
+    tc_sizes (S n :: g) s1 s2 ->
+    tc_sizes g (drop (S n) s1) (tl s2) := compat_sizes_drop.
 
 Definition tc_sizes_size_stack:
   forall g s1 s2,
     tc_sizes g s1 s2 ->
-    frameinj_surjective g (length s2) ->
-    (forall i j, g i = Some j -> (i < length s1 /\ j < length s2)%nat) ->
     size_stack s2 <= size_stack s1 := sizes_size_stack.
 
 Definition tc_sizes_record:
   forall g tf1 r1 tf2 r2 fr1 fr2 
-    (G0: g O = Some O)
     (SZ: tc_sizes g (tf1 :: r1) (tf2 :: r2))
     (EQ: frame_adt_size fr1 = frame_adt_size fr2),
     tc_sizes g ((fr1 :: tf1) :: r1) ((fr2 :: tf2) :: r2) := sizes_record.
@@ -459,11 +437,10 @@ Variable init_m: mem.
 Inductive match_states: state -> state -> Prop :=
   | match_states_normal:
       forall s sp sp' pc rs m s' rs' m' f g j n l
-             (STACKS: match_stackframes j n l s s')
+             (STACKS: match_stackframes j n g s s')
              (RLD: regs_inject j rs rs')
-             (MLD: Mem.inject j g m m')
-             (CFG: compat_frameinj (S n :: l) g)
-             (SZ: tc_sizes g (Mem.stack m) (Mem.stack m'))
+             (MLD: Mem.inject j (S n :: g ++ l) m m')
+             (SZ: tc_sizes (S n :: g ++ l) (Mem.stack m) (Mem.stack m'))
              (IG: inject_globals ge j)
              (JB: j sp = Some (sp', 0))
              (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
@@ -472,11 +449,10 @@ Inductive match_states: state -> state -> Prop :=
                    (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc rs' m')
   | match_states_call:
       forall s f args m s' args' m' sz g j n l
-        (MS: match_stackframes j n l s s')
+        (MS: match_stackframes j n g s s')
         (LDargs: Val.inject_list j args args')
-        (MLD: Mem.inject j g m m')
-        (CFG: compat_frameinj (S n::l) g)
-        (SZ: tc_sizes g (Mem.stack m) (Mem.stack m'))
+        (MLD: Mem.inject j (S n :: g ++ l) m m')
+        (SZ: tc_sizes (S n :: g ++ l) (Mem.stack m) (Mem.stack m'))
         (IG: inject_globals ge j)
         (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
         (SEP: inject_separated (Mem.flat_inj (Mem.nextblock init_m)) j init_m init_m),
@@ -484,11 +460,10 @@ Inductive match_states: state -> state -> Prop :=
                    (Callstate s' (transf_fundef f) args' m' sz)
   | match_states_return:
       forall s v m s' v' m' g j n l
-        (MS: match_stackframes j n l s s')
+        (MS: match_stackframes j n g s s')
         (LDret: Val.inject j v v')
-        (MLD: Mem.inject j g m m')
-        (CFG: compat_frameinj (S n::l) g)
-        (SZ: tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) (Mem.stack m)) (tl (Mem.stack m')))
+        (MLD: Mem.inject j (S n :: g ++ l) m m')
+        (SZ: tc_sizes (g ++ l) (drop (S n) (Mem.stack m)) (tl (Mem.stack m')))
         (IG: inject_globals ge j)
         (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
         (SEP: inject_separated (Mem.flat_inj (Mem.nextblock init_m)) j init_m init_m),
@@ -496,13 +471,12 @@ Inductive match_states: state -> state -> Prop :=
                      (Returnstate s' v' m')
   | match_states_interm:
       forall s sp pc rs m s' m' f r v' g j n l
-             (STACKS: match_stackframes j n l s s')
-             (MLD: Mem.inject j g m m')
+             (STACKS: match_stackframes j n g s s')
+             (MLD: Mem.inject j (S n :: g ++ l) m m')
              (RETspec: is_return_spec f pc r)
              (SZzero: f.(fn_stacksize) = 0)
              (LDret: Val.inject j (rs#r) v')
-             (CFG: compat_frameinj (S n::l) g)
-             (SZ: tc_sizes (fun m => option_map pred (g (S n + m)%nat)) (Nat.iter (S n) (@tl _) (Mem.stack m)) (tl (Mem.stack m')))
+             (SZ: tc_sizes (g++l) (drop (S n) (Mem.stack m)) (tl (Mem.stack m')))
              (IG: inject_globals ge j)
              (INCR: inject_incr (Mem.flat_inj (Mem.nextblock init_m)) j)
              (SEP: inject_separated (Mem.flat_inj (Mem.nextblock init_m)) j init_m init_m),
@@ -791,13 +765,7 @@ Proof.
   econstructor. econstructor; eauto. all: auto.
   apply regs_inject_regs; auto.
   eapply Mem.inject_push_new_stage_left; eauto.
-  rewrite_stack_blocks.
-  inv MSA'. inv MSA1. congruence.
-  eapply compat_frameinj_pop_right. auto.
-  {
-    repeat rewrite_stack_blocks.
-    eapply tc_sizes_upstar; eauto.
-  }
+  repeat rewrite_stack_blocks. eapply tc_sizes_upstar. eauto.
 
 + (* call that remains a call *)
   left. exists (Callstate (Stackframe res (transf_function f) (Vptr sp' Ptrofs.zero) pc' rs' :: s')
@@ -808,13 +776,7 @@ Proof.
   econstructor. constructor; eauto. all: auto.
   apply regs_inject_regs; auto.
   apply Mem.push_new_stage_inject. eauto.
-  split. intros. destr. omega.
-  eapply compat_frameinj_rec_push_parallel. eauto.
-  intros. destr. omega.
-  {
-    repeat rewrite_stack_blocks.
-    eapply tc_sizes_up; eauto.
-  }
+  repeat rewrite_stack_blocks. eapply tc_sizes_up; eauto.
 
 - (* tailcall *)
   exploit find_function_translated; eauto. intro FIND'.
@@ -848,8 +810,6 @@ Proof.
   apply Mem.push_new_stage_inject. eauto.
   intros [f' [v' [m'1 [A [B [C [D [E [F G]]]]]]]]].
   edestruct Mem.unrecord_stack_block_inject_parallel as (m'2 & USB & INJ'). apply C. eauto.
-  simpl; intros. destr_in H3. unfold option_map in H3; repeat destr_in H3. omega.
-  reflexivity.
   left. exists (State s' (transf_function f) (Vptr sp' Ptrofs.zero) pc' (regmap_setres res v' rs') m'2); split.
   eapply exec_Ibuiltin; eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
@@ -858,11 +818,7 @@ Proof.
   eapply match_stackframes_incr; eauto.
   apply set_res_inject; auto.
   red; intros; eauto.
-  eapply compat_frameinj_rec_ext. 2: eauto.
-  intros. destr. simpl. destruct (g i); simpl; auto.
-  repeat rewrite_stack_blocks. simpl.
-  eapply tc_sizes_ext; eauto.
-  intros; simpl. destruct (g i); simpl; auto.
+  repeat rewrite_stack_blocks. simpl. eauto.
   eapply inject_globals_incr; eauto.
   intros.
   specialize (G _ _ _ H3 H4). unfold Mem.valid_block in G.
@@ -966,32 +922,10 @@ Proof.
       exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons; left; eauto.
       intro.
       edestruct Mem.fresh_block_alloc; eauto.
-    * destruct CFG as (A & _). apply A. omega.
     * eapply tc_sizes_ndown in SZ; eauto.
       repeat rewrite_stack_blocks.
       eapply tc_sizes_size_stack in SZ. etransitivity.
-      apply SZ. apply (size_stack_iter_tl_mono (S n) 1%nat). omega.
-      {
-        generalize (Mem.inject_stack_inj_surjective _ _ _ _ MLD). 
-        intros SURJ i2 LT.
-        destruct (SURJ (S i2)). rewrite length_tl in LT. omega.
-        destruct (lt_dec x (S n)).
-        rewrite (proj1 CFG) in H1 by omega. inv H1.
-        exists (x - S n)%nat. replace (S n + (x - S n))%nat with x by omega.
-        rewrite H1. reflexivity.        
-      }
-      {
-        generalize (Mem.inject_stack_inj_range _ _ _ _ MLD).
-        unfold option_map.
-        simpl. intros RNG i j0 EQ.
-        destr_in EQ. repeat destr_in Heqo. inv EQ.
-        generalize (RNG _ _ H2). intros (AA & B).
-        rewrite ! length_tl, length_iter_tl.
-        split. omega.
-        destruct (Mem.stack m'0); simpl in *. omega.
-        destruct CFG.
-        eapply compat_frameinj_rec_above in H2; eauto. omega. omega.
-      }
+      apply SZ. rewrite <- tl_drop. apply size_stack_drop.
     * intros (m2' & RSB & UINJ).
       left. econstructor; split.
       -- simpl. eapply exec_function_internal; eauto. rewrite EQ1; eauto.
@@ -1006,7 +940,6 @@ Proof.
          rewrite EQ0, EQ5 in SZ.
          {
            eapply tc_sizes_record; eauto.
-           apply CFG. omega.
          }
          eapply inject_globals_incr; eauto.
          intros.
@@ -1061,13 +994,9 @@ Proof.
 + (* synchronous return in both programs *)
   left.
   edestruct Mem.unrecord_stack_block_inject_parallel as (m'2 & USB & INJ'); eauto.
-  intros.
-  eapply compat_frameinj_rec_above in H0. 2: destruct CFG as ( _ & CFG); eauto. omega. omega.
-  destruct CFG as (CFG & _); apply CFG. omega.
   econstructor; split.
   apply exec_return; eauto.
   econstructor; eauto. apply set_reg_inject; auto.
-  apply compat_frameinj_rec_pop_parallel. apply CFG.
   repeat rewrite_stack_blocks.
   simpl in *. auto.
 
@@ -1079,18 +1008,14 @@ Proof.
   split. auto.
   econstructor; eauto.
   eapply Mem.unrecord_stack_block_inject_left. eauto. eauto.
-  left; apply CFG. omega.
+  omega.
   inv MSA. inv TOPNOPERM.
   unfold is_stack_top, get_stack_top_blocks.
   intros b GFB o k p. eapply H1. unfold inject_id; congruence.
   eauto.
   rewrite Regmap.gss. auto.
-  eapply compat_frameinj_rec_pop_left. destruct CFG as (A & B).
-  split. intros; apply A. omega. simpl in *. auto.
-  simpl.
-  rewrite_stack_blocks. simpl in *. 
-  rewrite ! tl_iter_commut in *.
-  rewrite ! tl_iter_commut in SZ. auto. 
+  rewrite_stack_blocks. simpl in *.
+  auto.
 Qed.
 
 Lemma nextblock_inv_step:
@@ -1246,16 +1171,8 @@ Proof.
     split.
     econstructor. constructor. constructor.
     * apply Mem.push_new_stage_inject; eauto.
-    * red; simpl. split; intros.
-      destr. omega.
-      unfold option_map, flat_frameinj in Gi.
-      repeat destr_in Gi. omega.
     * repeat rewrite_stack_blocks.
-      red; red; simpl; intros.
-      assert (i2 <= 1)%nat.
-      apply frame_at_pos_lt in FAP2. simpl in FAP2. omega.
-      exists i2, f2. split. destr. destr. simpl. destruct i2. omega. destruct i2. auto. omega. destruct i2. omega.
-      destruct i2. omega. omega. split; auto. omega.
+      simpl. repeat econstructor. omega. omega.
     * split.
       intros b0 PLT. rewrite H. unfold Mem.flat_inj. rewrite pred_dec_true; auto.
       erewrite Mem.record_stack_block_nextblock; eauto. rewrite Mem.push_new_stage_nextblock.

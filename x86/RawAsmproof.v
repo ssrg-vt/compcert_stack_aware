@@ -143,12 +143,7 @@ Section WITHMEMORYMODEL.
         (MINJ: Mem.inject j g m m')
         lprog
         (STK: Mem.stack m = lprog ++ init_stk)
-        (GSPEC: forall i, g i =
-                     if lt_dec i (length lprog)
-                     then Some O
-                     else if lt_dec i (length (Mem.stack m))
-                          then Some (i - (length lprog))%nat
-                          else None)
+        (GSPEC: g = S (length lprog) :: flat_frameinj (pred (length init_stk)))
         (RSPzero: exists b, rs # RSP = Vptr b Ptrofs.zero )
         (RINJ: forall r, Val.inject j (rs # r) (rs' # r))
         (VB: Mem.valid_block m' bstack)
@@ -517,20 +512,17 @@ Section WITHMEMORYMODEL.
       repeat rewrite_perms. rewrite peq_true. omega.
       constructor.
     }
-    rewrite GSPEC.
-    inv TIN. simpl. destr.
     intro MINJ4.
     (* proving the final match_states *)
     rewrite <- (Ptrofs.unsigned_repr newostack) by omega.
     destruct lprog. simpl in STK.
     revert init_sp_ptr; unfold init_sp; rewrite <- STK. clear STK. inv TIN. inversion 1. simpl in STK.
-    econstructor; eauto.
+    econstructor. eauto.
     - repeat rewrite_stack_blocks. revert EQ0; repeat rewrite_stack_blocks.
       intro EQ0; rewrite EQ0 in STK. inv STK.
       instantiate (1 := (make_singleton_frame_adt' b fi (frame_size fi)::nil) :: lprog).
       inversion TIN. rewrite EQ0 in H; inversion H. subst tf t. reflexivity.
-    - rewrite_stack_blocks. revert EQ0; repeat rewrite_stack_blocks. intro.
-      rewrite EQ0 in GSPEC. simpl in GSPEC; simpl; auto.
+    - simpl. reflexivity.
     - unfold rs2. rewrite nextinstr_rsp, Pregmap.gss. eauto.
     - intros r.
       unfold rs2, rs2'.
@@ -560,7 +552,7 @@ Section WITHMEMORYMODEL.
     - red; intros.
       repeat rewrite_perms_fw. eauto.
     - red. repeat rewrite_stack_blocks. exists frstack, fstack, rr; rewrite EQstk, <- BLOCKS, <- ZERO. eauto.
-    (* - unfold rs2'. rewrite nextinstr_rsp, Pregmap.gss. inversion 1. eauto. *)
+    - unfold rs2'. rewrite nextinstr_rsp, Pregmap.gss. auto.
     - rewrite Ptrofs.unsigned_repr by omega.
       red. intros b0 delta o k p JB PERM.
       repeat rewrite_perms_bw PERM.
@@ -665,6 +657,8 @@ Section WITHMEMORYMODEL.
           generalize (size_stack_pos l1) (size_frames_pos nil); omega. 
         * eapply IP. rewrite <- H. right. eauto. eauto.
           rewrite <- EQ2. apply FB1. auto. eauto. omega.
+    - eauto.
+    - eauto.
     - destruct GLOBSYMB_INJ; split.
       + intros. eapply INCR. eauto.
       + intros. destruct (peq b1 b).
@@ -814,7 +808,7 @@ Section WITHMEMORYMODEL.
       exists j, ostack, rs2', m2'; split; [|split]; eauto.
       destruct i as (i & szinfo); destruct i; simpl in *; eauto; try congruence.
       generalize (is_unchanged_stack_invar _ ISUNCH) as SINVAR. intro.
-      subst. eapply match_states_intro with (g:=g); eauto; try now ((intros; use_ains; eauto) || (red; intros; use_ains; eauto)).
+      subst. eapply match_states_intro; eauto; try now ((intros; use_ains; eauto) || (red; intros; use_ains; eauto)).
       + eapply asmgen_nextblock_forward in EXEC'.
         red in VB |- *. xomega.
       + use_ains. 
@@ -829,14 +823,8 @@ Section WITHMEMORYMODEL.
       destruct i; simpl in *; try congruence.
       + (* call_s *)
         inv EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
-        * eapply Mem.inject_push_new_stage_left; eauto.
-          apply no_stack_no_nil; auto.
-        * rewrite_stack_blocks.
-          instantiate (1 := nil::lprog); simpl; rewrite STK; auto. 
-        * Opaque minus.
-          unfold upstar. intros. rewrite_stack_blocks. simpl. rewrite GSPEC.
-          rewrite STK. rewrite app_length.
-          intros; repeat destr; try omega. f_equal. omega.
+        * instantiate (1:= _::_). simpl. eapply Mem.inject_push_new_stage_left; eauto.
+        * rewrite_stack_blocks. rewrite STK. simpl. reflexivity.
         * intros; apply val_inject_set; auto.
           intros; apply val_inject_set; auto.
           apply Val.offset_ptr_inject; auto.
@@ -854,14 +842,8 @@ Section WITHMEMORYMODEL.
         * red. auto.
       + (* call_r *)
         inv EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
-        * eapply Mem.inject_push_new_stage_left; eauto.
-          apply no_stack_no_nil; auto.
-        * rewrite_stack_blocks.
-          instantiate (1 := nil::lprog); simpl; rewrite STK; auto. 
-        * Opaque minus.
-          unfold upstar. intros. rewrite_stack_blocks. simpl. rewrite GSPEC.
-          rewrite STK. rewrite app_length.
-          intros; repeat destr; try omega. f_equal. omega.
+        * instantiate (1:= nil::lprog). simpl. eapply Mem.inject_push_new_stage_left; eauto.
+        * rewrite_stack_blocks. rewrite STK; auto. 
         * intros; apply val_inject_set; auto.
           intros; apply val_inject_set; auto.
           apply Val.offset_ptr_inject; auto.
@@ -877,31 +859,24 @@ Section WITHMEMORYMODEL.
         unfold Asm.exec_instr in EI. simpl in EI.
         repeat destr_in EI.
         eexists j,ostack, _, _; split; eauto. split; auto.
-        inv MS; econstructor; eauto.
+        inv MS.
+        assert (exists f rprog, lprog = f :: rprog).
+        {
+          inv t.
+          rewrite <- H in IS.
+          destruct lprog. exfalso.
+          revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK.
+          rewrite <- H. inversion 1.
+          eauto.
+        }
+        destruct H as (ff & rprog & EQ). subst.
+        simpl in MINJ.
+        econstructor; eauto.
         * eapply Mem.unrecord_stack_block_inject_left_zero; eauto.
           inv t. rewrite <- H in IS. unfold is_stack_top. simpl. easy.
-          rewrite GSPEC. inv t. rewrite <- H in *.
-          destruct lprog. exfalso. revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. inversion 1.
-          simpl. simpl in STK. inv STK.
-          destr. rewrite app_length. destr.
-          exfalso. revert init_sp_ptr; unfold init_sp, current_sp.
-          destr. inversion 1.  contradict n0. simpl. omega.
-        * instantiate (1:= tl lprog).
-          rewrite_stack_blocks.
-          rewrite STK.
-          destruct lprog; simpl; auto. exfalso.
-          simpl in *.
-          revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK.
-          rewrite EQ. simpl. red in t. rewrite EQ in t. inversion t. subst f0. inversion 1.
-        * simpl. intros; rewrite GSPEC.
-          Require Import StackInj.
-          repeat rewrite_stack_blocks.
-          assert (f0 = nil).
-          inv t. congruence. subst.
-          destruct lprog. simpl in *.
-          revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. rewrite EQ. simpl. inversion 1.
-          simpl in STK. rewrite STK in EQ. inv EQ. rewrite STK. simpl. rewrite app_length. simpl.
-          repeat destr; try omega.
+          omega.
+        * rewrite_stack_blocks.
+          rewrite STK. simpl. eauto.
         * simpl; intros. apply val_inject_set; auto.
           intros; apply val_inject_set; auto.
         * red. repeat rewrite Pregmap.gso by congruence.
@@ -970,32 +945,25 @@ Section WITHMEMORYMODEL.
        }
 
        Lemma clear_stage_inject_left:
-         forall j g m1 m2 m1',
-           Mem.inject j g m1 m2 ->
+         forall j n g m1 m2 m1',
+           Mem.inject j (S n :: g) m1 m2 ->
+           le 1 n ->
            Mem.clear_stage m1 = Some m1' ->
-           g O = Some O -> g 1%nat = Some O ->
            (forall b : block, is_stack_top (Mem.stack m1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m1 b o k p) ->
-           Mem.stack m2 <> nil ->
-           Mem.inject j g m1' m2.
+           Mem.inject j (S n :: g) m1' m2.
        Proof.
-         intros. unfold Mem.clear_stage in H0; repeat destr_in H0.
-         eapply Mem.mem_inject_ext. apply Mem.inject_push_new_stage_left.
-         eapply Mem.unrecord_stack_block_inject_left; eauto. auto.
-         unfold upstar; simpl. intros. destr.
-         auto.
-         rewrite Nat.succ_pred; auto.
+         intros j n g m1 m2 m1' INJ LE CS TOP.
+         unfold Mem.clear_stage in CS; repeat destr_in CS.
+         apply Mem.inject_push_new_stage_left.
+         eapply Mem.unrecord_stack_block_inject_left; eauto.
        Qed.
 
        exploit Mem.free_left_inject. apply MINJ. eauto. intro MINJ'.
        exploit clear_stage_inject_left; eauto.
        {
-         rewrite GSPEC. simpl. destr.
-       }
-       {
-         rewrite GSPEC. simpl.
+         destruct lprog; simpl in *. 2: omega.
          red in c. unfold init_sp in init_sp_ptr. unfold Asm.init_sp in c. rewrite init_sp_ptr in c.
          revert c. repeat rewrite_stack_blocks. rewrite Heqs. simpl. destruct s. simpl. easy. simpl.
-         destruct lprog. simpl in *.
          revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. simpl. repeat destr.
          inversion 1. subst b.
          intros. exfalso.
@@ -1003,7 +971,6 @@ Section WITHMEMORYMODEL.
          apply (H2 binit_sp).
          rewrite in_frames_cons; left. eapply in_frame'_in_frame. red; rewrite Heql. left; reflexivity.
          rewrite in_stack_cons in c. destruct c. easy. auto.
-         simpl. destr.
        }
        {
          erewrite Mem.free_stack_blocks; eauto. rewrite Heqs.
@@ -1025,7 +992,6 @@ Section WITHMEMORYMODEL.
          apply zle_zlt in H. rewrite <- andb_assoc in Heqb. rewrite H in Heqb.
          rewrite andb_true_r in Heqb. destruct peq; simpl in Heqb. congruence. congruence.
        }
-       apply no_stack_no_nil; auto.
        intros INJ. 
        exists j, newostack; eexists; eexists; split; [|split]; eauto.
        generalize (RINJ RSP). rewrite RS1RSP.
@@ -1058,10 +1024,8 @@ Section WITHMEMORYMODEL.
        exploit Mem.stack_norepet; rewrite Heqs. clear STK. intro ND; inv ND.
        edestruct (H3 binit_sp). rewrite in_frames_cons; left. eapply in_frame'_in_frame. red; rewrite Heql. left; reflexivity.
        rewrite in_stack_cons in c. destruct c; easy.
-       econstructor; eauto.
-       * repeat rewrite_stack_blocks. rewrite Heqs. simpl.
-         instantiate (1 := nil :: lprog). inv STK. reflexivity.
-       * simpl. intros. rewrite GSPEC. repeat rewrite_stack_blocks. rewrite Heqs. simpl. auto.
+       eapply match_states_intro with (lprog := nil :: lprog ); eauto.
+       * repeat rewrite_stack_blocks. rewrite Heqs. simpl. inv STK. reflexivity.
        * rewrite nextinstr_rsp. rewrite Pregmap.gso by congruence.
          rewrite Pregmap.gss.
          simpl in ISDEF. unfold is_ptr in ISDEF.
@@ -1173,9 +1137,9 @@ Section WITHMEMORYMODEL.
             rewrite SIZE.
             destruct (zle (Ptrofs.unsigned (Ptrofs.repr (Mem.stack_limit - size_stack s - align ((frame_size fi)) 8)) + align ((frame_size fi)) 8) (o + delta0)); auto.
             exfalso.
-            apply Z.gt_lt in g0.
+            apply Z.gt_lt in g.
 
-            rewrite AGSP in LE, g0.
+            rewrite AGSP in LE, g.
             
             assert (max_perm: forall m b o k p, Mem.perm m b o k p -> Mem.perm m b o Max Nonempty).
             {
@@ -1188,10 +1152,10 @@ Section WITHMEMORYMODEL.
             {
               destruct (zlt 0 (frame_size fi)); auto.
               assert (frame_size fi = 0). generalize (frame_size_pos fi); omega.
-              rewrite H1 in g0.
-              change (align 0 8) with 0 in g0. omega.
+              rewrite H1 in g.
+              change (align 0 8) with 0 in g. omega.
             }
-            revert LE g0. rewrite Heqs.
+            revert LE g. rewrite Heqs.
 
             simpl. rewrite size_frames_one.
             rewrite SIZE. rewrite Z.sub_add_distr. intros.
@@ -1579,7 +1543,6 @@ Section WITHMEMORYMODEL.
       eauto.
       eauto.
       eapply Mem.inject_push_new_stage_left. eauto.
-      apply no_stack_no_nil; auto.
       eauto.
       assert (j b = Some (b,0)) as JB.
       {
@@ -1588,10 +1551,7 @@ Section WITHMEMORYMODEL.
       generalize (RINJ PC); rewrite H. inversion 1; subst.
       rewrite JB in H10; inv H10.
       exploit Mem.unrecord_stack_block_inject_left. apply MemInj. eauto.
-      unfold upstar. simpl.
-      rewrite GSPEC.
-      destr. destr.
-      destruct (Mem.stack m) eqn:STK2. simpl in *; easy. simpl in n0. omega. 
+      omega. 
       repeat rewrite_stack_blocks. unfold is_stack_top. simpl. easy.
       intro MemInj'.
       do 3 eexists; split.
@@ -1606,8 +1566,7 @@ Section WITHMEMORYMODEL.
       econstructor.
       + eauto.
       + repeat rewrite_stack_blocks. simpl; eauto.
-      + simpl; intros. unfold upstar. simpl.
-        repeat rewrite_stack_blocks. simpl. apply GSPEC.
+      + reflexivity.
       + rewrite nextinstr_nf_rsp.
         rewrite set_res_no_rsp.
         rewrite Asmgenproof0.undef_regs_other.
@@ -1731,15 +1690,10 @@ Section WITHMEMORYMODEL.
         eapply GLOBFUN_INJ. eauto.
       }
       rewrite JB in H9; inv H9.
-      exploit (Mem.unrecord_stack_block_inject_left _ _ _ _ _ MemInj H3).
-      destruct (Mem.stack m) eqn:STK2. simpl in *; easy.
-      rewrite ! GSPEC. simpl.
-      inv TIN. rewrite STK2 in H6; inv H6.
-      destruct lprog. simpl in STK. revert init_sp_ptr. unfold init_sp. rewrite <- STK. simpl; inversion 1.
-      simpl in STK. inv STK. simpl. left. destr. rewrite app_length. simpl.
-      revert init_sp_ptr; unfold init_sp.
-      destruct init_stk; simpl; auto. inversion 1. intros _.
-      destr. omega.
+      exploit (Mem.unrecord_stack_block_inject_left _ _ _ _ _ _ MemInj H3).
+      inv TIN. rewrite STK in H6.
+      destruct lprog; simpl in *. 2: omega.
+      revert init_sp_ptr. unfold init_sp. rewrite <- H6. simpl; inversion 1.
       repeat rewrite_stack_blocks. inv TIN. unfold is_stack_top. simpl. easy.
       intro MemInj'.
       do 3 eexists; split.
@@ -1758,21 +1712,17 @@ Section WITHMEMORYMODEL.
       eauto.
       reflexivity.
 
-      econstructor.
-      + eauto.
+      econstructor; eauto.
       + repeat rewrite_stack_blocks.
         instantiate (1 := tl lprog).
         destruct lprog. inv TIN. exfalso.
         revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. rewrite <- H6. inversion 1.
         revert EQ; rewrite_stack_blocks. intro A; rewrite A. simpl.
         rewrite STK in A. simpl in A ; inv A. auto.
-      + simpl. repeat rewrite_stack_blocks. inv TIN. simpl. intros.
-        rewrite GSPEC. rewrite <- H6. simpl.
-        rewrite ! length_tl.
-        repeat destr; try omega. f_equal.
-        cut (O < length lprog)%nat. omega.
-        destruct lprog; simpl; try omega.
-        revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. rewrite <- H6. inversion 1.        
+      + destruct lprog; simpl; try reflexivity.
+        exfalso.
+        revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. rewrite STK.
+        inv TIN. rewrite <- H6. inversion 1.        
       + repeat rewrite Pregmap.gso by (congruence). 
         rewrite set_pair_no_rsp.
         rewrite Asmgenproof0.undef_regs_other.
@@ -1870,10 +1820,6 @@ Section WITHMEMORYMODEL.
         eapply external_call_max_perm. eauto.
         eapply Mem.valid_block_inject_1; eauto.
         eapply Mem.unrecord_stack_block_perm; eauto.
-      + intros.
-        eapply INCR; eauto.
-      + intros.
-        eapply INCR; eauto.
       + destruct GLOBSYMB_INJ.
         split. intros.
         eapply INCR; eauto.
@@ -1991,25 +1937,20 @@ End PRESERVATION.
         tauto.
       - reflexivity.
       - repeat rewrite_stack_blocks. constructor. red; easy.
-      - simpl. auto.
       - repeat rewrite_stack_blocks. simpl. omega.
       - eexists; split; eauto.
-        eapply Mem.mem_inject_ext. eauto.
-        simpl. intros.
-        repeat rewrite_stack_blocks. simpl. unfold flat_frameinj.
-        repeat destr; simpl; try omega; auto.
+        revert RSBinj.
+        repeat rewrite_stack_blocks. simpl. auto.
     }
     destruct RSB' as (m4' & RSB' & RSBINJ).
     eexists _, f', _; split.
     2: now (econstructor; eauto; econstructor; eauto).
     econstructor; eauto.
-    - apply Mem.inject_push_new_stage_left. apply RSBINJ.
-      repeat rewrite_stack_blocks. congruence.
-    - repeat rewrite_stack_blocks. instantiate (1:= nil::nil). reflexivity.
-    - repeat rewrite_stack_blocks.
-      unfold upstar, flat_frameinj.
-      simpl. intros. repeat destr; try omega.
-      f_equal. omega.
+    - apply Mem.inject_push_new_stage_left.
+      revert RSBINJ.
+      instantiate (1 := nil :: nil).
+      repeat rewrite_stack_blocks. simpl. eauto.
+    - repeat rewrite_stack_blocks. reflexivity.
     - unfold rs0. rewrite Pregmap.gss. eauto.
     - intros. unfold rs0.
       repeat (intros; apply val_inject_set; auto).
@@ -2110,4 +2051,3 @@ End PRESERVATION.
   Qed.
   
 End WITHMEMORYMODEL.
-

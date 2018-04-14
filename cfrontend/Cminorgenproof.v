@@ -2229,8 +2229,7 @@ Proof.
   destruct IFI as (bb & oo & EQ3 & EQ2). red; rewrite EQ3. rewrite symbols_preserved; eauto.
   apply sig_preserved; eauto.
   econstructor; eauto.
-  eapply Mem.mem_inject_ext. apply Mem.push_new_stage_inject; eauto.
-  rewrite_stack_blocks. simpl. setoid_rewrite frameinj_push_flat. auto.
+  apply Mem.push_new_stage_inject_flat; eauto.
   repeat rewrite_stack_blocks; repeat constructor. auto.
   eapply match_callstack_push. rewrite ! Mem.push_new_stage_nextblock. eauto.
   eapply match_Kcall with (cenv' := cenv); eauto.
@@ -2241,14 +2240,13 @@ Proof.
   exploit transl_exprlist_correct; eauto.
   intros [tvargs [EVAL2 VINJ2]].
   exploit match_callstack_match_globalenvs; eauto. intros [hi' MG].
-  exploit Mem.push_new_stage_inject; eauto. intro MINJ1.
-  eapply Mem.mem_inject_ext in MINJ1. 2: intros; symmetry; eapply frameinj_push_flat.
+  exploit Mem.push_new_stage_inject_flat; eauto. intro MINJ1.
   exploit external_call_mem_inject; eauto.
   eapply inj_preserves_globals; eauto.
   intros [f' [vres' [tm' [EC [VINJ [MINJ' [UNMAPPED [OUTOFREACH [INCR SEPARATED]]]]]]]]].
   exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto.
-  repeat rewrite_stack_blocks. simpl; eauto.
-  intros (tm'' & USB & INJ' & T).
+  rewrite_stack_blocks. eauto.
+  intros (tm'' & USB & INJ').
   left; econstructor; split.
   apply plus_one. econstructor. eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved. eauto.
@@ -2413,7 +2411,7 @@ Proof.
   intros [f2 [MCS2 [MINJ2 [INCR2 SEP2]]]].
   exploit Mem.record_push_inject_flat. 
   erewrite <- alloc_variables_stack in MINJ2. eauto. eauto.
-  7: instantiate(3:=true); simpl; eauto.
+  7: simpl; eauto.
   instantiate (1 := make_singleton_frame_adt sp (fn_stackspace tf) (frame_adt_size fa)).
   {
     red; red. rewrite H3. simpl.
@@ -2510,7 +2508,7 @@ Proof.
 (* return *)
   inv MK. simpl.
   exploit Mem.unrecord_stack_block_inject_parallel_flat. 2: eauto. eauto.
-  intros (tm'' & USB & INJ' & T).
+  intros (tm'' & USB & INJ').
   left; econstructor; split.
   apply plus_one. econstructor; eauto.
   simpl; econstructor; eauto.
@@ -2592,42 +2590,35 @@ Proof.
       unfold Mem.flat_inj; destr. xomega.
       intro; subst. xomega.
   }
-  edestruct Mem.record_push_inject_flat with (m1:=m2') (tc:=false) as (m2'' & RSB & INJ'); simpl; eauto.
-  -- rewrite_stack_blocks. eauto.
+  erewrite <- Mem.alloc_stack_blocks in INJ; eauto.
+  apply Mem.push_new_stage_inject_flat in INJ.
+  edestruct Mem.record_push_inject_flat as (m2'' & RSB & INJ'); simpl; eauto.
   -- eapply frame_inject_ext.
      apply Mem.frame_inject_flat.
      constructor; auto.
      simpl.
      eapply Mem.valid_new_block. simpl. eauto.
      intros; rewrite EXT.
-     erewrite (Mem.record_stack_block_nextblock _ _ _ H4).
-     rewrite Mem.push_new_stage_nextblock.
-     reflexivity.
-  -- erewrite Mem.alloc_stack_blocks. 2: eauto.
-     intros b0 INS [|[]]. subst. simpl in INS.
-     apply Mem.in_frames_valid in INS.
-     eapply Mem.fresh_block_alloc; eauto.
+     rewnb; reflexivity.
+  -- repeat rewrite_stack_blocks. easy.
   -- red; simpl. intros b0 [|[]]. simpl in *; subst.
+     red; rewrite Mem.push_new_stage_nextblock.
      eapply Mem.valid_new_block; eauto.
   -- intros b0 fi o k p [AA|[]]. inv AA.
-     intros PERM.
-     eapply Mem.perm_alloc_inv in PERM; eauto. destr_in PERM.
+     repeat rewrite_perms. rewrite peq_true. omega.
   -- unfold in_frame; simpl.
      intros b1 b0 delta. rewrite EXT. unfold Mem.flat_inj.
      intro FI; repeat destr_in FI.
-  -- congruence.
+  -- rewrite_stack_blocks. constructor. red. easy.
   -- omega.
   -- assert (m2 = m2'') by congruence. subst.
      assert (Ple (Mem.nextblock m0) (Mem.nextblock m2'')).
        {
-         erewrite (Mem.record_stack_block_nextblock _ _ _ RSB).
-         rewrite Mem.push_new_stage_nextblock.
-         erewrite (Mem.nextblock_alloc _ _ _ _ _ H3). xomega.
+         rewnb. xomega.
        }
        assert (NB: Mem.nextblock m2' = Mem.nextblock m2'').
        {
-         erewrite (Mem.record_stack_block_nextblock _ _ _ RSB).
-         rewrite Mem.push_new_stage_nextblock. auto.
+         rewnb. reflexivity.
        }
 
      econstructor; eauto.
@@ -2637,11 +2628,9 @@ Proof.
      rewrite MAIN.
      eapply match_callstate with (f := Mem.flat_inj (Mem.nextblock m2'')) (cs := @nil frame) (cenv := PTree.empty Z).
      auto.  
-     eapply Mem.mem_inject_ext. apply Mem.push_new_stage_inject.
+     apply Mem.push_new_stage_inject_flat.
      eapply Mem.inject_ext.
      eauto. auto.
-
-     rewrite_stack_blocks. simpl. intros; symmetry; apply frameinj_push_flat.
      apply stack_equiv_refl. auto.
      rewrite Mem.push_new_stage_nextblock.
      rewrite (Mem.record_stack_block_nextblock _ _ _ RSB).
