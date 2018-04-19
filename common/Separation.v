@@ -1075,8 +1075,8 @@ Lemma record_stack_block_parallel_rule:
                frame_adt_size_pos:= Z.le_max_l _ _
 
             |} ->
-      (top_tframe_no_perm (Mem.perm m2) (Mem.stack m2)) ->
-      stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m1) (Mem.stack m2) ->
+      (top_tframe_tc (Mem.stack m2)) ->
+      stack_equiv (Mem.stack m1) (Mem.stack m2) ->
     exists m2',
       Mem.record_stack_blocks m2 fa' = Some m2' /\
       m2' |= minjection j (flat_frameinj (length (Mem.stack m1'))) m1' ** P.
@@ -1133,8 +1133,8 @@ Lemma record_stack_block_parallel_rule_2:
     (forall (ofs : Z) (k : perm_kind) (p : permission),
         Mem.perm m2 b' ofs k p -> 0 <= ofs < frame_size fi) ->
     (forall bb delta0, j bb = Some (b', delta0) -> bb = b) ->
-    (top_tframe_no_perm (Mem.perm m2) (Mem.stack m2 )) ->
-    stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m1) (Mem.stack m2) ->
+    (top_tframe_tc (Mem.stack m2 )) ->
+    stack_equiv (Mem.stack m1) (Mem.stack m2) ->
     exists m2',
       Mem.record_stack_blocks m2 (make_singleton_frame_adt' b' fi n) = Some m2' /\
       m2' |= minjection j (flat_frameinj (length (Mem.stack m1'))) m1' ** P.

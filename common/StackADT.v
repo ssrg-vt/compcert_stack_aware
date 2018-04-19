@@ -149,7 +149,7 @@ Qed.
     way, we record some form of history of the frames, enabling us to reason
     finely about tailcalls. *)
 
-Definition tframe_adt := list frame_adt.
+Definition tframe_adt := (option frame_adt * list frame_adt)%type.
 
 (** * Stack ADT  *)
 
@@ -162,8 +162,14 @@ Definition stack := list tframe_adt.
 Definition get_frame_blocks (f: frame_adt) : list block :=
   map fst (frame_adt_blocks f).
 
+Definition get_opt_frame_blocks (of: option frame_adt) : list block :=
+  match of with
+  | None => nil
+  | Some f => get_frame_blocks f
+  end.
+
 Definition get_frames_blocks (tf: tframe_adt) : list block :=
-  concat (map get_frame_blocks tf).
+  get_opt_frame_blocks (fst tf).  (* ++ concat (map get_frame_blocks (snd tf)). *)
 
 Definition get_stack_blocks (s: stack) : list block :=
   concat (map get_frames_blocks s).
@@ -172,7 +178,7 @@ Definition in_frame (f: frame_adt) (b: block) : Prop :=
   In b (get_frame_blocks f).
 
 Definition in_frames (l: tframe_adt) (b: block) :=
-  In b (get_frames_blocks l).
+  In b (get_opt_frame_blocks (fst l)).
 
 Definition in_stack (s: stack) (b: block) :=
   In b (get_stack_blocks s).
@@ -180,10 +186,10 @@ Definition in_stack (s: stack) (b: block) :=
 Definition in_frame' (f: frame_adt) bfi :=
   In bfi (frame_adt_blocks f).
 
-Fixpoint in_frames' (tf: tframe_adt) b :=
-  match tf with
-  | nil => False
-  | f::tf => in_frame' f b \/ in_frames' tf b
+Definition in_frames' (tf: tframe_adt) b :=
+  match fst tf with
+  | Some f => in_frame' f b
+  | None => False
   end.
 
 Fixpoint in_stack' (s: stack) b :=
@@ -195,15 +201,11 @@ Fixpoint in_stack' (s: stack) b :=
 Lemma in_frames'_rew:
   forall tf b,
     in_frames' tf b <->
-    exists fr, in_frame' fr b /\ In fr tf.
+    exists fr, in_frame' fr b /\ fst tf = Some fr.
 Proof.
-  induction tf; simpl; split; intros; eauto.
-  - easy.
-  - decompose [ex and] H; eauto.
-  - destruct H; eauto. rewrite IHtf in H.
-    decompose [ex and] H; eauto.
-  - rewrite IHtf.
-    decompose [ex and] H; eauto. destruct H2; subst; eauto.
+  unfold in_frames'. intros.
+  destr; split; intros A; try decompose [ex and] A; try (intuition congruence);
+    eexists; eauto.
 Qed.
 
 Lemma in_stack'_rew:
@@ -255,15 +257,14 @@ Proof.
   intros a r b. rewrite in_app. tauto.
 Qed.
 
-
 Lemma in_frames_cons:
   forall a r b,
-    in_frames (a::r) b <-> in_frame a b \/ in_frames r b.
+    in_frames (a,r) b <-> (exists fa, a = Some fa /\ in_frame fa b).
 Proof.
   unfold in_frames,in_frame.
-  unfold get_frames_blocks.
-  simpl.
-  intros a r b. rewrite in_app. tauto.
+  simpl. intuition.
+  destruct a; simpl in *. eauto. easy.
+  destruct H as (fa & EQ & IN); subst; eauto.
 Qed.
 
 Lemma in_stack_app:
@@ -276,15 +277,15 @@ Proof.
   rewrite map_app, concat_app, in_app; tauto.
 Qed.
 
-Lemma in_frames_app:
-  forall l1 l2 b,
-    in_frames l1 b \/ in_frames l2 b <->
-    in_frames (l1 ++ l2) b.
-Proof.
-  intros.
-  unfold in_frames, get_frames_blocks in *.
-  rewrite map_app, concat_app, in_app; tauto.
-Qed.
+(* Lemma in_frames_app: *)
+(*   forall l1 l2 b, *)
+(*     in_frames l1 b \/ in_frames l2 b <-> *)
+(*     in_frames (l1 ++ l2) b. *)
+(* Proof. *)
+(*   intros. *)
+(*   unfold in_frames, get_frames_blocks in *. *)
+(*   rewrite map_app, concat_app, in_app; tauto. *)
+(* Qed. *)
 
 Lemma in_frame_info:
   forall b (f: frame_adt),
@@ -299,12 +300,12 @@ Qed.
 
 (** Fetching the frame information associated with a specific block. *)
 
-Fixpoint get_assoc_tframes (l: tframe_adt) (b: block) : option frame_info :=
-  match l with
-    fr::r =>
+Definition get_assoc_tframes (l: tframe_adt) (b: block) : option frame_info :=
+  match fst l with
+    Some fr =>
     if in_frame_dec fr b then
       get_assoc _ _ peq (frame_adt_blocks fr) b
-    else get_assoc_tframes r b
+    else None
   | _ => None
   end.
 
@@ -501,15 +502,12 @@ Qed.
 Lemma in_frame_in_frames:
   forall f tf b,
     in_frame f b ->
-    In f tf ->
+    fst tf = Some f ->
     in_frames tf b.
 Proof.
   unfold in_frames, get_frames_blocks.
-  simpl.
-  induction tf; simpl; intros; eauto.
-  rewrite in_app; destruct H0; subst; eauto.
+  simpl. intros. rewrite H0. simpl. auto.
 Qed.
-
 
 Definition perm_type :=
   block -> Z -> perm_kind -> permission -> Prop.
@@ -526,18 +524,10 @@ Definition stack_agree_perms m (s: stack) :=
   forall tf,
     In tf s ->
     forall f,
-      In f tf ->
+      fst tf = Some f ->
       frame_agree_perms m f.
 
 (** * Finding a frame at a given position  *)
-
-Fixpoint stack_position (s: stack) b : option nat :=
-  match s with
-    nil => None
-  | f::r => if in_frames_dec f b
-           then Some O
-           else option_map S (stack_position r b)
-  end.
 
 Inductive frame_at_pos (s: stack) n f :=
 | frame_at_pos_intro:
@@ -759,15 +749,16 @@ Class InjectPerm :=
     blocks in l have no permission.
  *)
 
-Definition wf_tframe (m: perm_type) (j: meminj) (f: tframe_adt) : Prop :=
+Definition wf_tframe (m: perm_type) (* (j: meminj) *) (tf: tframe_adt) : Prop :=
   forall b,
-    j b <> None ->
-    in_frames (tl f) b ->
-    forall o k p,
-      ~ m b o k p.
+    forall f,
+      In f (snd tf) ->
+      in_frame f b ->
+      forall o k p,
+        ~ m b o k p.
 
-Definition wf_stack (m: perm_type) j (s: stack) : Prop :=
-  Forall (wf_tframe m j) s.
+Definition wf_stack (m: perm_type) (s: stack) : Prop :=
+  Forall (wf_tframe m) s.
 
 Section INJ.
   Context {injperm: InjectPerm}.
@@ -780,9 +771,9 @@ Section INJ.
 
    Definition tframe_inject (f: meminj) (P: perm_type) (tf1 tf2: tframe_adt): Prop :=
      forall f1,
-       In f1 tf1 ->
+       fst tf1 = Some f1 ->
        has_perm_frame P f f1 ->
-       exists f2, In f2 tf2 /\ frame_inject f f1 f2.
+       exists f2, fst tf2 = Some f2 /\ frame_inject f f1 f2.
 
    Lemma self_tframe_inject f P a:
      (forall b, f b = None \/ f b = Some (b,0)%Z) ->
@@ -879,7 +870,7 @@ Section INJ.
 
    Record stack_inject (f: meminj) (g: frameinj) (m: perm_type) (s1 s2: stack) :=
     {
-      stack_src_wf: wf_stack m f s1;
+      (* stack_src_wf: wf_stack m s1; *)
       stack_inject_frame_inject: stack_inject_aux f m g s1 s2;
       stack_inject_not_in_source:
         forall b1 b2 delta bi2
@@ -922,9 +913,9 @@ Section INJ.
   Qed.
 
   Lemma wf_stack_drop:
-    forall P f n s,
-      wf_stack P f s ->
-      wf_stack P f (drop n s).
+    forall P n s,
+      wf_stack P s ->
+      wf_stack P (drop n s).
   Proof.
     induction n; simpl; intros; eauto.
     apply IHn.
@@ -944,7 +935,7 @@ Section INJ.
     intros f g P s1 s2 SI.
     inv SI.
     revert stack_inject_frame_inject0 .
-    clear stack_inject_not_in_source0 stack_src_wf0.
+    clear stack_inject_not_in_source0.
     induction 1; simpl; intros b1 b2 delta bi1 FB INS PERM.
     - easy.
     - subst.
@@ -970,20 +961,6 @@ Section INJ.
       + edestruct IHstack_inject_frame_inject0 as (bi2 & INS2 & IFI); eauto.
   Qed.
 
-  Lemma is_stack_top_stack_position:
-    forall s b, is_stack_top s b <-> stack_position s b = Some O.
-  Proof.
-    intros s b; split; intros H.
-    - red in H. 
-      destruct s; simpl in H. easy.
-      simpl. destr.
-      exfalso; apply n. auto. 
-    - destruct s; simpl in *. congruence.
-      destr_in H.
-      red. simpl.
-      unfold option_map in H; destr_in H.
-  Qed.
-
   Lemma stack_top_in_frames:
     forall s b,
       is_stack_top s b ->
@@ -992,17 +969,6 @@ Section INJ.
   Proof.
     unfold is_stack_top; destruct s; simpl; intros. easy.
     exists t; split; auto.
-  Qed.
-
-  Lemma stack_position_none:
-    forall s b,
-      stack_position s b = None ->
-      ~ in_stack s b.
-  Proof.
-    induction s; simpl; intros; eauto.
-    destr_in H.
-    unfold option_map in H; destr_in H. eapply IHs in Heqo; eauto.
-    rewrite in_stack_cons. intuition.
   Qed.
 
   Lemma in_frames_in_stack:
@@ -1022,16 +988,17 @@ Section INJ.
       tframe_inject f m v1 v2 -> m b o k p -> inject_perm_condition p -> in_frames v1 b -> f b = Some (b', delta) -> in_frames v2 b'.
   Proof.
     intros f m v1 v2 b b' delta o k p TFI PERM IPC IFR FB.
-    red in IFR. unfold get_frames_blocks in IFR.
-    rewrite concat_In in IFR. destruct IFR as (bl & INbl & IFR).
-    rewrite in_map_iff in IFR. destruct IFR as (fa & blocks & IN).
-    specialize (TFI _ IN).
+    red in IFR. unfold get_opt_frame_blocks in IFR.
+    destr_in IFR; try easy. unfold get_frame_blocks in IFR.
+    rewrite in_map_iff in IFR. destruct IFR as (fa & blocks & IN). subst.
+    specialize (TFI _ Heqo0).
     trim TFI.
-    repeat eexists; eauto. congruence. red. rewrite blocks. auto.
+    repeat eexists; eauto. congruence. red. unfold get_frame_blocks.
+    apply in_map. auto.
     destruct TFI as (f2 & IN2 & FI12).
     eapply in_frame_in_frames; eauto.
     eapply frame_inject_in_frame; eauto.
-    red; rewrite blocks; auto.
+    red. apply in_map. auto.
   Qed.
 
   Lemma stack_inject_is_stack_top:
@@ -1113,72 +1080,61 @@ Section INJ.
       inv H. eapply IHl; eauto.
   Qed.
 
-  Inductive nodupt: tframe_adt -> Prop :=
-  | nodupt_nil: nodupt nil
-  | nodupt_cons: forall f s, nodupt s -> (forall b, in_frame f b -> ~ in_frames s b) -> nodupt (f::s).
+  (* Inductive nodupt: tframe_adt -> Prop := *)
+  (* | nodupt_nil: nodupt nil *)
+  (* | nodupt_cons: forall f s, nodupt s -> (forall b, in_frame f b -> ~ in_frames s b) -> nodupt (f::s). *)
 
-  Definition nodupt' (s: tframe_adt) :=
-    forall b f1 f2,
-      In f1 s ->
-      In f2 s ->
-      in_frame f1 b ->
-      in_frame f2 b ->
-      f1 = f2.
+  (* Definition nodupt (s: tframe_adt) := *)
+  (*   forall b f1 f2, *)
+  (*     In f1 s -> *)
+  (*     In f2 s -> *)
+  (*     in_frame f1 b -> *)
+  (*     in_frame f2 b -> *)
+  (*     f1 = f2. *)
 
 
-  Lemma nodupt_nodupt': forall l, nodupt l -> nodupt' l.
-  Proof.
-    induction 1; simpl; intros; eauto.
-    - unfold nodupt'. easy.
-    - intros b f1 f2 [EQ1|AIN1] [EQ2|AIN2] IFR1 IFR2; subst; simpl in *; auto.
-      + eapply H0 in IFR1. elim IFR1.
-        unfold in_frames, get_frames_blocks.
-        apply concat_In.
-        eexists; split. apply IFR2.
-        apply in_map. simpl. auto.
-      + eapply H0 in IFR2. elim IFR2.
-        unfold in_frames, get_frames_blocks.
-        apply concat_In.
-        eexists; split. apply IFR1.
-        apply in_map. simpl. auto.
-      + eapply IHnodupt; eauto.
-  Qed.
+  (* Lemma nodupt_nodupt': forall l, nodupt l -> nodupt' l. *)
+  (* Proof. *)
+  (*   induction 1; simpl; intros; eauto. *)
+  (*   - unfold nodupt'. easy. *)
+  (*   - intros b f1 f2 [EQ1|AIN1] [EQ2|AIN2] IFR1 IFR2; subst; simpl in *; auto. *)
+  (*     + eapply H0 in IFR1. elim IFR1. *)
+  (*       unfold in_frames, get_frames_blocks. *)
+  (*       apply concat_In. *)
+  (*       eexists; split. apply IFR2. *)
+  (*       apply in_map. simpl. auto. *)
+  (*     + eapply H0 in IFR2. elim IFR2. *)
+  (*       unfold in_frames, get_frames_blocks. *)
+  (*       apply concat_In. *)
+  (*       eexists; split. apply IFR1. *)
+  (*       apply in_map. simpl. auto. *)
+  (*     + eapply IHnodupt; eauto. *)
+  (* Qed. *)
 
   Lemma in_frames_in_frame_ex:
     forall tf b,
       in_frames tf b ->
       exists f,
-        In f tf /\ in_frame f b.
+        fst tf = Some f /\ in_frame f b.
   Proof.
-    intros tf b IFR.
-    unfold in_frames, in_frame in *.
-    unfold get_frames_blocks, get_frame_blocks in *.
-    simpl in *.
-    rewrite concat_In in IFR.
-    destruct IFR as (x & IN & IN').
-    rewrite in_map_iff in IN'.
-    destruct IN' as (x0 & EQ & IN2); eauto.
-    subst.
-    exists x0; split; eauto.
+    intros; rewrite <- in_frames_cons. erewrite <- surjective_pairing; eauto.
   Qed.
 
   Lemma get_assoc_tframes_in :
     forall l b r,
       get_assoc_tframes l b = Some r ->
       exists f,
-        In f l /\ In (b,r) (frame_adt_blocks f).
+        fst l = Some f /\ In (b,r) (frame_adt_blocks f).
   Proof.
-    induction l; simpl; intros; eauto. inv H.
-    destr_in H.
-    eapply get_assoc_in in H.
-    eexists; split; eauto.
-    edestruct IHl as (f & IN1 & IN2); eauto.
+    destruct l; simpl. destruct o; simpl; try easy.
+    cbn. intros b r. destr. intro H; eapply get_assoc_in in H.
+    eauto.
   Qed.
 
   Lemma get_assoc_stack_In:
     forall s b fi,
       get_assoc_stack s b = Some fi ->
-      exists f tf, In f tf /\ In (b,fi) (frame_adt_blocks f) /\ In tf s.
+      exists f tf, fst tf = Some f /\ In (b,fi) (frame_adt_blocks f) /\ In tf s.
   Proof.
     induction s; simpl; intros; eauto.
     congruence.
@@ -1188,6 +1144,7 @@ Section INJ.
     - edestruct IHs as (f & tf & AIN & IN1 & IN2); eauto.
       exists f, tf; split; eauto.
   Qed.
+
   Lemma in_frame_blocks_in_frame:
     forall b fi fr
       (IN : In (b, fi) (frame_adt_blocks fr)),
@@ -1197,26 +1154,22 @@ Section INJ.
   Qed.
 
   Lemma in_get_assoc_tframes:
-    forall tf       (ND: nodupt tf) f b fi
-      (NTH : In f tf)
+    forall tf f b fi
+      (NTH : fst tf = Some f)
       (IN : In (b, fi) (frame_adt_blocks f)),
       get_assoc_tframes tf b = Some fi.
   Proof.
-    induction 1; simpl; intros; eauto;
-      destruct NTH; subst.
-    - rewrite pred_dec_true.
-      apply in_lnr_get_assoc. destruct f0; auto. auto.
-      eapply in_frame_blocks_in_frame; eauto.
-    - rewrite pred_dec_false. eauto.
-      intro INF; apply H in INF. apply INF.
-      eapply in_frame_in_frames. eapply in_frame_blocks_in_frame; eauto. eauto.
+    intros. unfold get_assoc_tframes.
+    rewrite NTH.
+    rewrite pred_dec_true.
+    apply in_lnr_get_assoc. destruct f; auto. auto.
+    eapply in_frame_blocks_in_frame; eauto.
   Qed.
 
   Lemma get_assoc_stack_lnr:
     forall s b tf fi f
-      (NTH: In f tf)
+      (NTH: fst tf = Some f)
       (IN: In (b,fi) (frame_adt_blocks f))
-      (NODUP: Forall nodupt s)
       (ND: nodup s)
       (INS: In tf s),
       get_assoc_stack s b = Some fi.
@@ -1225,12 +1178,11 @@ Section INJ.
     easy.
     destruct INS; subst.
     - rewrite pred_dec_true.
-      eapply in_get_assoc_tframes; eauto. inv NODUP.
-      auto.
+      eapply in_get_assoc_tframes; eauto.
       eapply in_frame_in_frames; eauto.
       eapply in_frame_blocks_in_frame; eauto.
     - rewrite pred_dec_false.
-      eapply IHs; eauto. inv NODUP; auto. 
+      eapply IHs; eauto.
       inv ND; auto.
       intro IFR; inv ND.
       apply H3 in IFR.
@@ -1241,24 +1193,18 @@ Section INJ.
   Qed.
 
   Lemma wf_stack_in_frames_in_frame:
-    forall m j s,
-      wf_stack m j s ->
-      forall f1 b o k p,
-        j b <> None ->
+    forall s,
+      forall f1 b,
         In f1 s ->
         in_frames f1 b ->
-        m b o k p ->
         exists vf1,
-          nth_error f1 O = Some vf1 /\
+          fst f1 = Some vf1 /\
           in_frame vf1 b.
   Proof.
-    setoid_rewrite Forall_forall.
-    intros m j s WF f1 b o k p NotNone INS INF PERM.
-    destruct f1. red in INF; easy.
+    intros s f1 b INS INF.
+    destruct f1. destruct o; try easy. cbn in INF.
     eexists; split. reflexivity.
-    edestruct in_frame_dec; eauto.
-    edestruct WF; eauto.
-    simpl. rewrite in_frames_cons in INF; intuition.
+    auto.
   Qed.
 
   Lemma nodup_block_info:
@@ -1297,8 +1243,6 @@ Section INJ.
     eapply H0; eauto.
   Qed.
 
-
-
   Lemma in_frame'_norepet:
     forall b bi1 bi2 f,
       in_frame' f (b, bi1) ->
@@ -1319,27 +1263,14 @@ Section INJ.
     exfalso; apply H3. eapply in_map in H1. exact H1.
   Qed.
 
-
-  Lemma in_frame_norepet:
-    forall fr1 b bi fr2 l,
-      in_frame' fr1 (b, bi) ->
-      in_frame fr2 b ->
-      nodupt l ->
-      In fr1 l ->
-      In fr2 l ->
-      fr1 = fr2.
-  Proof.
-    intros. apply nodupt_nodupt' in H1. red in H1. eapply H1; eauto.
-    eapply in_frame'_in_frame; eauto.
-  Qed.
-
   Lemma in_frames'_in_frames:
     forall fr b bi,
       in_frames' fr (b, bi) ->
       in_frames fr b.
   Proof.
-    induction fr; simpl; intros; eauto.
-    rewrite in_frames_cons. destruct H; eauto using in_frame'_in_frame.
+    unfold in_frames', in_frames. intros fr b bi EQ. destr_in EQ.
+    simpl.
+    eapply in_frame'_in_frame; eauto.
   Qed.
 
 
@@ -1355,23 +1286,20 @@ Section INJ.
   Lemma in_stack'_norepet:
     forall s
       (ND: nodup s)
-      (NDT: Forall nodupt s)
       b bi1 bi2,
       in_stack' s (b, bi1) ->
       in_stack' s (b, bi2) ->
       bi1 = bi2.
   Proof.
-    induction 1; simpl; intros NDT b bi1 bi2 INS1 INS2; eauto. easy.
+    induction 1; simpl; intros b bi1 bi2 INS1 INS2; eauto. easy.
     destruct INS1 as [INS1 | INS1], INS2 as [INS2 | INS2]; eauto.
     + rewrite in_frames'_rew in INS1, INS2.
       destruct INS1 as (fr1 & INfr1 & INS1).
       destruct INS2 as (fr2 & INfr2 & INS2).
-      inv NDT. eapply nodupt_nodupt' in H2. red in H2.
-      assert (fr1 = fr2). eapply H2; eauto using in_frame'_in_frame. subst.
+      assert (fr1 = fr2) by congruence; subst.
       eapply in_frame'_norepet; eauto.
     + edestruct H; eauto using in_frames'_in_frames, in_stack'_in_stack.
     + edestruct H; eauto using in_frames'_in_frames, in_stack'_in_stack.
-    + eapply IHND; eauto. inv NDT; auto.
   Qed.
 
   Lemma stack_inject_inject_frame_info:
@@ -1379,8 +1307,6 @@ Section INJ.
       stack_inject f g m l1 l2 ->
       nodup l1 ->
       nodup l2 ->
-      Forall nodupt l1 ->
-      Forall nodupt l2 ->
       forall b1 bi1 b2 bi2,
         in_stack' l1 (b1, bi1) ->
         in_stack' l2 (b2, bi2) ->
@@ -1391,13 +1317,12 @@ Section INJ.
             inject_perm_condition p ->
         inject_frame_info delta bi1 bi2.
   Proof.
-    intros f g m l1 l2 SI ND1 ND2 NDT1 NDT2 b1 bi1 b2 bi2 INS1 INS2 delta FB o k p PERM IPC.
+    intros f g m l1 l2 SI ND1 ND2 b1 bi1 b2 bi2 INS1 INS2 delta FB o k p PERM IPC.
     edestruct (stack_inject_compat _ _ _ _ _ SI _ _ _ _ FB INS1) as (bi2' & INS2' & IFI).
     do 3 eexists; split; eauto.
     cut (bi2 = bi2'). intro; subst; auto.
     eapply in_stack'_norepet; eauto.
   Qed.
-
 
   Lemma take_sumlist:
     forall n l1 l2,
@@ -1540,8 +1465,6 @@ Section INJ.
         stack_inject f' g' m2 l2 l3 ->
         nodup l2 ->
         nodup l3 ->
-        Forall nodupt l2 ->
-        Forall nodupt l3 ->
         (forall b1 b2 delta o k p,
             f b1 = Some (b2, delta) ->
             m1 b1 o k p ->
@@ -1552,16 +1475,9 @@ Section INJ.
         (compose_frameinj g g') = Some g3 ->
         stack_inject (compose_meminj f f') g3 m1 l1 l3.
   Proof.
-    intros f f' g g' m1 l1 l2 SI1 m2 l3 SI2 ND2 ND3 NDT2 NDT3 PERM FAP g3 COMP.
+    intros f f' g g' m1 l1 l2 SI1 m2 l3 SI2 ND2 ND3 PERM FAP g3 COMP.
     inversion SI1; inversion SI2.
     split; auto.
-    - setoid_rewrite Forall_forall.
-      red.
-      intros x INl1 b CINJ INFR NIFR o k p.
-      unfold compose_meminj in CINJ; repeat destr_in CINJ.
-      setoid_rewrite Forall_forall in stack_src_wf0; eauto.
-      eapply stack_src_wf0; eauto.
-      congruence.
     - eapply stack_inject_aux_compose; eauto.
     - intros b1 b3 delta bi3 CINJ NIS1 INS3 o k p PERMS IPC.
       unfold compose_meminj in CINJ.
@@ -1749,7 +1665,7 @@ Section INJ.
   Lemma get_assoc_spec:
     forall s b fi,
       get_assoc_stack s b = Some fi ->
-      exists fr tf, In (b,fi) (frame_adt_blocks fr) /\ In fr tf /\ In tf s.
+      exists fr tf, In (b,fi) (frame_adt_blocks fr) /\ fst tf = Some fr /\ In tf s.
   Proof.
     intros; edestruct get_assoc_stack_In as (f & tf & AIN & IN1 & IN2); eauto.
   Qed.
@@ -1788,10 +1704,9 @@ Section INJ.
       in_frames s b ->
       exists f, get_assoc_tframes s b = Some f.
   Proof.
-    induction s; simpl; intros; eauto. easy.
-    rewrite in_frames_cons in H. destr.
-    eapply in_frame_get_assoc; eauto.
-    eapply IHs; eauto. intuition.
+    unfold in_frames, get_assoc_tframes. intros. destr; try easy.
+    rewrite pred_dec_true.
+    eapply in_frame_get_assoc; eauto. auto.
   Qed.
 
   Lemma in_stack_get_assoc_stack:
@@ -1811,8 +1726,6 @@ Section INJ.
       (SI: stack_inject f g m1 s1 s2)
       (ND1: nodup s1)
       (ND2: nodup s2)
-      (NDT1: Forall nodupt s1)
-      (NDT2: Forall nodupt s2)
       (FB : f b1 = Some (b2, delta))
       (PERM: exists o k p, m1 b1 o k p /\ inject_perm_condition p),
       option_le_stack (fun fi => 
@@ -1831,20 +1744,19 @@ Section INJ.
     edestruct in_stack_in_frames_ex as (ff & INS & INF); eauto.
     destruct (get_assoc_stack s1 b1) eqn:STK1.
     - destruct PERM as (o & k & p & PERM & IPC).
-      eapply (wf_stack_in_frames_in_frame m1) in INF; eauto.
-      2: inv SI; eauto. 2: congruence.
+      eapply (wf_stack_in_frames_in_frame) in INF; eauto.
       destruct INF as (vf1 & VF1 & INF).
       edestruct in_frame_info as (fi2 & INF2); eauto.
       erewrite get_assoc_stack_lnr in STK1; eauto. inv STK1.
       edestruct (stack_inject_compat _ _ _ _ _ SI) as (bi2 & INS2 & IFI); eauto.
       setoid_rewrite in_stack'_rew.
       setoid_rewrite in_frames'_rew.
-      exists ff; split; auto. exists vf1; split; eauto. eapply nth_error_In; eauto.
+      exists ff; split; auto. exists vf1; split; eauto.
       revert INS2. setoid_rewrite in_stack'_rew.
       setoid_rewrite in_frames'_rew.
       intros (tf & (fr & INFR & INFRS) & INS2).
       erewrite get_assoc_stack_lnr; eauto.
-      constructor. auto. eapply nth_error_In; eauto.
+      constructor. auto.
     - edestruct (in_stack_get_assoc_stack s1 b1); congruence.
     - rewrite not_in_stack_get_assoc; auto.
       destruct (get_assoc_stack s2 b2) eqn:FI2.
@@ -1873,8 +1785,6 @@ Section INJ.
       (MINJ : stack_inject f g m1 s1 s2)
       (ND1: nodup s1)
       (ND2: nodup s2)
-      (NDT1: Forall nodupt s1)
-      (NDT2: Forall nodupt s2)
       (FAP: stack_agree_perms m1 s1)
       (FB : f b1 = Some (b2, delta))
       (RP: forall o, (lo <= o < hi)%Z -> m1 b1 o Cur p)
@@ -1896,7 +1806,7 @@ Section INJ.
         eapply in_frames_in_stack; eauto.
         eapply in_frame_in_frames; eauto.
         eapply in_frame_blocks_in_frame; eauto.
-        generalize (get_frame_info_inj_gen _ _ _ _ _ _ _ _ MINJ ND1 ND2 NDT1 NDT2 FB). rewrite H. intro GFIJ.
+        generalize (get_frame_info_inj_gen _ _ _ _ _ _ _ _ MINJ ND1 ND2 FB). rewrite H. intro GFIJ.
         trim GFIJ.
         {
           exists lo, Cur, p; split; eauto. apply RP; omega.
@@ -1935,14 +1845,14 @@ Proof.
 Qed.
 
 
-Lemma in_frames_tl:
-  forall l b,
-    in_frames ((tl l)) b ->
-    in_frames (l) b.
-Proof.
-  destruct l; simpl; auto.
-  intros; rewrite in_frames_cons; auto.
-Qed.
+(* Lemma in_frames_tl: *)
+(*   forall l b, *)
+(*     in_frames ((tl l)) b -> *)
+(*     in_frames (l) b. *)
+(* Proof. *)
+(*   destruct l; simpl; auto. *)
+(*   intros; rewrite in_frames_cons; auto. *)
+(* Qed. *)
 
 Lemma Forall_tl:
   forall {A} P (l: list A),
@@ -1962,9 +1872,9 @@ Proof.
   eapply In_tl; eauto.
 Qed.
 
-Lemma wf_stack_tl p f s:
-  wf_stack p f s ->
-  wf_stack p f (tl s).
+Lemma wf_stack_tl p s:
+  wf_stack p s ->
+  wf_stack p (tl s).
 Proof.
   eapply Forall_tl; eauto.
 Qed.
@@ -2016,43 +1926,100 @@ Proof.
   rewrite in_app; auto.
 Qed.
 
-Lemma stack_inject_aux_invariant:
-  forall (m m': perm_type) f g s1 s2 thr,
-    stack_inject_aux f m g s1 s2 ->
-    (forall b ofs k p b' delta,
-        f b = Some (b', delta) ->
-        Plt b thr ->
+
+Definition in_frames_all (tf: tframe_adt) b : Prop :=
+  In b (get_opt_frame_blocks (fst tf)) \/ exists f, In f (snd tf) /\ in_frame f b.
+
+Fixpoint in_stack_all (s: stack) b : Prop :=
+  match s with
+    nil => False
+  | tf::r => in_frames_all tf b \/ in_stack_all r b
+  end.
+
+Lemma in_frames_in_frames_all:
+  forall s b,
+    in_frames s b ->
+    in_frames_all s b.
+Proof.
+  induction s; simpl; intros; eauto.
+  rewrite in_frames_cons in H. destruct H as (fa & EQ & IFR). red. subst. simpl. left; auto.
+Qed.
+
+Lemma in_stack_in_stack_all:
+  forall s b,
+    in_stack s b ->
+    in_stack_all s b.
+Proof.
+  induction s; simpl; intros; eauto.
+  rewrite in_stack_cons in H.
+  destruct H; eauto. left.
+  eapply in_frames_in_frames_all; eauto.
+Qed.
+
+Lemma in_stack_all_drop:
+  forall n l b,
+    in_stack_all (drop n l) b ->
+    in_stack_all l b.
+Proof.
+  induction n; simpl; intros; eauto.
+  eapply IHn in H.
+  destruct l; simpl in *; eauto.
+Qed.
+
+Lemma in_frames_all_in_stack_all:
+  forall f l b,
+    in_frames_all f b ->
+    In f l ->
+    in_stack_all l b.
+Proof.
+  induction l; simpl; intros; eauto.
+  destruct H0; subst; eauto.
+Qed.
+
+Lemma tframe_inject_invariant':
+  forall (m m': perm_type) f f1 f2 ,
+    (forall b ofs k p,
+        in_frames_all f1 b ->
         m' b ofs k p -> m b ofs k p) ->
-    Forall (fun f1 => forall b, in_frames f1 b -> Plt b thr) s1 ->
-    (forall b1 b2 delta, f b1 = Some (b2, delta) ->
-                    ~ Plt b1 thr ->
-                    forall fi,
-                      in_stack' s2 (b2,fi) ->
-                      forall o k pp,
-                        m' b1 o k pp ->
-                        inject_perm_condition pp ->
-                        frame_public fi (o + delta)) ->
+    tframe_inject f m f1 f2 ->
+    tframe_inject f m' f1 f2.
+Proof.
+  intros m m' f f1 f2 PERMS TFI ff1 INf1 HP.
+  specialize (TFI _ INf1).
+  trim TFI. destruct HP as (b & o & k & p & FB & IFR & PERM & IPC).
+  destruct (f b) eqn:?; try congruence. destruct p0.
+  repeat eexists; eauto. congruence. eapply PERMS; eauto.
+  left. rewrite INf1. simpl. auto.
+  destruct TFI as (f3 & EQ & FI).
+  repeat eexists; eauto.
+Qed.
+
+Lemma stack_inject_aux_invariant:
+  forall (m m': perm_type) f g s1 s2,
+    stack_inject_aux f m g s1 s2 ->
+    (forall b ofs k p,
+        in_stack_all s1 b ->
+        m' b ofs k p -> m b ofs k p) ->
     stack_inject_aux f m' g s1 s2.
 Proof.
-  induction 1; simpl; intros PERM PLT PLT'; econstructor; eauto.
-  eapply IHstack_inject_aux; eauto. subst.
-  apply drop_forall; auto.
-  eapply Forall_impl. 2: apply FI.
-  simpl.
-  intros; eapply tframe_inject_invariant; eauto. rewrite Forall_forall in PLT; eauto.
-  eapply PLT.
-  eapply in_take; eauto.
+  induction 1; simpl; intros PERM; econstructor; eauto.
+  - eapply IHstack_inject_aux; eauto. subst.
+    intros; eapply PERM; eauto using in_stack_all_drop.
+  - eapply Forall_impl. 2: apply FI.
+    simpl.
+    intros; eapply tframe_inject_invariant'. 2: eauto.
+    intros; eapply PERM; eauto.
+    eapply in_frames_all_in_stack_all; eauto.
+    eapply in_take; eauto.
 Qed.
 
 Lemma stack_inject_invariant:
-  forall (m m': perm_type) f g s1 s2 thr,
-    (forall b ofs k p b' delta,
-        f b = Some (b', delta) ->
-        Plt b thr ->
+  forall (m m': perm_type) f g s1 s2,
+    (forall b ofs k p,
+        in_stack_all s1 b ->
         m' b ofs k p -> m b ofs k p) ->
-    Forall (fun f1 => forall b, in_frames f1 b -> Plt b thr) s1 ->
     (forall b1 b2 delta, f b1 = Some (b2, delta) ->
-                    ~ Plt b1 thr ->
+                    ~ in_stack s1 b1 ->
                     forall fi,
                       in_stack' s2 (b2,fi) ->
                       forall o k pp,
@@ -2062,58 +2029,46 @@ Lemma stack_inject_invariant:
     stack_inject f g m s1 s2 ->
     stack_inject f g m' s1 s2.
 Proof.
-  intros m m' f g s1 s2 thr PERM PLT PLT' FI.
+  intros m m' f g s1 s2 PERM PLT FI.
   destruct FI. constructor; auto.
-  - red; intros. eapply Forall_impl. 2: apply stack_src_wf0.
-    red. intros a INS1 WFT b NotNone INFR o k p PERMS.
-    destruct (f b) as [[b' delta']|]eqn:FB; try congruence.
-    eapply WFT; eauto.
-    congruence.
-    eapply PERM; eauto.
-    rewrite Forall_forall in PLT; eauto.
-    eapply PLT; eauto. eapply in_frames_tl; eauto.
   - intros.
     eapply stack_inject_aux_invariant; eauto.
-  - intros. destruct (plt b1 thr).
-    + intros; eapply stack_inject_not_in_source0; eauto.
-    + eapply PLT'; eauto.
+  - intros. eauto.
 Qed.
 
-  Lemma stack_inject_invariant':
-    forall (m m': perm_type) f g f1 f2 thr,
+  (* Lemma stack_inject_invariant': *)
+  (*   forall (m m': perm_type) f g f1 f2 thr, *)
+  (*     (forall b ofs k p, *)
+  (*         Plt b thr -> *)
+  (*         m' b ofs k p -> m b ofs k p) -> *)
+  (*     Forall (fun f1 => forall b, in_frames f1 b -> Plt b thr) f1 -> *)
+  (*     Forall (fun t1 => forall f1 b, In f1 (snd t1) -> in_frame f1 b -> Plt b thr) f1 -> *)
+  (*     (forall b1 b2 delta, f b1 = Some (b2, delta) -> *)
+  (*                     in_stack f2 b2 -> *)
+  (*                     Plt b1 thr) -> *)
+  (*     stack_inject f g m f1 f2 -> *)
+  (*     stack_inject f g m' f1 f2. *)
+  (* Proof. *)
+  (*   intros. *)
+  (*   eapply stack_inject_invariant; eauto. *)
+  (*   intros. *)
+  (*   elim H5. eapply H2; eauto. *)
+  (*   eapply in_stack'_in_stack; eauto. *)
+  (* Qed. *)
+
+  Lemma stack_inject_aux_invariant_strong:
+    forall (m m': perm_type) f g s1 s2,
+      stack_inject_aux f m g s1 s2 ->
       (forall b ofs k p b' delta,
           f b = Some (b', delta) ->
-          Plt b thr ->
           m' b ofs k p -> m b ofs k p) ->
-      Forall (fun f1 => forall b, in_frames f1 b -> Plt b thr) f1 ->
-      (forall b1 b2 delta, f b1 = Some (b2, delta) ->
-                      in_stack f2 b2 ->
-                      Plt b1 thr) ->
-      stack_inject f g m f1 f2 ->
-      stack_inject f g m' f1 f2.
+      stack_inject_aux f m' g s1 s2.
   Proof.
-    intros.
-    eapply stack_inject_invariant; eauto.
-    intros.
-    elim H4. eapply H1; eauto.
-    eapply in_stack'_in_stack; eauto.
+    induction 1; simpl; intros PERM; econstructor; eauto.
+    eapply Forall_impl. 2: apply FI.
+    simpl.
+    intros; eapply tframe_inject_invariant_strong; eauto.
   Qed.
-
-
-Lemma stack_inject_aux_invariant_strong:
-  forall (m m': perm_type) f g s1 s2,
-    stack_inject_aux f m g s1 s2 ->
-    (forall b ofs k p b' delta,
-        f b = Some (b', delta) ->
-        m' b ofs k p -> m b ofs k p) ->
-    stack_inject_aux f m' g s1 s2.
-Proof.
-  induction 1; simpl; intros PERM; econstructor; eauto.
-  eapply Forall_impl. 2: apply FI.
-  simpl.
-  intros; eapply tframe_inject_invariant_strong; eauto.
-Qed.
-
 
   Lemma stack_inject_invariant_strong:
     forall (m m': block -> _ -> _ -> _ -> Prop) f g f1 f2,
@@ -2125,12 +2080,6 @@ Qed.
   Proof.
     intros m m' f g f1 f2 PERM FI.
     destruct FI. constructor; auto.
-    - setoid_rewrite Forall_forall in stack_src_wf0.
-      setoid_rewrite Forall_forall.
-      red.
-      intros x INF1 b NotNone INFR1 o k p PERMS.
-      destruct (f b) as [[b' delta]|] eqn:FB; try congruence.
-      eapply stack_src_wf0; eauto. congruence.
     - intros. eapply stack_inject_aux_invariant_strong; eauto.
     - intros; eapply stack_inject_not_in_source0; eauto.
   Qed.
@@ -2245,21 +2194,27 @@ Proof.
   auto.
 Qed.
 
+Definition size_frame (f: frame_adt) : Z := 
+  align (frame_adt_size f) 8.
+
+Definition opt_size_frame (of: option frame_adt) : Z :=
+  match of with
+  | Some f => size_frame f
+  | None => Z0
+  end.
+
+Definition max_l (l: list Z) : Z :=
+  fold_right Z.max Z0 l.
+
 Definition size_frames (l: tframe_adt) : Z :=
-  fold_right Z.max Z0 (map (fun fr => align (frame_adt_size fr) 8) l).
+  Z.max (opt_size_frame (fst l)) (max_l (map size_frame (snd l))).
 
 Lemma size_frames_cons:
   forall a b,
-    size_frames ( a :: b ) = Z.max (align (frame_adt_size a) 8) (size_frames b).
+    size_frames ( a , b ) = Z.max (opt_size_frame a) (max_l (map size_frame b)).
 Proof.
   reflexivity.
 Qed.
-
-  (* match l with *)
-  (*   nil => 0 *)
-  (* | fr::_ => align (frame_adt_size fr) 8 *)
-  (* end. *)
-
 
 Fixpoint size_stack (l: stack) : Z :=
   match l with
@@ -2267,17 +2222,30 @@ Fixpoint size_stack (l: stack) : Z :=
   | fr::r => size_stack r + size_frames fr
   end.
 
+Lemma size_frame_pos:
+  forall fr,
+    (0 <= size_frame fr)%Z.
+Proof.
+  unfold size_frame.
+  etransitivity.
+  2: apply align_le. apply frame_adt_size_pos. omega.
+Qed.
+
+Lemma opt_size_frame_pos:
+  forall fr,
+    (0 <= opt_size_frame fr)%Z.
+Proof.
+  unfold opt_size_frame. intros. destr. apply size_frame_pos. omega.
+Qed.
+
 Lemma size_frames_pos:
   forall s,
     (0 <= size_frames s)%Z.
 Proof.
-  unfold size_frames. 
-  induction s; simpl; intros; auto. omega.
+  intros. unfold size_frames. 
   apply Z.max_le_iff.
-  (* apply Z.add_nonneg_nonneg; auto. *)
   left.
-  etransitivity.
-  2: apply align_le. apply frame_adt_size_pos. omega.
+  apply opt_size_frame_pos.
 Qed.
 
 Lemma size_stack_pos:
@@ -2295,70 +2263,7 @@ Proof.
   induction l; simpl; intros. omega.
   generalize (size_frames_pos a); omega.
 Qed.
-
   
-  Lemma size_stack_filteri:
-    forall s1 n f,
-      (size_stack (filteri f (pairi s1 n)) <= size_stack s1)%Z.
-  Proof.
-    induction s1; simpl; intros; eauto.
-    omega.
-    destr. simpl.
-    specialize (IHs1 (S n) f). omega.
-    etransitivity. apply IHs1. apply le_add_pos.
-    apply size_frames_pos.
-  Qed.
-
-  Fixpoint sorted_fst {A} (l: list (nat * A)) :=
-    match l with
-      nil => True
-    | (x,_)::r =>
-      match r with
-        (y,t)::r' => (x < y)%nat /\ sorted_fst r
-      | nil => True
-      end
-    end.
-
-  Lemma sorted_tl:
-    forall {A} (l: list (nat * A)),
-      sorted_fst l ->
-      sorted_fst (tl l).
-  Proof.
-    destruct l; auto.
-    simpl. destruct p. destruct l; auto.
-    destruct p; tauto.
-  Qed.
-
-
-  Lemma sorted_fst_lt:
-    forall {A} (l: list (nat * A)) i1 f1 i2 f2,
-      In (i1, f1) l ->
-      sorted_fst ((i2,f2)::l) ->
-      (i2 < i1)%nat.
-  Proof.
-    induction l; simpl; intros; eauto. easy.
-    destruct a. destruct H0.
-    destruct H. inv H. auto.
-    eapply IHl; simpl; eauto.
-    destruct l. auto. destruct p.
-    destruct H1; split; auto. omega.
-    Unshelve. auto.
-  Qed.
-
-  Lemma sorted_fst_lt_map:
-    forall {A} (l: list (nat * A)) i1 i2 f2,
-      In i1 (map fst l) ->
-      sorted_fst ((i2,f2)::l) ->
-      (i2 < i1)%nat.
-  Proof.
-    intros. rewrite in_map_iff in H.
-    destruct H as (x & EQ & IN). destruct x. simpl in EQ. subst.
-    eapply sorted_fst_lt; eauto.
-  Qed.
-
-  
-  Opaque sorted_fst.
-
 
 
   Ltac elim_div :=
@@ -2436,70 +2341,6 @@ Qed.
     apply Z.div_le_mono; try omega.
   Qed.
 
-  Lemma map_snd_pairi:
-    forall {A} (l: list A) n,
-      map snd (pairi l n) = l.
-  Proof.
-    induction l; simpl; intros; eauto.
-    rewrite IHl. auto.
-  Qed.
-
-  Lemma sorted_fst_pairi:
-    forall {A} (l: list A) n,
-      sorted_fst (pairi l n).
-  Proof.
-    Transparent sorted_fst.
-    induction l; simpl; intros; eauto.
-    destr. rewrite <- Heql0. destruct p. split; eauto.
-    destruct l; simpl in *. inv Heql0. inv Heql0. omega.
-  Qed.
-
-  Lemma In_pairi_lt:
-    forall {A} i1 f1 (s1: list A) n,
-      In (i1, f1) (pairi s1 n) ->
-      (n <= i1)%nat.
-  Proof.
-    induction s1; simpl; intros; eauto. easy.
-    destruct H as [H|H]. inv H.
-    auto.
-    apply IHs1 in H. omega.
-  Qed.
-  
-  Lemma In_pairi_nth:
-    forall {A} i1 f1 (s1: list A) n,
-      In (i1, f1) (pairi s1 n) ->
-      nth_error s1 (i1 - n) = Some f1.
-  Proof.
-    induction s1; simpl; intros; eauto. easy.
-    destruct H. inv H. replace (i1 - i1)%nat with O by omega. reflexivity.
-    specialize (IHs1 _ H). apply In_pairi_lt in H.
-    replace (i1 - n)%nat with (S (i1 - S n)) by omega. simpl. auto.
-  Qed.
-
-  Lemma nth_In_pairi:
-    forall {A} f1 (s1: list A) n i1,
-      nth_error s1 i1 = Some f1 ->
-      In (i1 + n, f1)%nat (pairi s1 n).
-  Proof.
-    induction s1; simpl; intros; eauto. rewrite nth_error_nil in H. easy.
-    destruct i1 eqn:?; simpl in H. inv H.
-    left. f_equal. 
-    eapply IHs1 with (n:= S n) in H. right.
-    rewrite plus_Snm_nSm; auto.
-  Qed.
-
-  Lemma In_map_fst_pairi:
-    forall {A} (s1: list A) i1 n,
-      (i1 < length s1)%nat ->
-      In (i1 + n)%nat (map fst (pairi s1 n)).
-  Proof.
-    induction s1; simpl; intros; eauto.
-    omega.
-    destruct i1. left; auto.
-    rewrite plus_Snm_nSm.
-    right; apply IHs1. omega.    
-  Qed.
-
   Lemma stack_inject_aux_id:
     forall p s,
       stack_inject_aux inject_id p (flat_frameinj (length s)) s s.
@@ -2517,7 +2358,7 @@ Qed.
 
   Lemma stack_inject_id:
     forall p s,
-      wf_stack p inject_id s ->
+      wf_stack p s ->
       stack_inject inject_id (flat_frameinj (length s)) p s s.
   Proof.
     intros p s WF; constructor; auto.
@@ -2587,15 +2428,6 @@ Lemma stack_inject_incr:
 Proof.
   intros f f' g p s1 s2 INCR NEW SI.
   inversion SI; constructor; eauto.
-  - eapply Forall_impl. 2: apply stack_src_wf0.
-    red.
-    intros a INS WTF b NotNone INFR o k p0 P.
-    destruct (f b) as [[b' delta]|] eqn:FB.
-    + eapply WTF; eauto. congruence.
-    + destruct (f' b) as [[b' delta]|] eqn:FB'; try congruence.
-      eapply NEW in FB; eauto. apply FB. destruct FB as (NIN1 & NIN2).
-      contradict NIN1.
-      eapply in_frames_in_stack; eauto. eapply in_frames_tl; eauto.
   - eapply stack_inject_aux_incr; eauto.
     intros; eapply NEW; eauto.
   - intros b1 b2 delta bi2 SOME NIS INS o k p0 P IPC.
@@ -2687,23 +2519,6 @@ Proof.
   edestruct FI as (f3 & IN1 & FI12); eauto.
   repeat eexists; eauto. eapply frame_inject_ext; eauto.
 Qed.
-
-Lemma wf_stack_ext:
-  forall p j1 j2 s,
-    wf_stack p j1 s ->
-    (forall x, j1 x = j2 x) ->
-    wf_stack p j2 s.
-Proof.
-  intros p j1 j2 s WF1 EXT.
-  red in WF1.
-  intros; eapply Forall_impl. 2: eauto.
-  red.
-  intros a INS WTF b None.
-  eapply WTF; eauto.
-  rewrite EXT. eauto.
-Qed.
-
-Hint Resolve wf_stack_ext.
 
   Lemma stack_inject_aux_ext':
     forall j1 j2 g P m1 m2,
@@ -2799,22 +2614,22 @@ Inductive top_tframe_prop (P: tframe_adt -> Prop) : stack -> Prop :=
     top_tframe_prop P (tf::r).
 
 
-Definition wf_tframe_strong (m: perm_type) (j: meminj) (f: tframe_adt) : Prop :=
-  forall b,
-    j b <> None ->
-    in_frames f b ->
-    forall o k p, ~ m b o k p.
+(* Definition wf_tframe_strong (m: perm_type) (j: meminj) (f: tframe_adt) : Prop := *)
+(*   forall b, *)
+(*     j b <> None -> *)
+(*     in_frames f b -> *)
+(*     forall o k p, ~ m b o k p. *)
 
 
-Definition top_tframe_no_perm (m: perm_type) (s: stack) : Prop :=
-  top_tframe_prop (wf_tframe_strong m inject_id) s.
+Definition top_tframe_tc (s: stack) : Prop :=
+  top_tframe_prop (fun tf => fst tf = None) s.
 
 Lemma stack_inject_push_new_stage_right:
   forall j n g P s1 s2,
     stack_inject j (n :: g) P s1 s2 ->
-    top_tframe_no_perm P s1 ->
+    top_tframe_tc s1 ->
     (2 <= n)%nat ->
-    stack_inject j (1%nat :: pred n :: g) P s1 (nil::s2).
+    stack_inject j (1%nat :: pred n :: g) P s1 ((None,nil)::s2).
 Proof.
   intros j n g P s1 s2 SI TTNP Gof1.
   inversion SI; constructor; auto.
@@ -2823,10 +2638,8 @@ Proof.
     econstructor. reflexivity. simpl. eauto.
     destruct n0. omega. econstructor; eauto. inv FI; auto.
     repeat constructor.
-    intros ff1 INf1 (b & o & k & p & FB & IFR & PERM & IPC). exfalso.
-    inv TTNP.
-    eapply H0 in PERM; eauto. unfold inject_id; congruence.
-    eapply in_frame_in_frames; eauto.
+    intros ff1 INf1 _. exfalso.
+    inv TTNP. congruence.
   - simpl. intros; eapply stack_inject_not_in_source0; eauto. tauto.
 Qed.
 
@@ -2853,7 +2666,6 @@ Lemma stack_inject_unrecord_parallel:
 Proof.
   intros. subst.
   inversion SI; constructor; auto.
-  + inv stack_src_wf0; auto.
   + inv stack_inject_frame_inject0. simpl in *; auto.
   + simpl. intros b1 b2 delta bi2 JB NIS INS o k p PERM IPC.
     inv stack_inject_frame_inject0. simpl in *; auto. inv TAKE.
@@ -2881,41 +2693,84 @@ Proof.
   eapply stack_inject_unrecord_parallel; eauto.
 Qed.
 
-Lemma same_size_frames:
-  forall tf1 tf2
-    (LF2 : list_forall2 (fun f1 f2 : frame_adt => frame_adt_size f1 = frame_adt_size f2) tf1 tf2),
-    size_frames tf2 = size_frames tf1.
+Definition same_sizes_frame f1 f2 := frame_adt_size f1 = frame_adt_size f2.
+
+Lemma same_sizes_frame_size_eq:
+  forall f1 f2,
+    same_sizes_frame f1 f2 ->
+    size_frame f1 = size_frame f2.
 Proof.
-  induction 1; simpl; intros; eauto. 
-  unfold size_frames. simpl. rewrite H. setoid_rewrite IHLF2. auto.
+  intros f1 f2 SS; unfold size_frame; rewrite SS. reflexivity.
 Qed.
 
-Inductive stack_equiv (R: frame_adt -> frame_adt -> Prop) : stack -> stack -> Prop :=
-| stack_equiv_nil: stack_equiv R nil nil
+Definition same_sizes_list_frames tf1 tf2 :=
+  list_forall2 same_sizes_frame tf1 tf2.
+
+Definition same_sizes_list_frames_size_eq:
+  forall tf1 tf2 (SS: same_sizes_list_frames tf1 tf2),
+    map size_frame tf1 = map size_frame tf2.
+Proof.
+  induction 1; simpl; intros; eauto.
+  apply same_sizes_frame_size_eq in H. congruence.
+Qed.
+
+Definition same_sizes_opt_frame of1 of2 :=
+  match of1, of2 with
+  | Some f1, Some f2 => same_sizes_frame f1 f2
+  | None, None => True
+  | _, _ => False
+  end.
+
+Lemma same_sizes_opt_frame_size_eq:
+  forall f1 f2,
+    same_sizes_opt_frame f1 f2 ->
+    opt_size_frame f1 = opt_size_frame f2.
+Proof.
+  intros f1 f2 SS; red in SS.
+  repeat destr_in SS. simpl.
+  apply same_sizes_frame_size_eq; eauto.
+Qed.
+
+Definition same_sizes_tframes (tf1 tf2: tframe_adt) :=
+  same_sizes_opt_frame (fst tf1) (fst tf2) /\
+  same_sizes_list_frames (snd tf1) (snd tf2).
+
+Lemma same_sizes_tframes_size_eq:
+  forall tf1 tf2
+    (SS: same_sizes_tframes tf1 tf2),
+    size_frames tf2 = size_frames tf1.
+Proof.
+  intros tf1 tf2 (SS1 & SS2); unfold size_frames.
+  apply same_sizes_opt_frame_size_eq in SS1.
+  apply same_sizes_list_frames_size_eq in SS2. congruence.
+Qed.
+
+Inductive stack_equiv : stack -> stack -> Prop :=
+| stack_equiv_nil: stack_equiv nil nil
 | stack_equiv_cons s1 s2 tf1 tf2
-                   (SE: stack_equiv R s1 s2)
-                   (LF2: list_forall2 R tf1 tf2):
-  stack_equiv R (tf1::s1) (tf2::s2).
+                   (SE: stack_equiv s1 s2)
+                   (LF2: same_sizes_tframes tf1 tf2):
+  stack_equiv (tf1::s1) (tf2::s2).
 
 Lemma stack_equiv_fsize:
   forall s1 s2,
-    stack_equiv (fun f1 f2 => frame_adt_size f1 = frame_adt_size f2) s1 s2 ->
+    stack_equiv s1 s2 ->
     size_stack s2 = size_stack s1.
 Proof.
   induction 1; simpl; intros. reflexivity.
-  f_equal; auto. eapply same_size_frames; eauto.
+  f_equal; auto. eapply same_sizes_tframes_size_eq; eauto.
 Qed.
 
 Lemma stack_equiv_length:
-  forall R s1 s2, stack_equiv R s1 s2 -> length s1 = length s2.
+  forall s1 s2, stack_equiv s1 s2 -> length s1 = length s2.
 Proof.
   induction 1; simpl; intros; eauto.
 Qed.
 
 Lemma stack_equiv_tail:
-  forall R s1 s2,
-    stack_equiv R s1 s2 ->
-    stack_equiv R (tl s1) (tl s2).
+  forall s1 s2,
+    stack_equiv s1 s2 ->
+    stack_equiv (tl s1) (tl s2).
 Proof.
   inversion 1; simpl; auto; constructor; auto.
 Qed.
@@ -2928,7 +2783,7 @@ Inductive match_stack : list (option (block * Z)) -> stack -> Prop :=
                        (REC: match_stack lsp s)
                        (BLOCKS: frame_adt_blocks f = (sp,bi)::nil)
                        (SIZE: frame_size bi = Z.max 0 z):
-    match_stack (Some (sp,z) :: lsp) ( (f :: r) :: s).
+    match_stack (Some (sp,z) :: lsp) ( (Some f , r) :: s).
 
 Lemma list_forall2_refl:
   forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
@@ -2938,14 +2793,14 @@ Proof.
 Qed.
 
 Lemma stack_equiv_refl:
-  forall (R: frame_adt -> frame_adt -> Prop) (Rrefl: forall x, R x x) s,
-    stack_equiv R s s.
+  forall s,
+    stack_equiv s s.
 Proof.
-  induction s; constructor; eauto using list_forall2_refl.
+  induction s; constructor. auto.
+  split; red. repeat destr.
+  apply list_forall2_refl. reflexivity.
 Qed.
 End INJ.
-
-
 
 Program Definition inject_perm_upto_writable: InjectPerm :=
   {|
@@ -2957,90 +2812,72 @@ Program Definition inject_perm_all: InjectPerm :=
     inject_perm_condition := fun p => True
   |}.
 
-
 (* Definition same_head (P: perm_type) (m m': stack) := *)
 (*   list_forall2 *)
 (*     (fun tf1 tf2 => *)
-(*        match tf1, tf2 with *)
-(*        | _, nil => True *)
-(*        | a::r, b::nil => a = b *)
-(*        | _, _ => False *)
-(*        end *)
-(*        /\ forall f1, In f1 tf1 -> has_perm_frame (injperm:=inject_perm_all) P inject_id f1 -> In f1 tf2 *)
+(*        (forall f1, In f1 tf1 -> has_perm_frame (injperm:=inject_perm_all) P inject_id f1 -> In f1 tf2) *)
+(*        /\ (forall f1, In f1 tf2 -> In f1 tf1) *)
 (*     ) *)
 (*     m m'. *)
 
-Definition same_head (P: perm_type) (m m': stack) :=
-  list_forall2
-    (fun tf1 tf2 =>
-       (* match tf1, tf2 with *)
-       (* | _, nil => True *)
-       (* | a::r, b::nil => a = b *)
-       (* | _, _ => False *)
-       (* end *)
-       (forall f1, In f1 tf1 -> has_perm_frame (injperm:=inject_perm_all) P inject_id f1 -> In f1 tf2)
-       /\ (forall f1, In f1 tf2 -> In f1 tf1)
-    )
-    m m'.
+(* Lemma same_head_in_stack': *)
+(*   forall P s1 s2, same_head P s1 s2 -> forall b fi, in_stack' s2 (b,fi) -> in_stack' s1 (b,fi). *)
+(* Proof. *)
+(*   induction 1; simpl; intros; eauto. *)
+(*   destruct H. *)
+(*   destruct H1; auto. *)
+(*   left. *)
+(*   rewrite in_frames'_rew in H1. destruct H1 as (fr & IFR & INb1). *)
+(*   apply H2 in INb1. *)
+(*   rewrite in_frames'_rew; eauto. *)
+(* Qed. *)
 
-Lemma same_head_in_stack':
-  forall P s1 s2, same_head P s1 s2 -> forall b fi, in_stack' s2 (b,fi) -> in_stack' s1 (b,fi).
-Proof.
-  induction 1; simpl; intros; eauto.
-  destruct H.
-  destruct H1; auto.
-  left.
-  rewrite in_frames'_rew in H1. destruct H1 as (fr & IFR & INb1).
-  apply H2 in INb1.
-  rewrite in_frames'_rew; eauto.
-Qed.
+(* Lemma same_head_get_frame_info: *)
+(*   forall P s1 s2 (SH: same_head P s1 s2) *)
+(*     (ND: nodup s1) (ND': Forall nodupt s1) *)
+(*     b f (GFI: get_frame_info s2 b = Some f), *)
+(*     get_frame_info s1 b = Some f. *)
+(* Proof. *)
+(*   intros. *)
+(*   apply get_assoc_spec in GFI. *)
+(*   destruct GFI as (fr & tf & INblocks & INtf & INS). *)
+(*   exploit same_head_in_stack'; eauto. *)
+(*   rewrite in_stack'_rew. eexists; split; eauto. *)
+(*   rewrite in_frames'_rew. eexists; split; eauto. *)
+(*   intro INS'. *)
+(*   clear INblocks INtf INS. *)
+(*   rewrite in_stack'_rew in INS'. setoid_rewrite in_frames'_rew in INS'. *)
+(*   destruct INS' as (ttf & (tfr & IFR & ITF) & INS). *)
+(*   eapply get_assoc_stack_lnr; eauto. *)
+(* Qed. *)
 
-Lemma same_head_get_frame_info:
-  forall P s1 s2 (SH: same_head P s1 s2)
-    (ND: nodup s1) (ND': Forall nodupt s1)
-    b f (GFI: get_frame_info s2 b = Some f),
-    get_frame_info s1 b = Some f.
-Proof.
-  intros.
-  apply get_assoc_spec in GFI.
-  destruct GFI as (fr & tf & INblocks & INtf & INS).
-  exploit same_head_in_stack'; eauto.
-  rewrite in_stack'_rew. eexists; split; eauto.
-  rewrite in_frames'_rew. eexists; split; eauto.
-  intro INS'.
-  clear INblocks INtf INS.
-  rewrite in_stack'_rew in INS'. setoid_rewrite in_frames'_rew in INS'.
-  destruct INS' as (ttf & (tfr & IFR & ITF) & INS).
-  eapply get_assoc_stack_lnr; eauto.
-Qed.
+(* Lemma same_head_in_impl: *)
+(*   forall P s1 s2, same_head P s1 s2 -> forall b, in_stack s2 b -> in_stack s1 b. *)
+(* Proof. *)
+(*   intros. *)
+(*   eapply in_stack_in_frames_ex in H0. destruct H0 as (tf & INS & IFRS). *)
+(*   eapply in_frames_in_frame_ex in IFRS. destruct IFRS as (fr & IFRS & IFR). *)
+(*   apply in_frame_info in IFR. destruct IFR as (fi & IFR). *)
+(*   eapply in_stack'_in_stack. eapply same_head_in_stack'; eauto. *)
+(*   rewrite in_stack'_rew. eexists; split; eauto. *)
+(*   rewrite in_frames'_rew. eexists; split; eauto. *)
+(* Qed. *)
 
-Lemma same_head_in_impl:
-  forall P s1 s2, same_head P s1 s2 -> forall b, in_stack s2 b -> in_stack s1 b.
-Proof.
-  intros.
-  eapply in_stack_in_frames_ex in H0. destruct H0 as (tf & INS & IFRS).
-  eapply in_frames_in_frame_ex in IFRS. destruct IFRS as (fr & IFRS & IFR).
-  apply in_frame_info in IFR. destruct IFR as (fi & IFR).
-  eapply in_stack'_in_stack. eapply same_head_in_stack'; eauto.
-  rewrite in_stack'_rew. eexists; split; eauto.
-  rewrite in_frames'_rew. eexists; split; eauto.
-Qed.
-
-Lemma same_head_fap:
-  forall P s1 s2 (SH: same_head P s1 s2)
-         f1 i (FAP1: f1 @ s1 : i),
-  exists f2, f2 @ s2 : i /\ (forall ff1, In ff1 f1 -> has_perm_frame (injperm:= inject_perm_all) P inject_id ff1 -> In ff1 f2).
-Proof.
-  induction 1; simpl; intros; eauto.
-  destruct H.
-  destruct i.
-  - apply frame_at_pos_last in FAP1. subst.
-    exists b1; split. constructor; reflexivity.
-    auto.
-  - apply frame_at_pos_cons_inv in FAP1.
-    eapply IHSH in FAP1. destruct FAP1 as (f2 & FAP2 & PROP).
-    exists f2; split. apply frame_at_pos_cons. auto. eauto. omega.
-Qed.
+(* Lemma same_head_fap: *)
+(*   forall P s1 s2 (SH: same_head P s1 s2) *)
+(*          f1 i (FAP1: f1 @ s1 : i), *)
+(*   exists f2, f2 @ s2 : i /\ (forall ff1, In ff1 f1 -> has_perm_frame (injperm:= inject_perm_all) P inject_id ff1 -> In ff1 f2). *)
+(* Proof. *)
+(*   induction 1; simpl; intros; eauto. *)
+(*   destruct H. *)
+(*   destruct i. *)
+(*   - apply frame_at_pos_last in FAP1. subst. *)
+(*     exists b1; split. constructor; reflexivity. *)
+(*     auto. *)
+(*   - apply frame_at_pos_cons_inv in FAP1. *)
+(*     eapply IHSH in FAP1. destruct FAP1 as (f2 & FAP2 & PROP). *)
+(*     exists f2; split. apply frame_at_pos_cons. auto. eauto. omega. *)
+(* Qed. *)
 
 Lemma has_perm_frame_impl {injperm: InjectPerm}:
   forall (P1 P2: perm_type) j f tf,
@@ -3061,80 +2898,80 @@ Proof.
   split. eapply in_frame'_in_frame; eauto. split; eauto.
 Qed.
 
-Lemma same_head_more_perm {injperm: InjectPerm}:
-  forall (P1 P2: perm_type) s1 s2
-         (SH: same_head P1 s1 s2)
-         (SAMEPERM: forall b o k p, in_stack s1 b -> P2 b o k p -> P1 b o k p),
-    same_head P2 s1 s2.
-Proof.
-  induction 1; simpl; intros; constructor; auto.
-  - destruct H; split; auto.
-    intros; eapply H; eauto.
-    destruct H2 as (b & o & k & p & NONE & IFR & PERM & IPC).
-    exists b, o, k, p; repeat split; eauto. eapply SAMEPERM; eauto.
-    rewrite in_stack_cons; left.
-    eapply in_frame_in_frames; eauto.
-  - apply IHSH. intros. eapply SAMEPERM; eauto.
-    apply in_stack_tl. simpl; auto.
-Qed.
+(* Lemma same_head_more_perm {injperm: InjectPerm}: *)
+(*   forall (P1 P2: perm_type) s1 s2 *)
+(*          (SH: same_head P1 s1 s2) *)
+(*          (SAMEPERM: forall b o k p, in_stack s1 b -> P2 b o k p -> P1 b o k p), *)
+(*     same_head P2 s1 s2. *)
+(* Proof. *)
+(*   induction 1; simpl; intros; constructor; auto. *)
+(*   - destruct H; split; auto. *)
+(*     intros; eapply H; eauto. *)
+(*     destruct H2 as (b & o & k & p & NONE & IFR & PERM & IPC). *)
+(*     exists b, o, k, p; repeat split; eauto. eapply SAMEPERM; eauto. *)
+(*     rewrite in_stack_cons; left. *)
+(*     eapply in_frame_in_frames; eauto. *)
+(*   - apply IHSH. intros. eapply SAMEPERM; eauto. *)
+(*     apply in_stack_tl. simpl; auto. *)
+(* Qed. *)
 
-Lemma public_stack_access_same_head:
-  forall s1 (ND: nodup s1) (ND': Forall nodupt s1) s2 P (SH: same_head P s1 s2) b lo hi
-         (PSA: public_stack_access s1 b lo hi),
-    public_stack_access s2 b lo hi.
-Proof.
-  intros. red. destr. red in PSA.
-  erewrite same_head_get_frame_info in PSA; eauto.
-Qed.
+(* Lemma public_stack_access_same_head: *)
+(*   forall s1 (ND: nodup s1) (ND': Forall nodupt s1) s2 P (SH: same_head P s1 s2) b lo hi *)
+(*          (PSA: public_stack_access s1 b lo hi), *)
+(*     public_stack_access s2 b lo hi. *)
+(* Proof. *)
+(*   intros. red. destr. red in PSA. *)
+(*   erewrite same_head_get_frame_info in PSA; eauto. *)
+(* Qed. *)
 
 Definition stack_top_is_new s :=
-  top_tframe_prop (fun tf => tf = nil) s.
+  top_tframe_prop (fun tf => tf = (None,nil)) s.
 
-Lemma is_stack_top_same_head:
-  forall P s1 (WF: wf_stack P inject_id s1) (ND: nodup s1) s2 (SH: same_head P s1 s2) b
-         o k p (PERM: P b o k p)
-         (IST: is_stack_top s1 b),
-    is_stack_top s2 b \/ ~ in_stack s2 b.
-Proof.
-  intros.
-  inv SH. easy.
-  destruct H.
-  red in IST. simpl in IST.
-  change (in_frames a1 b) in IST.
-  left. red. simpl.
-  change (in_frames b1 b).
-  edestruct in_frames_in_frame_ex as (fr & IFRS & IFR). eauto.
-  eapply in_frame_in_frames; eauto. apply H; auto.
-  exists b, o, k, p; repeat split; auto. unfold inject_id; congruence.
-Qed.
+(* Lemma is_stack_top_same_head: *)
+(*   forall P s1 (WF: wf_stack P inject_id s1) (ND: nodup s1) s2 (SH: same_head P s1 s2) b *)
+(*          o k p (PERM: P b o k p) *)
+(*          (IST: is_stack_top s1 b), *)
+(*     is_stack_top s2 b \/ ~ in_stack s2 b. *)
+(* Proof. *)
+(*   intros. *)
+(*   inv SH. easy. *)
+(*   destruct H. *)
+(*   red in IST. simpl in IST. *)
+(*   change (in_frames a1 b) in IST. *)
+(*   left. red. simpl. *)
+(*   change (in_frames b1 b). *)
+(*   edestruct in_frames_in_frame_ex as (fr & IFRS & IFR). eauto. *)
+(*   eapply in_frame_in_frames; eauto. apply H; auto. *)
+(*   exists b, o, k, p; repeat split; auto. unfold inject_id; congruence. *)
+(* Qed. *)
 
-Lemma stack_access_same_head:
-  forall s1 P (ND: nodup s1) (ND': Forall nodupt s1) (WF: wf_stack P inject_id s1) s2 (SH: same_head P s1 s2) b lo hi k p
-         (R: forall o, (lo <= o < hi)%Z -> P b o k p)
-         (SA: stack_access s1 b lo hi),
-    stack_access s2 b lo hi.
-Proof.
-  intros.
-  destruct (zlt lo hi).
-  destruct SA as [IST|PSA].
-  edestruct is_stack_top_same_head; eauto. apply (R lo). omega. left; auto.
-  right; red; destr. eapply get_frame_info_in_stack in Heqo; congruence.
-  right; eapply public_stack_access_same_head; eauto.
-  eapply lo_ge_hi_stack_access; eauto.
-Qed.
+(* Lemma stack_access_same_head: *)
+(*   forall s1 P (ND: nodup s1) (ND': Forall nodupt s1) (WF: wf_stack P inject_id s1) s2 (SH: same_head P s1 s2) b lo hi k p *)
+(*          (R: forall o, (lo <= o < hi)%Z -> P b o k p) *)
+(*          (SA: stack_access s1 b lo hi), *)
+(*     stack_access s2 b lo hi. *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct (zlt lo hi). *)
+(*   destruct SA as [IST|PSA]. *)
+(*   edestruct is_stack_top_same_head; eauto. apply (R lo). omega. left; auto. *)
+(*   right; red; destr. eapply get_frame_info_in_stack in Heqo; congruence. *)
+(*   right; eapply public_stack_access_same_head; eauto. *)
+(*   eapply lo_ge_hi_stack_access; eauto. *)
+(* Qed. *)
 
-Lemma stack_access_same_head_or_not_in_stack:
-  forall s1 P (ND: nodup s1) (ND': Forall nodupt s1) (WF: wf_stack P inject_id s1) s2 b
-         (SH: same_head P s1 s2 \/ ~ in_stack s2 b) lo hi k p
-         (R: forall o, (lo <= o < hi)%Z -> P b o k p)
-         (SA: stack_access s1 b lo hi),
-    stack_access s2 b lo hi.
-Proof.
-  intros.
-  destruct SH as [SH | NIS].
-  eapply stack_access_same_head; eauto.
-  right. red. destr. apply get_frame_info_in_stack in Heqo. congruence.          
-Qed.
+(* Lemma stack_access_same_head_or_not_in_stack: *)
+(*   forall s1 P (ND: nodup s1) (ND': Forall nodupt s1) (WF: wf_stack P inject_id s1) s2 b *)
+(*          (SH: same_head P s1 s2 \/ ~ in_stack s2 b) lo hi k p *)
+(*          (R: forall o, (lo <= o < hi)%Z -> P b o k p) *)
+(*          (SA: stack_access s1 b lo hi), *)
+(*     stack_access s2 b lo hi. *)
+(* Proof. *)
+(*   intros. *)
+(*   destruct SH as [SH | NIS]. *)
+(*   eapply stack_access_same_head; eauto. *)
+(*   right. red. destr. apply get_frame_info_in_stack in Heqo. congruence.           *)
+(* Qed. *)
 
 Lemma max_in_le:
   forall l a i,
@@ -3159,31 +2996,31 @@ Proof.
   apply IHl1. auto.
 Qed.
 
-Lemma same_head_size:
-  forall P s1 s2,
-    same_head P s1 s2 ->
-    (size_stack s2 <= size_stack s1)%Z.
-Proof.
-  induction 1; simpl; intros; rewrite ? size_stack_cons. omega.
-  cut (size_frames b1 <= size_frames a1)%Z. omega.
-  apply max_sublist. setoid_rewrite in_map_iff.
-  intros x (x0 & EQ & IN). exists x0; split; auto. apply H. auto.
-Qed.
+(* Lemma same_head_size: *)
+(*   forall P s1 s2, *)
+(*     same_head P s1 s2 -> *)
+(*     (size_stack s2 <= size_stack s1)%Z. *)
+(* Proof. *)
+(*   induction 1; simpl; intros; rewrite ? size_stack_cons. omega. *)
+(*   cut (size_frames b1 <= size_frames a1)%Z. omega. *)
+(*   apply max_sublist. setoid_rewrite in_map_iff. *)
+(*   intros x (x0 & EQ & IN). exists x0; split; auto. apply H. auto. *)
+(* Qed. *)
 
-Lemma same_head_refl:
-  forall P s,
-    same_head P s s.
-Proof.
-  induction s; simpl; intros; constructor; eauto.
-Qed.
+(* Lemma same_head_refl: *)
+(*   forall P s, *)
+(*     same_head P s s. *)
+(* Proof. *)
+(*   induction s; simpl; intros; constructor; eauto. *)
+(* Qed. *)
 
 (* For use in Mach and Asm, the parent_sp pointer is now computed on the stack
    adt rather than on the abstract semantic callstack in Mach or with an extra
    stored pointer in Asm. *)
 
 Definition current_frame_sp (tf: tframe_adt) : val :=
-  match tf with
-  | fr :: _ =>
+  match fst tf with
+  | Some fr =>
     match frame_adt_blocks fr with
     | (b,fi)::nil => Vptr b Integers.Ptrofs.zero
     | _ => Vundef
@@ -3210,5 +3047,56 @@ Proof.
   unfold parent_sp, current_sp, current_frame_sp. intros.
   repeat destr; try now (simpl; auto).
 Qed.
+Definition opt_cons {A: Type} (o: option A) (l: list A) : list A :=
+  match o with
+    None => l
+  | Some a => a::l
+  end.
 
+Lemma In_opt_cons:
+  forall {A} o (l: list A) a,
+    In a (opt_cons o l) ->
+    o = Some a \/ In a l.
+Proof.
+  intros. destruct o; simpl in *; eauto. intuition congruence.
+Qed.
+
+Lemma size_frames_eq:
+  forall f l, size_frames (f, l) = size_frames (None, opt_cons f l).
+Proof.
+  unfold size_frames; simpl.
+  destruct f. simpl. intros.
+  rewrite (Z.max_r 0). auto. apply Z.max_le_iff. left; apply size_frame_pos.
+  simpl. reflexivity.
+Qed.
+
+
+Lemma map_opt_cons:
+  forall {A B} (f: A -> B) o l,
+    map f (opt_cons o l) = opt_cons (option_map f o) (map f l).
+Proof.
+  destruct o; simpl; reflexivity.
+Qed.
+
+Lemma max_opt_size_frame_tailcall:
+  forall f l,
+    Z.max (opt_size_frame f) (max_l l) = max_l (opt_cons (option_map size_frame f) l).
+Proof.
+  destruct f; simpl; auto.
+  intros; apply Z.max_r.
+  induction l; simpl; intros; eauto. omega.
+  apply Z.max_le_iff. auto.
+Qed.
+
+Lemma size_frames_tc:
+  forall f,
+    size_frames (None, opt_cons (fst f) (snd f)) = size_frames f.
+Proof.
+  unfold size_frames.
+  intros. simpl.
+  rewrite map_opt_cons. rewrite <- max_opt_size_frame_tailcall.
+  apply Z.max_r.
+  rewrite Z.max_le_iff. left. destruct f; simpl. destruct o; simpl.
+  apply size_frame_pos. omega.    
+Qed.
 

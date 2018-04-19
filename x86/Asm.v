@@ -730,7 +730,7 @@ Qed.
 
 Definition check_top_frame (m: mem) (stk: option block) (sz: Z) :=
   match Mem.stack m with
-    (fr::_)::r =>
+    (Some fr,_)::r =>
     Forall_dec _ (fun bfi => match_frame_dec bfi stk sz) (frame_adt_blocks fr) && zeq sz (frame_adt_size fr)
   | _ => false
   end.
@@ -1100,7 +1100,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
-    check (Mem.check_top_is_new m);
+    check (Mem.check_top_tc m);
     do m' <- Mem.unrecord_stack_block m;
       Next (rs#PC <- (rs#RA) #RA <- Vundef) m'
   (** Saving and restoring registers *)
@@ -1117,7 +1117,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (nextinstr rs sz) m
   | Pallocframe fi ofs_ra (* ofs_link *) =>
     check (check_alloc_frame fi) ;
-      check (Mem.check_top_is_new m) ;
+      check (Mem.check_top_tc m) ;
       let (m1,b) := Mem.alloc m 0 (frame_size fi) in
       do m2 <- Mem.store Mptr m1 b (Ptrofs.unsigned ofs_ra) rs#RA;
       do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi (frame_size fi));
@@ -1129,7 +1129,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
           check (check_top_frame m (Some stk) sz');
             check (is_stack_top_dec (Mem.stack m) stk);
             do m' <- Mem.free m stk 0 sz';
-            do m' <- Mem.clear_stage m';
+            do m' <- Mem.tailcall_stage m';
             check (check_init_sp_in_stack_dec m');
             do sp <- is_ptr (parent_sp (Mem.stack m));
             Next (nextinstr (rs#RSP <- sp #RA <- ra) sz) m'
@@ -1291,7 +1291,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
         (RA_TYPE: Val.has_type (rs RA) Tptr)
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
         (RA_NOT_VUNDEF: rs RA <> Vundef)
-        (TIN: Mem.top_is_new m),
+        (TIN: top_tframe_tc (Mem.stack m)),
         external_call ef ge args m t res m' ->
         Mem.unrecord_stack_block m' = Some m'' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->
@@ -1303,16 +1303,15 @@ End RELSEM.
 (** Execution of whole programs. *)
 
 Inductive initial_state {F V} (p: AST.program F V): state -> Prop :=
-  | initial_state_intro: forall m0 m1 b m2,
+  | initial_state_intro: forall m0 m2,
       Genv.init_mem p = Some m0 ->
-      Mem.alloc m0 0 0 = (m1,b) ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b 0 0) = Some m2 ->
+      Mem.record_init_sp m0 = Some m2 ->
       let ge := Genv.globalenv p in
       let rs0 :=
         (Pregmap.init Vundef)
         # PC <- (Genv.symbol_address ge p.(prog_main) Ptrofs.zero)
         # RA <- Vnullptr
-        # RSP <- (Vptr b Ptrofs.zero) in
+        # RSP <- (Vptr (Mem.nextblock m0) Ptrofs.zero) in
       initial_state p (State rs0 (Mem.push_new_stage m2)).
 
 Inductive final_state: state -> int -> Prop :=

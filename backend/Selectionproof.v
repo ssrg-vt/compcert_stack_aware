@@ -780,7 +780,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_cont cunit hf k k')
         (LD: env_lessdef e e')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
+        (STRUCT: stack_equiv (Mem.stack m) (Mem.stack m')),
       match_states
         (Cminor.State f s k sp e m)
         (State f' s' k' sp e' m')
@@ -790,7 +790,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_call_cont k k')
         (LD: Val.lessdef_list args args')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
+        (STRUCT: stack_equiv (Mem.stack m) (Mem.stack m')),
       match_states
         (Cminor.Callstate f args k m sz)
         (Callstate f' args' k' m' sz)
@@ -798,7 +798,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (MC: match_call_cont k k')
         (LD: Val.lessdef v v')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m')),
+        (STRUCT: stack_equiv (Mem.stack m) (Mem.stack m')),
       match_states
         (Cminor.Returnstate v k m)
         (Returnstate v' k' m')
@@ -810,7 +810,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (LDA: Val.lessdef_list args args')
         (LDE: env_lessdef e e')
         (ME: Mem.extends m m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack m) (Mem.stack m'))
+        (STRUCT: stack_equiv (Mem.stack m) (Mem.stack m'))
         (EA: list_forall2 (CminorSel.eval_builtin_arg tge sp e' m') al args'),
       forall BUILTIN_ENABLED : builtin_enabled ef,
         match_states
@@ -824,7 +824,7 @@ Inductive match_states: Cminor.state -> CminorSel.state -> Prop :=
         (LDV: Val.lessdef v v')
         (LDE: env_lessdef e e')
         (ME: forall m'', Mem.unrecord_stack_block m = Some m'' -> Mem.extends m'' m')
-        (STRUCT: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (tl (Mem.stack m)) (Mem.stack m')),
+        (STRUCT: stack_equiv (tl (Mem.stack m)) (Mem.stack m')),
       match_states
         (Cminor.Returnstate v (Cminor.Kcall optid f sp e k) m)
         (State f' Sskip k' sp (set_builtin_res (sel_builtin_res optid) v' e') m').
@@ -1071,6 +1071,8 @@ Proof.
 - (* Stailcall *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [P Q]].
   erewrite <- stackspace_function_translated in P by eauto.
+  exploit Mem.tailcall_stage_extends; eauto. inv SI. inv MSA1. eapply Mem.free_top_tframe_no_perm; eauto.
+  intros (m'2 & R & S).
   exploit sel_expr_correct; eauto. intros [vf' [A B]].
   exploit sel_exprlist_correct; eauto. intros [vargs' [C D]].
   exploit functions_translated; eauto. intros (cunit' & fd' & E & F & G).
@@ -1093,7 +1095,11 @@ Proof.
   eapply match_callstate with (cunit := cunit'); eauto.
   eapply call_cont_commut; eauto.
   repeat rewrite_stack_blocks; eauto.
-
+  intros I J; rewrite I , J in STRUCT. inv STRUCT; constructor; auto.
+  red. simpl. split; auto.
+  red. destruct LF2 as (LF1 & LF2).
+  red in LF1. repeat destr_in LF1; simpl; constructor; auto.
+  
 - (* Sbuiltin *)
   exploit sel_builtin_args_correct; eauto. intros [vargs' [P Q]].
   exploit external_call_mem_extends; eauto. apply Mem.extends_push; eauto.
@@ -1174,39 +1180,18 @@ Proof.
   monadInv TF. generalize EQ; intros TF; monadInv TF.
   exploit Mem.alloc_extends. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros [m2' [A B]].
-  exploit Mem.record_stack_blocks_extends. 2: eauto.
-  eauto.
-  {
-    unfold in_frame. simpl. intros ? [?|[]]; subst.
-    intro IFF.
-    erewrite Mem.alloc_stack_blocks in IFF; eauto.
-    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
-  }
-  {
-    intros b fi o kk p INF. destruct INF as [AA|[]]; simpl in AA; inv AA.
-    simpl.
-    rewrite_perms. rewrite peq_true. simpl; intros; rewrite Z.max_r; omega.
-  }
-  {
-    inv SI. inv TOPNOPERM.
-    rewrite_stack_blocks. rewrite <- H1. constructor.
-    red in H2. red.
-    intros. intro P.
-    eapply Mem.perm_alloc_inv in P; eauto.
-    destr_in P. subst.
-    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
-    eapply Mem.fresh_block_alloc; eauto.
-    eapply H2 in P; eauto.
-  }
+  exploit Mem.record_push_extends_flat_alloc. apply H. apply A. all: eauto.
+  inv SI. auto.
   repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   intros (m2'' & C & D).
   left; econstructor; split.
   econstructor; simpl; eauto.
   econstructor; simpl; eauto. apply set_locals_lessdef. apply set_params_lessdef; auto.
   repeat rewrite_stack_blocks.
-  revert EQ1 EQ3; repeat rewrite_stack_blocks.
-  intros EQ1 EQ3; rewrite EQ1, EQ3 in STRUCT.
-  inv STRUCT; constructor; eauto. repeat constructor; auto.
+  intros EQ1 EQ4; rewrite EQ1, EQ4 in STRUCT.
+  inv STRUCT; constructor; eauto.
+  destruct LF2 as (LF1 & LF2).
+  split; simpl. reflexivity. auto.
 
 - (* external call *)
   destruct TF as (hf & HF & TF). 

@@ -48,6 +48,7 @@ Require Linearize.
 Require CleanupLabels.
 Require Debugvar.
 Require Stacking.
+Require Mach2Mach2.
 Require Asmgen.
 (** Proofs of semantic preservation. *)
 Require SimplExprproof.
@@ -69,7 +70,6 @@ Require Linearizeproof.
 Require CleanupLabelsproof.
 Require Debugvarproof.
 Require Stackingproof.
-Require Mach2Mach2.
 Require Asmgenproof.
 Require RawAsmproof.
 (** Command-line flags. *)
@@ -407,12 +407,14 @@ Proof.
   simpl. apply StackADT.frame_size_pos.
 Qed.
 
+Definition mk_init_stk {F V} (p: AST.program F V) : StackADT.stack :=
+  (Some (StackADT.make_singleton_frame_adt
+           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv p)) 0 0), nil) :: nil .
+
 Theorem cstrategy_semantic_preservation:
   forall p tp,
     match_prog p tp ->
-    let init_stk :=
-        (StackADT.make_singleton_frame_adt
-           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
+    let init_stk := mk_init_stk tp in
   forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics tp init_stk)
   /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (Asm.semantics tp init_stk).
 Proof.
@@ -487,9 +489,10 @@ Ltac DestructM :=
       eapply match_program_no_more_functions in Heqo0; eauto. rewrite Heqo0. auto.
     }
   eapply compose_forward_simulations.
-    eapply Mach2Mach2.mach2_simulation.
+    instantiate (1 := Mach.semantics2 Asmgenproof0.return_address_offset p20).
+    apply Mach2Mach2.mach2_simulation.
     eapply Stackingproof.stacking_frame_correct; eauto.
-    subst. unfold init_stk.
+    subst. unfold init_stk, mk_init_stk.
     replace (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp))
       with (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv p20)).
     eapply Asmgenproof.transf_program_correct. eassumption.
@@ -512,9 +515,7 @@ Theorem cstrategy_semantic_preservation_raw:
   /\ backward_simulation (atomic (Cstrategy.semantics (fn_stack_requirements tp) p)) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef)).
 Proof.
   intros p tp M NORSP.
-  set (init_stk :=
-         (StackADT.make_singleton_frame_adt
-            (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil).
+  set (init_stk := mk_init_stk tp).
   assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics tp init_stk)).
   {
     eapply cstrategy_semantic_preservation; eauto.
@@ -556,9 +557,7 @@ Qed.
 Theorem c_semantic_preservation:
   forall p tp,
     match_prog p tp ->
-    let init_stk :=
-        (StackADT.make_singleton_frame_adt
-           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
+    let init_stk := mk_init_stk tp in
   backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (Asm.semantics tp init_stk).
 Proof.
   intros.
@@ -601,9 +600,7 @@ Qed.
 Theorem transf_c_program_correct:
   forall p tp,
     transf_c_program p = OK tp ->
-    let init_stk :=
-        (StackADT.make_singleton_frame_adt
-           (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv tp)) 0 0 :: nil) :: nil in
+    let init_stk := mk_init_stk tp in
   backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (Asm.semantics tp init_stk).
 Proof.
   intros. apply c_semantic_preservation. apply transf_c_program_match; auto.
@@ -636,9 +633,7 @@ Theorem separate_transf_c_program_correct:
   exists asm_program, 
       link_list asm_units = Some asm_program
       /\
-      let init_stk :=
-          (StackADT.make_singleton_frame_adt
-             (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv asm_program)) 0 0 :: nil) :: nil in
+      let init_stk := mk_init_stk asm_program in
       backward_simulation (Csem.semantics (fn_stack_requirements asm_program) c_program) (Asm.semantics asm_program init_stk).
 Proof.
   intros. 
@@ -657,9 +652,7 @@ Theorem separate_transf_c_program_correct_raw:
   exists asm_program, 
       link_list asm_units = Some asm_program
       /\
-      let init_stk :=
-          (StackADT.make_singleton_frame_adt
-             (Globalenvs.Genv.genv_next (Globalenvs.Genv.globalenv asm_program)) 0 0 :: nil) :: nil in
+      let init_stk := mk_init_stk asm_program in
       backward_simulation (Csem.semantics (fn_stack_requirements asm_program) c_program) (RawAsm.semantics asm_program
                                                                                                            (Asm.Pregmap.init Values.Vundef)
                                                                                          ).

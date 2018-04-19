@@ -1408,8 +1408,9 @@ Fixpoint nostackinfo (adt: stack) (k: cont) : Prop :=
   | Kblock k => nostackinfo adt k
   | Kcall oi f e te k =>
     match adt with
-    | (a)::r => nostackinfo r k /\
-                  Forall (fun a => Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)) a
+    | (f, _)::r => nostackinfo r k /\
+                  forall a , f = Some a ->
+                        Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)
     | _ => False
     end
   end.
@@ -1432,7 +1433,7 @@ Inductive match_states: Clight.state -> Csharpminor.state -> Prop :=
           (TR: match_fundef cu fd tfd)
           (MK: match_cont ce Tvoid 0%nat 0%nat k tk)
           (ISCC: Clight.is_call_cont k)
-          (HDNIL: hd_error (Mem.stack m) = Some nil)
+          (HDNIL: top_tframe_tc (Mem.stack m))
           (TOPNOINFO: nostackinfo (tl (Mem.stack m)) tk)
           (TY: type_of_fundef fd = Tfunction targs tres cconv),
       match_states (Clight.Callstate fd args k m sz)
@@ -1661,7 +1662,7 @@ Proof.
     * simpl in TOPNOINFO.
       repeat destr_in TOPNOINFO.
       unfold is_stack_top. simpl. intros. destr_in H6.
-      rewrite Forall_forall in H4.
+      red in i. simpl in i. destruct o; simpl in H5; try easy.
       eapply get_assoc_tframes_in in H6.
       destruct H6 as (fa & IN & INblocks).
       specialize (H4  _ IN). rewrite Forall_forall in H4.
@@ -1692,7 +1693,7 @@ Proof.
   econstructor; eauto.
   eapply match_Kcall with (ce := prog_comp_env cu') (cu := cu); eauto.
   simpl. auto.
-  rewrite_stack_blocks. simpl tl. auto.
+  rewrite_stack_blocks. constructor. reflexivity.
   rewrite_stack_blocks. simpl tl. auto.
 
 - (* builtin *)
@@ -1886,10 +1887,9 @@ Proof.
   simpl. econstructor; eauto.
   unfold transl_function. rewrite EQ; simpl. rewrite EQ1; simpl. auto.
   constructor. repeat rewrite_stack_blocks.
-  revert EQ0.
   erewrite alloc_variables_stack. 2: eauto. intro EQ0; rewrite EQ0 in TOPNOINFO. simpl in TOPNOINFO; auto.
   split; auto. rewrite EQ0 in HDNIL. simpl in HDNIL. inv HDNIL.
-  constructor; auto.
+  intros a AA; inv AA.
   rewrite H4. rewrite Forall_forall. unfold Clight.blocks_with_info. 
   intros x1. rewrite in_map_iff.
   intros (((b2 & lo) & hi) & EQ3 & IN).
@@ -1927,7 +1927,7 @@ Proof.
   destruct TRANSL as (DEF & MAIN & PUBLIC).
   rewrite MAIN. simpl.
   econstructor; eauto. instantiate (1 := prog_comp_env cu). constructor; auto. exact I.
-  rewrite_stack_blocks. reflexivity.
+  rewrite_stack_blocks. constructor; reflexivity.
   simpl; auto.
 Qed.
 

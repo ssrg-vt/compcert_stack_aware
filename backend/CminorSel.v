@@ -368,14 +368,15 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Scall optid sig a bl) k sp e m)
         E0 (Callstate fd vargs (Kcall optid f sp e k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
-  | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' id (IFI: is_function_ident ge vf id),
+  | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' m'' id (IFI: is_function_ident ge vf id),
       eval_expr_or_symbol (Vptr sp Ptrofs.zero) e m nil a vf ->
       eval_exprlist (Vptr sp Ptrofs.zero) e m nil bl vargs ->
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
+      Mem.tailcall_stage m' = Some m'' ->
       step (State f (Stailcall sig a bl) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Callstate fd vargs (call_cont k) m' (fn_stack_requirements id))
+        E0 (Callstate fd vargs (call_cont k) m'' (fn_stack_requirements id))
 
   | step_builtin: forall f res ef al k sp e m vl t v m' m'',
       list_forall2 (eval_builtin_arg sp e m) al vl ->
@@ -455,14 +456,13 @@ Inductive step: state -> trace -> state -> Prop :=
 End RELSEM.
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall b f m0 m1 b1 m2,
+  | initial_state_intro: forall b f m0 m2,
       let ge := Genv.globalenv p in
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some b ->
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
-      Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      Mem.record_init_sp m0 = Some m2 ->
       initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 Inductive final_state: state -> int -> Prop :=
@@ -605,7 +605,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
                          (MSA1: match_stack (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack m)),
       stack_inv (State f s k (Vptr sp o) e m)
   | stack_inv_call: forall k fd args m sz
-                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack m))
+                      (TOPNOPERM: top_tframe_tc (Mem.stack m))
                       (MSA1: match_stack (funs_of_cont k) (tl (Mem.stack m))),
       stack_inv (Callstate fd args k m sz)
   | stack_inv_return: forall k res m 
@@ -640,22 +640,13 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
     destruct 1; simpl; intros SI;
       inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
         try solve [inv MSA1; simpl; rewrite ?funs_of_call_cont; eauto].
-    - constructor; red; easy.
-    - erewrite <- Mem.free_stack_blocks by eauto.
-      eapply Mem.noperm_top.
-      rewrite_stack_blocks. inv MSA1.
-      intros b IFR o k0 p0 P.
-      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
-      eapply Mem.perm_free_2 in P; eauto.
-      exploit Mem.agree_perms_mem.
-      rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-      eapply Mem.perm_free_3 in P; eauto.
-      rewrite SIZE; auto.
-      intros RNG; rewrite Zmax_spec in RNG. destr_in RNG; omega.
+    - constructor; reflexivity.
+    - intro; constructor; reflexivity.
+    - inv MSA1; inversion 1; subst; simpl; auto.
+      rewrite funs_of_call_cont.  auto.
     - erewrite find_label_funs_of_cont by eauto.
       rewrite funs_of_call_cont.  auto.
-    - apply Mem.alloc_stack_blocks in H. clear H0.
-      rewrite <- H, EQ1 in *. simpl in *.
+    - intro EQ1; rewrite EQ1 in *.  simpl in *. 
       econstructor; eauto; reflexivity.
     - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite_stack_blocks. rewrite <- H4. econstructor; eauto.
   Qed.
@@ -666,7 +657,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
       stack_inv S.
   Proof.
     intros; inv INIT; econstructor.
-    rewrite_stack_blocks; constructor. red; easy.
+    rewrite_stack_blocks; constructor. reflexivity.
     constructor.
   Qed.
 

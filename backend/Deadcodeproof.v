@@ -562,8 +562,13 @@ Proof.
         rewrite H1 in H2; repeat destr_in H2
       end.
   - repeat constructor; auto.
-  - revert EQ1 EQ0. repeat rewrite_stack_blocks. intros A B; revert SEI; rewrite A, B. simpl.
-    inversion 1; subst. repeat constructor; auto.
+  - intros A B; revert SEI; rewrite A, B. simpl.
+    inversion 1; subst. repeat constructor; simpl; auto.
+    destruct LF2; simpl; auto.
+    red in H1; repeat destr_in H1; constructor; auto.
+  - intros A B; revert SEI; rewrite A, B. simpl.
+    inversion 1; subst. repeat constructor; simpl; auto.
+    destruct LF2; simpl; auto.
   - monadInv FUN.
   - monadInv FUN.
   - eauto using stack_equiv_tail.
@@ -724,6 +729,10 @@ Proof.
   exploit magree_free. eauto. constructor. eauto. instantiate (1 := nlive ge stk nmem_all).
   intros; eapply nlive_dead_stack; eauto.
   intros (tm' & C & D).
+  exploit Mem.magree_tailcall_stage; eauto. inv SI. inv MSA1.
+  eapply Mem.free_top_tframe_no_perm; eauto.
+  erewrite <- stacksize_translated; eauto.
+  intros (tm2' & E & F).
   econstructor; split.
   eapply exec_Itailcall; eauto.
   {
@@ -954,23 +963,8 @@ Proof.
   destruct (analyze (vanalyze cu f) f) as [an|] eqn:AN; inv EQ'.
   exploit Mem.alloc_extends; eauto. apply Zle_refl. apply Zle_refl.
   intros (tm' & A & B).
-  exploit Mem.record_stack_blocks_extends. 2: eauto.
-  eauto.
-  + unfold in_frame. simpl. intros ? [?|[]]; subst.
-    intro IFF.
-    erewrite Mem.alloc_stack_blocks in IFF; eauto.
-    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
-  + intros b fi o k0 p [AA|[]] P; inv AA.
-    revert P; rewrite_perms. rewrite peq_true. intros; simpl; rewrite Z.max_r; omega.
-  + inv SI. inv TOPNOPERM.
-    rewrite_stack_blocks. rewrite <- H1. constructor.
-    red in H2. red.
-    intros. intro P.
-    eapply Mem.perm_alloc_inv in P; eauto.
-    destr_in P. subst.
-    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
-    eapply Mem.fresh_block_alloc; eauto.
-    eapply H2 in P; eauto.
+  exploit Mem.record_push_extends_flat_alloc. apply H. apply A. all: eauto.
+  + inv SI. auto.
   + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   + intros (m2' & USB & EXT).
     econstructor; split.

@@ -416,7 +416,7 @@ Proof.
   apply function_ptr_translated; auto.
   rewrite <- H3. apply sig_preserved.
   eauto.
-  inv TRANSL. destruct H8 as (MAIN & PUB); rewrite MAIN; constructor. constructor.
+  inv TRANSL. destruct H7 as (MAIN & PUB); rewrite MAIN; constructor. constructor.
 Qed.
 
 Lemma transf_final_states:

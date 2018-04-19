@@ -1028,8 +1028,10 @@ Fixpoint nostackinfo (adt: stack) (k: cont) : Prop :=
   | Kswitch k => nostackinfo adt k
   | Kcall oi f e te k =>
     match adt with
-    | (a)::r => nostackinfo r k /\
-                  Forall (fun a => Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)) a
+    | (f,_)::r => nostackinfo r k /\
+                 forall a,
+                   f = Some a ->
+                   Forall (fun bfi => forall o, frame_perm (snd bfi) o = Public) (frame_adt_blocks a)
     | _ => False
     end
   end.
@@ -1052,7 +1054,7 @@ Inductive match_states: Csem.state -> state -> Prop :=
   | match_callstates: forall fd args k m tfd tk sz (SZpos: 0 <= sz),
       tr_fundef fd tfd ->
       match_cont k tk ->
-      hd_error (Mem.stack m) = Some nil ->
+      top_tframe_tc (Mem.stack m) ->
       nostackinfo (tl (Mem.stack m)) tk ->
       match_states (Csem.Callstate fd args k m sz)
                    (Callstate tfd args tk m sz)
@@ -1444,11 +1446,13 @@ Proof.
   intros m oi tf e le tk NSI b IST fi GFI o.
   simpl in NSI. destr_in NSI. unfold is_stack_top, get_frames_blocks in IST.
   simpl in *. intros.
+  destruct t; simpl in *.
   destruct NSI as [_ F].
-  rewrite Forall_forall in F.
+  unfold get_frames_blocks in IST. simpl in IST.
+  destruct o0; try easy. simpl in *.
+  specialize (F _ eq_refl).
   destr_in GFI. edestruct get_assoc_tframes_in as (ff & INFl & INblocks); eauto.
-  specialize (F _ INFl).
-  rewrite Forall_forall in F.
+  rewrite Forall_forall in F. simpl in INFl. inv INFl.
   specialize (F _ INblocks).
   eapply F; eauto.
   exfalso; apply n. apply IST.
@@ -1980,8 +1984,8 @@ Proof.
   traceEq.
   constructor; auto. econstructor; eauto.
   intros. change sl2 with (nil ++ sl2). apply S.
-  constructor. auto. auto. rewrite_stack_blocks. reflexivity.
-  rewrite_stack_blocks. simpl tl. simpl in *; auto. destr_in H14. destruct H14; split; auto.
+  constructor. auto. auto. rewrite_stack_blocks. constructor; reflexivity.
+  rewrite_stack_blocks. simpl tl. simpl in *; auto. destr_in H14. destruct t; simpl in *. destruct H14; split; auto.
   apply nostackinfo_kseqlist; auto.
   (* for value *)
   exploit tr_simple_rvalue; eauto. intros [SL1 [TY1 EV1]].
@@ -2006,7 +2010,7 @@ Proof.
   auto. intros. constructor. rewrite H5; auto. apply PTree.gss.
   intros. apply PTree.gso. intuition congruence.
   auto.
-  rewrite_stack_blocks; auto.
+  rewrite_stack_blocks; auto. constructor; reflexivity.
   rewrite_stack_blocks; simpl in *; auto. repeat destr_in H14. split; auto.
   apply nostackinfo_kseqlist. auto.
 
@@ -2387,10 +2391,10 @@ Proof.
   eauto.
   constructor; auto.
   erewrite bind_parameters_stack; eauto. rewrite_stack_blocks.
-  erewrite alloc_variables_stack in EQ1; eauto.
+  erewrite alloc_variables_stack; eauto. intro EQ1.
   rewrite EQ1 in H14. simpl in H14.
   simpl. split; auto.
-  rewrite EQ1 in H13; inv H13. repeat constructor. rewrite H1.
+  rewrite EQ1 in H13; inv H13. intros a A; inv A. rewrite H1.
   rewrite Forall_forall; setoid_rewrite in_map_iff.
   intros (b & fi) (blohi & EQ & IN). repeat destr_in EQ. reflexivity.
 
@@ -2408,7 +2412,7 @@ Proof.
   left; apply plus_one. constructor. eauto.
   econstructor; eauto.
   rewrite_stack_blocks. simpl in *; auto.
-  destr_in H5; auto. destruct H5; split; auto.
+  destr_in H5; auto. destr. destruct H5; split; auto.
   eapply nostackinfo_kseqlist'; eauto.
 Qed.
 
@@ -2445,7 +2449,7 @@ Proof.
   eauto. eauto.
   destruct TRANSL as ((_ & MAIN & _) & _).
   setoid_rewrite MAIN. constructor. auto. auto. constructor.
-  rewrite_stack_blocks. reflexivity.
+  rewrite_stack_blocks. constructor; reflexivity.
   constructor.
 Qed.
 

@@ -194,13 +194,14 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State s f sp (Lcall sig ros :: b) rs m)
         E0 (Callstate (Stackframe f sp rs b:: s) f' rs (Mem.push_new_stage m) (fn_stack_requirements id))
   | exec_Ltailcall:
-      forall s f stk sig ros b rs m rs' f' m' id (IFI: ros_is_function ros rs' id),
+      forall s f stk sig ros b rs m rs' f' m' m'' id (IFI: ros_is_function ros rs' id),
       rs' = return_regs (parent_locset s) rs ->
       find_function ge ros rs' = Some f' ->
       sig = funsig f' ->
       Mem.free m stk 0 f.(fn_stacksize) = Some m' ->
+      Mem.tailcall_stage m' = Some m'' ->
       step (State s f (Vptr stk Ptrofs.zero) (Ltailcall sig ros :: b) rs m)
-        E0 (Callstate s f' rs' m' (fn_stack_requirements id))
+        E0 (Callstate s f' rs' m'' (fn_stack_requirements id))
   | exec_Lbuiltin:
       forall s f sp rs m ef args res b vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
@@ -297,28 +298,6 @@ Inductive nextblock_properties_linear: state -> Prop :=
       nextblock_properties_linear (Returnstate cs ls m).
 
 
-Ltac rewnb :=
-  repeat
-    match goal with
-    | H: Mem.store _ _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_store _ _ _ _ _ _ H)
-    | H: Mem.storev _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.storev_nextblock _ _ _ _ _ H)
-    | H: Mem.free _ _ _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_free _ _ _ _ _ H)
-    | H: Mem.alloc _ _ _ = (?m,_) |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.nextblock_alloc _ _ _ _ _ H)
-    | H: Mem.record_stack_blocks _ _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.record_stack_block_nextblock _ _ _ H)
-    | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
-    | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
-    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
-      eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
-    | H: external_call _ _ _ ?m1 _ _ ?m2 |- Ple _ (Mem.nextblock ?m2) =>
-      eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
-    end.
-
 Lemma bounds_stack_perm:
   forall s m (BS: bounds_stack m s)
     m' (PERM: forall b ofs p, Mem.valid_block m b -> Mem.perm m' b ofs Max p -> Mem.perm m b ofs Max p)
@@ -409,7 +388,10 @@ Proof.
   eapply bounds_stack_store; eauto.
   apply bounds_stack_push.
   constructor; auto.
+  eapply bounds_stack_perm.
   eapply bounds_stack_free; eauto.
+  intros b0 ofs p VB2; repeat rewrite_perms. tauto.
+  rewnb. xomega.
   intros; eapply PERM_stack. eapply Mem.unrecord_stack_block_perm in H2. 2: eauto.
   eapply external_call_max_perm in H2. 2: eauto.
   rewrite Mem.push_new_stage_perm in H2. eauto.
@@ -440,14 +422,13 @@ Qed.
 End RELSEM.
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall b f m0 m1 b1 m2,
+  | initial_state_intro: forall b f m0 m2,
       let ge := Genv.globalenv p in
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some b ->
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
-      Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      Mem.record_init_sp m0 = Some m2 ->
       initial_state p (Callstate nil f (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 Inductive final_state: state -> int -> Prop :=

@@ -3649,6 +3649,24 @@ Proof.
   intros. eauto with mem.
 Qed.
 
+Lemma romatch_tailcall:
+  forall m m' rm,
+  Mem.tailcall_stage m  = Some m' ->
+  romatch m rm ->
+  romatch m' rm.
+Proof.
+  intros. apply romatch_ext with m; auto.
+  intros.   destruct (zlt 0 n).
+  erewrite <- Mem.loadbytes_unchanged_on_1 with (P:=fun _ _ => True). eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.tailcall_stage_unchanged_on; eauto.
+  red. erewrite <- Mem.tailcall_stage_nextblock; eauto.
+  eapply Mem.loadbytes_range_perm in H2.
+  specialize (H2 ofs). eapply Mem.perm_valid_block. apply H2. omega. auto.
+  rewrite Mem.loadbytes_empty in H2 by omega. inv H2.
+  rewrite Mem.loadbytes_empty; auto. omega.
+  intros. erewrite <- Mem.tailcall_stage_perm; eauto.
+Qed.
+
 Lemma romatch_unrecord:
   forall m m' rm,
   Mem.unrecord_stack_block m  = Some m' ->
@@ -4103,6 +4121,24 @@ Proof.
   erewrite <- Mem.nextblock_free by eauto. xomega.
 Qed.
 
+
+Lemma mmatch_tailcall:
+  forall m m' rm,
+  Mem.tailcall_stage m  = Some m' ->
+  mmatch m rm ->
+  mmatch m' rm.
+Proof.
+  intros. apply mmatch_ext with m; auto.
+  intros.   destruct (zlt 0 n).
+  erewrite <- Mem.loadbytes_unchanged_on_1 with (P:=fun _ _ => True). eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.tailcall_stage_unchanged_on; eauto.
+  red. erewrite <- Mem.tailcall_stage_nextblock; eauto.
+  eapply Mem.loadbytes_range_perm in H3.
+  specialize (H3 ofs). eapply Mem.perm_valid_block. apply H3. omega. auto.
+  rewrite Mem.loadbytes_empty in H3 by omega. inv H3.
+  rewrite Mem.loadbytes_empty; auto. omega.
+  rewrite (Mem.tailcall_stage_nextblock _ _ H); xomega.
+Qed.
 
 Lemma mmatch_unrecord:
   forall m m' rm,

@@ -1236,6 +1236,23 @@ Proof.
   eapply Mem.loadbytes_free_2; eauto.
 Qed.
 
+Lemma sound_stack_tailcall:
+  forall m m' bc stk bound,
+  Mem.tailcall_stage m = Some m' ->
+  sound_stack bc stk m bound ->
+  sound_stack bc stk m' bound.
+Proof.
+  intros. eapply sound_stack_ext; eauto. intros.
+  destruct (zlt 0 n).
+  erewrite <- Mem.loadbytes_unchanged_on_1 with (P:=fun _ _ => True). eauto.
+  eapply Mem.strong_unchanged_on_weak, Mem.tailcall_stage_unchanged_on; eauto.
+  red. rewnb.
+  eapply Mem.loadbytes_range_perm in H4.
+  specialize (H4 ofs). trim H4. omega. revert H4; rewrite_perms. eapply Mem.perm_valid_block. auto.
+  rewrite Mem.loadbytes_empty in H4 by omega. inv H4.
+  rewrite Mem.loadbytes_empty; auto. omega.
+Qed.
+
 Lemma sound_stack_unrecord:
   forall m m' bc stk bound,
   Mem.unrecord_stack_block m = Some m' ->
@@ -1442,16 +1459,17 @@ Proof.
 - (* tailcall *)
   exploit anonymize_stack; eauto. intros (bc' & A & B & C & D & E & F & G).
   apply sound_call_state with bc'; auto.
-  erewrite Mem.nextblock_free by eauto.
+  rewnb.
   apply sound_stack_new_bound with stk.
   apply sound_stack_exten with bc.
+  eapply sound_stack_tailcall; eauto.
   eapply sound_stack_free; eauto.
   intros. apply C. apply Plt_ne; auto.
   apply Plt_Ple. eapply mmatch_below; eauto. congruence.
   intros. exploit list_in_map_inv; eauto. intros (r & P & Q). subst v.
   apply D with (areg ae r). auto with va.
-  eapply romatch_free; eauto.
-  eapply mmatch_free; eauto.
+  eapply romatch_tailcall; eauto. eapply romatch_free; eauto.
+  eapply mmatch_tailcall; eauto. eapply mmatch_free; eauto.
 
 - (* builtin *)
   assert (SPVALID: Plt sp0 (Mem.nextblock m)) by (eapply mmatch_below; eauto with va).
@@ -2146,20 +2164,23 @@ Proof.
 - constructor.
 - simpl; tauto.
 - eapply romatch_push.
+  unfold Mem.record_init_sp in H3; destr_in H3.
   eapply romatch_record; eauto.
-  eapply romatch_push.
-  eapply romatch_alloc; eauto.
+  eapply romatch_alloc; eauto. revert BELOW; rewnb; eauto.
+  eapply romatch_push; eauto.
 - eapply mmatch_push.
+  unfold Mem.record_init_sp in H3; destr_in H3.
   eapply mmatch_record; eauto.
-  eapply mmatch_push.
   eapply mmatch_alloc; eauto.
-  eapply mmatch_inj_top with (m:=m0).
+  eapply mmatch_push; eauto.
+  eapply mmatch_inj_top with (m':=m0).
   replace (inj_of_bc bc) with (Mem.flat_inj (Mem.nextblock m0)).
   eapply Genv.initmem_inject; eauto.
   symmetry; apply extensionality; unfold Mem.flat_inj; intros x.
   destruct (plt x (Mem.nextblock m0)).
   apply inj_of_bc_valid; auto.
   unfold inj_of_bc. erewrite bc_below_invalid; eauto.
+  revert BELOW; rewnb; auto.
 - exact GE.
 - exact NOSTACK.
 Qed.

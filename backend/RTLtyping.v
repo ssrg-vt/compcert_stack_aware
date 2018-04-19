@@ -965,7 +965,7 @@ Proof.
     discriminate.
   econstructor; eauto.
   inv WTI. apply wt_stackframes_change_sig with (fn_sig f); auto.
-  inv WTI. rewrite <- H7. apply wt_regset_list. auto.
+  inv WTI. rewrite <- H8. apply wt_regset_list. auto.
   (* Ibuiltin *)
   econstructor; eauto. eapply wt_exec_Ibuiltin; eauto.
   (* Icond *)

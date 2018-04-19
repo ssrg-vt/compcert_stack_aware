@@ -365,7 +365,7 @@ Proof.
   rewrite (match_program_main TRANSL), symbols_preserved; eauto.
   apply function_ptr_translated; auto.
   rewrite sig_function_translated. auto. eauto. eauto.
-  inv TRANSL. destruct H6 as (MAIN & PUB); rewrite MAIN; constructor; auto. constructor.
+  rewrite (match_program_main TRANSL); constructor; auto. constructor.
 Qed.
 
 Lemma transf_final_states:
