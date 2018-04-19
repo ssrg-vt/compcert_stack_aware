@@ -100,7 +100,12 @@ Section WITHGE.
           (SP_NOT_VUNDEF: rs RSP <> Vundef)
           (RA_NOT_VUNDEF: rs RA <> Vundef), 
           external_call ef ge args m t res m' ->
-          rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
+          rs' = (set_pair (loc_external_result (ef_sig ef)) res
+                          (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil)
+                                      (undef_regs (map preg_of destroyed_at_call) rs)))
+                  #PC <- (rs RA)
+                  #RA <- Vundef
+                  #RSP <- (Val.offset_ptr (rs RSP) (Ptrofs.repr (size_chunk Mptr))) ->
           step (State rs m) t (State rs' m').
 
 End WITHGE.

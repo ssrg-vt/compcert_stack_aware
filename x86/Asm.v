@@ -1078,7 +1078,13 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pcall_s id sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m)
   | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) (Mem.push_new_stage m)
+    match rs r with
+      Vptr b o =>
+      if Ptrofs.eq_dec o Ptrofs.zero
+      then Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) (Mem.push_new_stage m)
+      else Stuck
+    | _ => Stuck
+    end
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)

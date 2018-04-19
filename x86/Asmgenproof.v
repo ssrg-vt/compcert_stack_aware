@@ -796,7 +796,7 @@ Opaque loadind.
   left; econstructor; split.
   apply plus_one. eapply exec_step_internal. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
-  unfold exec_instr; simpl. eauto.
+  unfold exec_instr; simpl. rewrite H7. apply pred_dec_true. auto.
   econstructor; eauto.
   econstructor; eauto.
   apply Mem.extends_push. auto.

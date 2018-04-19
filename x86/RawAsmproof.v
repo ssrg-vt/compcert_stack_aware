@@ -944,19 +944,19 @@ Section WITHMEMORYMODEL.
         * rewrite_stack_blocks. simpl; auto.
         * red. auto.
       + (* call_r *)
-        inv EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
+        repeat destr_in EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
         * instantiate (1:= (None,nil)::lprog). simpl. eapply Mem.inject_push_new_stage_left; eauto.
         * rewrite_stack_blocks. rewrite STK; auto. 
         * intros; apply val_inject_set; auto.
           intros; apply val_inject_set; auto.
-          apply Val.offset_ptr_inject; auto.
+          apply Val.offset_ptr_inject; auto. rewrite <- Heqv; auto.
         * red. rewrite_stack_blocks. simpl.
           repeat rewrite Pregmap.gso by congruence.
           rewrite Z.add_0_r. eauto.
-        * red. intros b delta o k p. rewrite_perms. rewrite_stack_blocks. rewrite in_stack_cons.
+        * red. intros bb delta o k p. rewrite_perms. rewrite_stack_blocks. rewrite in_stack_cons.
           intros. exploit NIB; eauto. tauto.
         * rewrite_stack_blocks. constructor. eapply inject_stack_more_perm. 2: eauto. intros; rewrite_perms; auto.
-        * red. rewrite_stack_blocks. simpl. intros b fi delta H H0 b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
+        * red. rewrite_stack_blocks. simpl. intros bb fi delta H H0 b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
         * rewnb. auto.
         * rewrite_stack_blocks. simpl; auto.
         * red. auto.
