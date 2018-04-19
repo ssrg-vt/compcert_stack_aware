@@ -152,14 +152,13 @@ Remark mk_shrxlimm_label:
   forall n k c, mk_shrxlimm n k = OK c -> tail_nolabel k c.
 Proof.
   intros. unfold mk_shrxlimm in H. monadInv H. 
-  unfold code_to_with_info; simpl. 
-  destruct (Int.eq n Int.zero); unfold instr_to_with_info; simpl; TailNoLabel.
+  destruct (Int.eq n Int.zero); simpl; TailNoLabel.
 Qed.
 Hint Resolve mk_shrxlimm_label: labels.
 
 Remark mk_intconv_label:
   forall f r1 r2 k c, mk_intconv f r1 r2 k = OK c ->
-  (forall r r', nolabel (instr_to_with_info (f r r'))) ->
+  (forall r r', nolabel (f r r')) ->
   tail_nolabel k c.
 Proof.
   unfold mk_intconv; unfold Asmgen.mk_intconv; intros.
@@ -263,7 +262,7 @@ Qed.
 Lemma transl_instr_label:
   forall f i ep k c,
   transl_instr f i ep k = OK c ->
-  match i with Mlabel lbl => c = instr_to_with_info (Plabel lbl) :: k | _ => tail_nolabel k c end.
+  match i with Mlabel lbl => c = (Plabel lbl) :: k | _ => tail_nolabel k c end.
 Proof.
 Opaque loadind.
   unfold transl_instr; unfold Asmgen.transl_instr; intros; destruct i; TailNoLabel.
@@ -621,14 +620,14 @@ Qed.
       (LP: call_stack_consistency ge init_sg init_stk (Mach.State s fb (Vptr sp Ptrofs.zero) c ms1 m1))
       m2 (EQSTK: Mem.stack m1 = Mem.stack m2),
       exists rs2 sp,
-        exec_straight init_stk tge fn (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
+        exec_straight init_stk tge fn ((Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
         is_ptr (parent_sp (Mem.stack m1)) = Some sp /\
         rs2 rd = sp /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
   Proof.
     intros.
     destruct PISP_DEF as (bisp & PISP_DEF).
     exists (nextinstr (rs1#rd <- (parent_sp (Mem.stack m1))) 
-                 (Ptrofs.repr (instr_size (instr_to_with_info (Pload_parent_pointer rd (frame_size (Mach.fn_frame f))))))), (Vptr bisp Ptrofs.zero).
+                 (Ptrofs.repr (instr_size ((Pload_parent_pointer rd (frame_size (Mach.fn_frame f))))))), (Vptr bisp Ptrofs.zero).
     split; [|split].
     - constructor.
       + unfold exec_instr. simpl. destr. destr.
@@ -650,11 +649,6 @@ Qed.
       + rewrite Pregmap.gso by congruence; auto.
       + intro; subst. contradict H; simpl; congruence.
   Qed.
-
-Lemma instr_size_eq : forall i, instr_size_map i = instr_size (instr_to_with_info i).
-Proof.
-  intros. unfold Asmgen.instr_to_with_info. unfold instr_size. simpl. reflexivity.
-Qed.
 
 Theorem step_simulation:
   forall S1 t S2, Mach.step init_ra return_address_offset invalidate_frame2 ge S1 t S2 ->
@@ -795,7 +789,7 @@ Opaque loadind.
   assert (rs0 x0 = Vptr f' Ptrofs.zero).
     exploit ireg_val; eauto. rewrite H5; intros LD; inv LD; auto.
   generalize (code_tail_next_int _ _ _ _ NOOV H6). intro CT1.
-  set (sz:=(Ptrofs.repr (instr_size (Asmgen.instr_to_with_info (Pcall_r x0 sig))))).
+  set (sz:=(Ptrofs.repr (instr_size ((Pcall_r x0 sig))))).
   assert (TCA: transl_code_at_pc ge (Vptr fb (Ptrofs.add ofs sz)) fb f c false tf x).
     econstructor; eauto.
   exploit return_address_offset_correct; eauto. intros; subst ra.
@@ -815,7 +809,7 @@ Opaque loadind.
 
 + (* Direct call *)
   generalize (code_tail_next_int _ _ _ _ NOOV H6). intro CT1.
-  set (sz:=(Ptrofs.repr (instr_size (Asmgen.instr_to_with_info (Pcall_s fid sig))))).
+  set (sz:=(Ptrofs.repr (instr_size ((Pcall_s fid sig))))).
   assert (TCA: transl_code_at_pc ge (Vptr fb (Ptrofs.add ofs sz)) fb f c false tf x).
     econstructor; eauto.
   exploit return_address_offset_correct; eauto. intros; subst ra.
@@ -980,7 +974,7 @@ assert (IST: is_stack_top (Mem.stack m'0) stk).
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
                    (instr_size
-                      (Asmgen.instr_to_with_info (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
+                      ((Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
   transitivity (Val.offset_ptr rs0#PC sz). 
   apply frame_size_correct in FIND. rewrite <- FIND. auto. 
   rewrite <- H4. simpl. eauto.
@@ -1013,8 +1007,7 @@ assert (IST: is_stack_top (Mem.stack m'0) stk).
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
                    (instr_size
-                      (Asmgen.instr_to_with_info
-                         (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
+                      (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0))))) in *.
   transitivity (Val.offset_ptr rs0#PC sz).
   apply frame_size_correct in FIND. rewrite <- FIND. auto. 
   rewrite <- H4. simpl. eauto.
@@ -1053,7 +1046,6 @@ assert (IST: is_stack_top (Mem.stack m'0) stk).
       unfold nextinstr_nf, nextinstr. rewrite Pregmap.gss.
       rewrite undef_regs_other. rewrite set_res_other. rewrite undef_regs_other_2.
       rewrite <- H2. simpl. econstructor; eauto.
-      rewrite instr_size_eq in *.
       eapply code_tail_next_int; eauto.
       rewrite preg_notin_charact. intros. auto with asmgen.
       auto with asmgen.
@@ -1089,7 +1081,7 @@ assert (IST: is_stack_top (Mem.stack m'0) stk).
   rewrite EC in B.
   destruct (testcond_for_condition cond); simpl in *.
 (* simple jcc *)
-  exists (instr_to_with_info (Pjcc c1 lbl)); exists k; exists rs'.
+  exists ((Pjcc c1 lbl)); exists k; exists rs'.
   split. eexact A.
   split. eapply agree_exten; eauto.
   unfold exec_instr; simpl. rewrite B. auto.
@@ -1098,14 +1090,14 @@ assert (IST: is_stack_top (Mem.stack m'0) stk).
   destruct (eval_testcond c2 rs') as [b2|] eqn:TC2; inv B.
   destruct b1.
   (* first jcc jumps *)
-  exists (instr_to_with_info (Pjcc c1 lbl)); exists (instr_to_with_info (Pjcc c2 lbl) :: k); exists rs'.
+  exists ((Pjcc c1 lbl)); exists ((Pjcc c2 lbl) :: k); exists rs'.
   split. eexact A.
   split. eapply agree_exten; eauto.
   unfold exec_instr; simpl. rewrite TC1. auto.
   (* second jcc jumps *)
-  exists (instr_to_with_info (Pjcc c2 lbl)); exists k; exists (nextinstr rs' (instr_size_in_ptrofs (Pjcc c1 lbl))).
+  exists ((Pjcc c2 lbl)); exists k; exists (nextinstr rs' (instr_size_in_ptrofs (Pjcc c1 lbl))).
   split. eapply exec_straight_trans. eexact A.
-  eapply exec_straight_one. unfold exec_instr; simpl. rewrite TC1. rewrite <- instr_size_eq. auto. auto.
+  eapply exec_straight_one. unfold exec_instr; simpl. rewrite TC1. auto. auto.
   split. eapply agree_exten; eauto.
   intros; Simplifs.
   unfold exec_instr; simpl. rewrite eval_testcond_nextinstr. rewrite TC2.
@@ -1114,7 +1106,7 @@ assert (IST: is_stack_top (Mem.stack m'0) stk).
   destruct (eval_testcond c1 rs') as [b1|] eqn:TC1;
   destruct (eval_testcond c2 rs') as [b2|] eqn:TC2; inv B.
   destruct (andb_prop _ _ H3). subst.
-  exists (instr_to_with_info (Pjcc2 c1 c2 lbl)); exists k; exists rs'.
+  exists ((Pjcc2 c1 c2 lbl)); exists k; exists rs'.
   split. eexact A.
   split. eapply agree_exten; eauto.
   unfold exec_instr; simpl. rewrite TC1; rewrite TC2; auto.
@@ -1247,9 +1239,9 @@ Transparent destroyed_by_jumptable.
 
     apply star_one. eapply exec_step_internal.
     transitivity (Val.offset_ptr rs0#PC (instr_size_in_ptrofs (Pfreeframe (fn_stacksize tf0) (fn_retaddr_ofs tf0)))). 
-    rewrite <- instr_size_eq. auto. rewrite <- H3. simpl. eauto.
+    auto. rewrite <- H3. simpl. eauto.
     eapply functions_transl; eauto. 
-    eapply find_instr_tail. rewrite <- instr_size_eq in CT1. unfold instr_size_in_ptrofs. 
+    eapply find_instr_tail. unfold instr_size_in_ptrofs. 
     destruct (frame_size_correct fb tf0 FIND). eauto.
     unfold exec_instr; simpl. rewrite USB'. 
     rewrite pred_dec_true. eauto.
@@ -1278,33 +1270,6 @@ Transparent destroyed_by_jumptable.
   exploit Mem.storev_extends. eexact D. eexact H2. eauto. eauto.
   intros [m3' [P Q]].
   exploit frame_size_correct. eauto. intros X.
-
-  (* Lemma record_push_extends_flat_alloc' *)
-  (*   : forall m01 m02 m1 m2 fsz b sz *)
-  (*       (ALLOC1: Mem.alloc m01 0 fsz = (m1, b)) *)
-  (*       (ALLOC2: Mem.alloc m02 0 fsz = (m2, b)) *)
-  (*       (MINJ: Mem.extends m1 m2) *)
-  (*       m1' fi *)
-  (*       (SZEQ: frame_size fi = fsz) *)
-  (*       (RSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt' b fi sz) = Some m1')  *)
-  (*       (TTT: top_tframe_tc (Mem.stack m02)) *)
-  (*       (SZ: size_stack (tl (Mem.stack m02)) <= size_stack (tl (Mem.stack m01))), *)
-  (*     exists m2' : mem, *)
-  (*       Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi sz) = Some m2' /\ *)
-  (*       Mem.extends m1' m2'. *)
-  (* Proof. *)
-  (*   intros m01 m02 m1 m2 fsz b sz ALLOC1 ALLOC2 MINJ m1' fi SZEQ RSB TTT SZ. *)
-  (*   eapply Mem.record_stack_blocks_extends; eauto. *)
-  (*   + unfold in_frame. simpl. intros ? [?|[]]; subst. *)
-  (*     intro IFF. *)
-  (*     erewrite Mem.alloc_stack_blocks in IFF; eauto. *)
-  (*     eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in ALLOC2. congruence. *)
-  (*   + intros bb ffi o k0 p [AA|[]] P; inv AA. simpl. *)
-  (*     eapply Mem.perm_alloc_inv in P; eauto. destr_in P. *)
-  (*   + erewrite Mem.alloc_stack_blocks; eauto. *)
-  (*   + erewrite (Mem.alloc_stack_blocks _ _ _ _ _ ALLOC1), (Mem.alloc_stack_blocks _ _ _ _ _ ALLOC2); auto. *)
-  (* Qed. *)
-  
   exploit Mem.record_stack_blocks_extends; eauto.
   + unfold in_frame. simpl. intros ? [?|[]]; subst.
     repeat rewrite_stack_blocks. intro IFF.

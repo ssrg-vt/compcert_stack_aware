@@ -445,8 +445,8 @@ Inductive code_tail: Z -> code -> code -> Prop :=
 Lemma code_tail_pos:
   forall pos c1 c2, code_tail pos c1 c2 -> pos >= 0.
 Proof.
-  induction 1. omega. 
-  assert (instr_size i > 0). apply instr_size_positive. omega.
+  induction 1. omega.
+  generalize (instr_size_positive i); omega.
 Qed.
 
 Lemma find_instr_tail:
@@ -458,8 +458,7 @@ Proof.
   inv H.
   destruct (zeq pos 0). subst pos.
   inv H. auto. generalize (code_tail_pos _ _ _ H4). intro. 
-  assert (instr_size a > 0). apply instr_size_positive. 
-  omegaContradiction.
+  generalize (instr_size_positive a); omega.
   inv H. congruence. replace (pos0 + (instr_size a) - (instr_size a)) with pos0 by omega.
   eauto.
 Qed.
@@ -735,11 +734,8 @@ Proof.
   intros. rewrite H1; auto.
 Qed.
 
-Definition nolabel (i: instr_with_info) :=
-  match i with
-  | (i',_) =>
-    match i' with Plabel _ => False | _ => True end
-  end.
+Definition nolabel (i: instruction) :=
+  match i with Plabel _ => False | _ => True end.
 
 Hint Extern 1 (nolabel _) => exact I : labels.
 
@@ -750,7 +746,7 @@ Proof.
   intros. destruct H0. split.
   constructor; auto.
   intros. simpl. rewrite <- H1. 
-  destruct i. destruct i; reflexivity || contradiction.
+  destruct i; reflexivity || contradiction.
 Qed.
 
 Hint Resolve tail_nolabel_refl: labels.

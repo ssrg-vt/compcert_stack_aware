@@ -94,7 +94,7 @@ Variable fn: function.
 
 
 Definition instr_size_in_ptrofs (i:instruction) : ptrofs :=
-  Ptrofs.repr (instr_size_map i).
+  Ptrofs.repr (instr_size i).
 
 (** Smart constructor for moves. *)
 
@@ -289,15 +289,15 @@ Qed.
 Lemma mk_intconv_correct:
   forall mk sem rd rs k c rs1 m,
   mk_intconv mk rd rs k = OK c ->
-  (forall c rd rs r m sz,
-   exec_instr init_stk ge c ((mk rd rs), sz) r m = Next (nextinstr (r#rd <- (sem r#rs)) (Ptrofs.repr (si_size sz))) m) ->
+  (forall c rd rs r m,
+   exec_instr init_stk ge c (mk rd rs) r m = Next (nextinstr (r#rd <- (sem r#rs)) (instr_size_in_ptrofs(mk rd rs))) m) ->
   exists rs2,
      exec_straight init_stk ge fn c rs1 m k rs2 m
   /\ rs2#rd = sem rs1#rs
   /\ forall r, data_preg r = true -> r <> rd -> r <> RAX -> rs2#r = rs1#r.
 Proof.
   unfold mk_intconv; unfold Asmgen.mk_intconv; intros. destruct (Archi.ptr64 || low_ireg rs); monadInv H.
-  econstructor. split. apply exec_straight_one. unfold instr_to_with_info; simpl. rewrite H0. eauto. auto.
+  econstructor. split. apply exec_straight_one. simpl. rewrite H0. eauto. auto.
   split. Simplifs. intros. Simplifs.
   econstructor. split. eapply exec_straight_two.
   unfold exec_instr; simpl. eauto. apply H0. auto. auto.

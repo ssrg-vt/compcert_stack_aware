@@ -54,8 +54,7 @@ Section WITHMEMORYMODEL.
     intros. rewrite init_sp_ptr in H. inv H; auto.
   Qed.
 
-  Definition is_unchanged (i:instr_with_info) :=
-    let '(i,_) := i in
+  Definition is_unchanged (i:instruction) :=
     match i with
       Pallocframe _ _
     | Pfreeframe _ _
@@ -71,7 +70,7 @@ Section WITHMEMORYMODEL.
       is_unchanged i = true ->
       exec_instr ge f i rs m = Asm.exec_instr istk ge f i rs m.
   Proof.
-    destruct i. destruct i; simpl; intros; try reflexivity; try congruence.
+    destruct i; simpl; intros; try reflexivity; try congruence.
   Qed.
  
   Definition no_inject_below j m thr:=
@@ -860,22 +859,8 @@ Section WITHMEMORYMODEL.
       is_unchanged i = true ->
       stack_invar i = true.
   Proof.
-    intros. destruct i. destruct i eqn:?; simpl in *; try congruence.
+    intros. destruct i eqn:?; simpl in *; try congruence.
   Qed.
-
-  (* Lemma clear_stage_inject_left: *)
-  (*   forall j n g m1 m2 m1', *)
-  (*     Mem.inject j (S n :: g) m1 m2 -> *)
-  (*     le 1 n -> *)
-  (*     Mem.clear_stage m1 = Some m1' -> *)
-  (*     (forall b : block, is_stack_top (Mem.stack m1) b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m1 b o k p) -> *)
-  (*     Mem.inject j (S n :: g) m1' m2. *)
-  (* Proof. *)
-  (*   intros j n g m1 m2 m1' INJ LE CS TOP. *)
-  (*   unfold Mem.clear_stage in CS; repeat destr_in CS. *)
-  (*   apply Mem.inject_push_new_stage_left. *)
-  (*   eapply Mem.unrecord_stack_block_inject_left; eauto. *)
-  (* Qed. *)
 
   Lemma zle_zlt:
     forall lo hi o,
@@ -923,7 +908,7 @@ Section WITHMEMORYMODEL.
     - inversion MS.
       edestruct exec_instr_inject as (rs2' & m2' & EXEC' & MINJ' & RINJ'); eauto.
       exists j, ostack, rs2', m2'; split; [|split]; eauto.
-      destruct i as (i & szinfo); destruct i; simpl in *; eauto; try congruence.
+      destruct i; simpl in *; eauto; try congruence.
       generalize (is_unchanged_stack_invar _ ISUNCH) as SINVAR. intro.
       subst. eapply match_states_intro; eauto; try now ((intros; use_ains; eauto) || (red; intros; use_ains; eauto)).
       + eapply asmgen_nextblock_forward in EXEC'.
@@ -936,8 +921,7 @@ Section WITHMEMORYMODEL.
       + etransitivity. apply GlobLeT.
         eapply asmgen_nextblock_forward; eauto.
         
-    - destruct i as (i & szinfo).
-      destruct i; simpl in *; try congruence.
+    - destruct i; simpl in *; try congruence.
       + (* call_s *)
         inv EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
         * instantiate (1:= _::_). simpl. eapply Mem.inject_push_new_stage_left; eauto.
@@ -1326,6 +1310,7 @@ Section WITHMEMORYMODEL.
          rewrite Pregmap.gso; eauto.
        * rewrite nextinstr_rsp.
          rewrite Pregmap.gso; eauto.
+         Unshelve. apply nil.
   Qed.
 
   Definition asm_prog_no_rsp (ge: Genv.t Asm.fundef unit):=

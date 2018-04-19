@@ -24,34 +24,32 @@ Section WITHMEMORYMODEL.
 Section WITHGE.
   Variable ge : Genv.t Asm.fundef unit.
 
-  Definition exec_instr f i' rs (m: mem) :=
-    match i' with
-    | (i,isz) =>
+  Definition exec_instr f i rs (m: mem) :=
+    let isz := Ptrofs.repr (Asm.instr_size i) in
     match i with
     | Pallocframe fi ofs_ra =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (align (frame_size fi) 8))) in
       match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
       | None => Stuck
       | Some m2 =>
-        Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) (Ptrofs.repr (si_size isz))) m2
+        Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) isz) m2
       end
     | Pfreeframe sz ofs_ra =>
       match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
       | None => Stuck
       | Some ra =>
         let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 sz) 8)) in
-        Next (nextinstr (rs#RSP <- sp #RA <- ra) (Ptrofs.repr (si_size isz))) m
+        Next (nextinstr (rs#RSP <- sp #RA <- ra) isz) m
       end
     | Pload_parent_pointer rd z =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 z) 8)) in
-      Next (nextinstr (rs#rd <- sp) (Ptrofs.repr (si_size isz))) m
+      Next (nextinstr (rs#rd <- sp) isz) m
     | Pcall_s id sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
     | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC (Ptrofs.repr (si_size isz))) #PC <- (rs r)) m
+      Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (rs r)) m
     | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
-    | _ => Asm.exec_instr nil ge f i' rs m
-    end
+    | _ => Asm.exec_instr nil ge f i rs m
     end.
   
   Inductive step  : state -> trace -> state -> Prop :=
@@ -63,17 +61,17 @@ Section WITHGE.
         exec_instr f i rs m = Next rs' m' ->
         step (State rs m) E0 (State rs' m')
   | exec_step_builtin:
-      forall b ofs f ef args res rs m vargs t vres rs' m' sz,
+      forall b ofs f ef args res rs m vargs t vres rs' m',
         rs PC = Vptr b ofs ->
         Genv.find_funct_ptr ge b = Some (Internal f) ->
-        find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res,sz) ->
+        find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res) ->
         eval_builtin_args ge rs (rs RSP) m args vargs ->
         external_call ef ge vargs m t vres m' ->
         forall BUILTIN_ENABLED: builtin_enabled ef,
           rs' = nextinstr_nf
                   (set_res res vres
                            (undef_regs (map preg_of (destroyed_by_builtin ef)) rs))
-                  (Ptrofs.repr (si_size sz)) ->
+                  (Ptrofs.repr (Asm.instr_size (Pbuiltin ef args res))) ->
           step (State rs m) t (State rs' m')
   | exec_step_external:
       forall b ef args res rs m t rs' m',

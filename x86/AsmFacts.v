@@ -26,24 +26,21 @@ Section WITHMEMORYMODEL.
   Context {mem} `{external_calls_props: ExternalCallsProps mem}
           `{enable_builtins_instance: !EnableBuiltins (memory_model_ops:=memory_model_ops) mem}.
 
-  Definition stack_invar (i: instr_with_info) :=
+  Definition stack_invar (i: instruction) :=
     match i with
-    | (i,_) =>
-      match i with
-        Pallocframe _ _  
-      | Pfreeframe _ _
-      | Pcall_s _ _
-      | Pcall_r _ _ 
-      | Pret => false
-      | _ => true
-      end
+      Pallocframe _ _  
+    | Pfreeframe _ _
+    | Pcall_s _ _
+    | Pcall_r _ _ 
+    | Pret => false
+    | _ => true
     end.
 
   (** Instructions other than [Pallocframe] and [Pfreeframe] do not modify the
       content of the RSP register. We prove that Asm programs resulting from the
       Stacking pass satisfy this requirement. *)
 
-  Definition asm_instr_no_rsp (i : Asm.instr_with_info) : Prop :=
+  Definition asm_instr_no_rsp (i : Asm.instruction) : Prop :=
     stack_invar i = true ->
     forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
@@ -182,7 +179,7 @@ Section WITHMEMORYMODEL.
   Proof.
     intros i t m x0 x1 r IH EQ.
     unfold loadind in EQ. unfold Asmgen.loadind in EQ.
-    unfold Asmgen.instr_to_with_info in EQ; simpl in EQ.
+    simpl in EQ.
     repeat destr_in EQ; apply asm_code_no_rsp_cons; auto; red; simpl;
     intros _ F V ge rs1 m1 rs2 m2 ff init_stk EI; unfold exec_instr in EI; simpl in EI;
       eapply exec_load_rsp; eauto; apply not_eq_sym; solve_rs.
@@ -234,7 +231,7 @@ Section WITHMEMORYMODEL.
     intros x0 m x2 i c A B C.
     Ltac ainr :=
       match goal with
-        |- asm_instr_no_rsp (?i, _) =>
+        |- asm_instr_no_rsp ?i =>
         let invar := fresh "invar" in
         let F := fresh "F" in
         let V := fresh "V" in
@@ -250,8 +247,8 @@ Section WITHMEMORYMODEL.
       end.
     unfold mk_setcc in B. unfold Asmgen.mk_setcc in B.
     destr_in B; destruct c; simpl in *;
-      unfold Asmgen.mk_setcc_base, Asmgen.code_to_with_info, Asmgen.instr_to_with_info in *; simpl in *;
-        (intuition subst; simpl in *; auto; try ainr).
+      unfold Asmgen.mk_setcc_base in *; simpl in *;
+        (intuition subst; simpl in *; eauto; try now ainr).
     - destr_in B; simpl in *; intuition subst; simpl in *; auto; try ainr.
     - destr_in B; simpl in *; intuition subst; simpl in *; auto; try ainr.
   Qed.
@@ -288,7 +285,7 @@ Section WITHMEMORYMODEL.
   Proof.
     intros x0 x2 i c A H1.
     unfold mk_jcc in H1.
-    destr_in H1; simpl in *; intuition subst; simpl in *; unfold instr_to_with_info; auto; ainr;
+    destr_in H1; simpl in *; intuition subst; simpl in *; eauto; ainr;
       repeat destr_in EI; eauto using goto_label_rsp.
   Qed.
   
@@ -302,7 +299,7 @@ Section WITHMEMORYMODEL.
     intros x0 x2 x1 cond l ACNR TRANSL.
     repeat destr_in TRANSL;
       try destruct (c: comparison);
-      invasm; eauto; unfold Asmgen.instr_to_with_info in *; intuition subst; eauto; try solve_rs;
+      invasm; eauto; intuition subst; eauto; try solve_rs;
         ainr; repeat destr_in EI; eauto using goto_label_rsp.
   Qed.
 
@@ -312,7 +309,7 @@ Section WITHMEMORYMODEL.
       m x3
       (IREG: Asmgen.ireg_of m = OK x3)
       x2 x1 i
-      (REC: forall x2,  asm_instr_no_rsp (Asmgen.instr_to_with_info (i x3 x2)))
+      (REC: forall x2,  asm_instr_no_rsp ((i x3 x2)))
       (CONV: Asmgen.mk_intconv i x3 x2 x0 = OK x1),
       asm_code_no_rsp x1.
   Proof.
@@ -333,7 +330,6 @@ Section WITHMEMORYMODEL.
     destr_in EQ0. inv EQ0.
     unfold transl_function in EQ.
     monadInv EQ. simpl.
-    unfold instr_to_with_info.
     apply asm_code_no_rsp_cons. red; simpl. congruence.
     unfold transl_code' in EQ0.
     revert EQ0.
@@ -376,12 +372,13 @@ Section WITHMEMORYMODEL.
       repeat (t; simpl); eapply exec_store_rsp; eauto; easy.
       unfold Asmgen.mk_storebyte in EQ4. inv EQ4.
       repeat (t; simpl); eapply exec_store_rsp; eauto; easy.
+    - inv H0.
     - repeat t. eapply goto_label_rsp; eauto.
     - eapply asmgen_transl_cond_rsp'; eauto.
     - erewrite goto_label_rsp. 2: eauto. solve_rs.
   Qed.
 
-  Definition asm_instr_no_stack (i : Asm.instr_with_info) : Prop :=
+  Definition asm_instr_no_stack (i : Asm.instruction) : Prop :=
     stack_invar i = true ->
     forall F V (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
@@ -424,7 +421,6 @@ Section WITHMEMORYMODEL.
     asm_instr_no_stack i.
   Proof.
     red; intros IU F V ge0 rs1 m1 rs2 m2 f init_stk EI.
-    destruct i as (i & info);
       destruct i; simpl in IU; try discriminate;
         unfold exec_instr in EI; simpl in EI; repeat destr_in EI;
           first [ split;[reflexivity|tauto]
@@ -476,7 +472,7 @@ Section WITHMEMORYMODEL.
   Proof.
     red. intros F V ge f rs1 m1 rs2 m2 init_stk EI.
     unfold exec_instr in EI.
-    destruct i as(i&info); destruct i; simpl in EI; inv EI; try (apply Ple_refl);
+    destruct i; simpl in EI; inv EI; try (apply Ple_refl);
       first [now eapply exec_load_nb; eauto
             | now (eapply exec_store_nb; eauto)
             | unfold goto_label in *; destr_all; rewnb; try xomega ].
@@ -620,9 +616,7 @@ Section WITHMEMORYMODEL.
         m1 m2 /\
       (is_ptr (init_sp init_stk) <> None -> exists l', Mem.stack m2 = l' ++ init_stk).
   Proof.
-    destruct i as [i info].
-
-    intros rs1 m1 rs2 m2 init_stk lstk STK EI.
+    intros F V ge f i rs1 m1 rs2 m2 init_stk l STK EI.
     split.
     {
       unfold exec_instr in EI.
@@ -656,7 +650,7 @@ Section WITHMEMORYMODEL.
         rewrite STK in i0. red in i0.
         exfalso. exploit Mem.stack_norepet. rewrite STK.
         intro ND. eapply nodup_app; eauto.
-        destruct lstk; simpl in i0. contradict n. red. eauto.
+        destruct l; simpl in i0. contradict n. red. eauto.
         rewrite in_stack_cons; left; eauto.
         apply Mem.strong_unchanged_on_weak.
         eapply Mem.tailcall_stage_unchanged_on; eauto.
@@ -665,24 +659,24 @@ Section WITHMEMORYMODEL.
     }
     {
       intro ISPTR.
-      destruct (stack_invar (i,info)) eqn:INVAR.
-      - generalize (asmgen_no_change_stack (i,info) INVAR _ _ ge _ _ _ _ _ _ EI).
+      destruct (stack_invar (i)) eqn:INVAR.
+      - generalize (asmgen_no_change_stack (i) INVAR _ _ ge _ _ _ _ _ _ EI).
         intros (STKEQ & _); rewrite STKEQ; eauto.
       - unfold stack_invar in INVAR. unfold exec_instr in EI.
         set (AA := i).
         destr_in INVAR; simpl in *; repeat destr_in EI; repeat rewrite_stack_blocks; rewrite ? STK; eauto.
-        + exists ((None,nil)::lstk); auto.
-        + exists ((None,nil)::lstk); auto.
+        + exists ((None,nil)::l); auto.
+        + exists ((None,nil)::l); auto.
         + inv t. rewrite STK in H.
-          destruct lstk; simpl; eauto. simpl in *.
+          destruct l; simpl; eauto. simpl in *.
           subst. rewrite EQ in H; inv H.
           rewrite EQ in ISPTR. simpl in ISPTR.
           exfalso; apply ISPTR. unfold current_frame_sp; rewrite H0; reflexivity.
         + inv t. rewrite STK in H; inv H. inversion 1. subst.
-          destruct lstk; simpl in *; eauto. revert STK; subst.
+          destruct l; simpl in *; eauto. revert STK; subst.
           exfalso; apply ISPTR. reflexivity. inv H2.
           rewrite app_comm_cons. eauto.
-        + destruct lstk; simpl in *. 2: inversion 1; subst; rewrite app_comm_cons; eauto.
+        + destruct l; simpl in *. 2: inversion 1; subst; rewrite app_comm_cons; eauto.
           intro EQ. subst. exfalso.
           unfold check_top_frame in Heqb0.
           red in c; revert c.

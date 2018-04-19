@@ -292,16 +292,10 @@ Inductive instruction: Type :=
   | Psubl_ri (rd: ireg) (n: int)
   | Psubq_ri (rd: ireg) (n: int64).
 
-Axiom instr_size_map : instruction -> Z.
-Axiom instr_size_non_zero : forall i, instr_size_map i > 0.
+Axiom instr_size : instruction -> Z.
+Axiom instr_size_positive : forall i, 0 < instr_size i.
 
-Record sizeinfo : Type := 
-mk_sizeinfo {
-  si_size : Z;
-  si_size_non_zero : si_size > 0
-}. 
-Definition instr_with_info : Type := instruction * sizeinfo.
-Definition code := list instr_with_info.
+Definition code := list instruction.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info }.
 Definition fundef := AST.fundef function.
 Definition program := AST.program fundef unit.
@@ -372,7 +366,7 @@ Section RELSEM.
 
 
 Class FindLabels {function instructionx}
-  (instr_size : instructionx -> Z)
+  (instr_size_fl : instructionx -> Z)
   (is_label : label -> instructionx -> bool)
   (fn_code : function -> list instructionx).
 
@@ -381,27 +375,16 @@ Class FindLabels {function instructionx}
 Fixpoint find_instr `{Hfl: FindLabels} (pos: Z) (c: list instructionx) {struct c} : option instructionx :=
   match c with
   | nil => None
-  | i :: il => if zeq pos 0 then Some i else find_instr (pos - instr_size i) il
+  | i :: il => if zeq pos 0 then Some i else find_instr (pos - instr_size_fl i) il
   end.
 
 (** Position corresponding to a label *)
 
-Definition is_label (lbl: label) (instr: instr_with_info) : bool :=
-  let instr := fst (instr) in
+Definition is_label (lbl: label) (instr: instruction) : bool :=
   match instr with
   | Plabel lbl' => if peq lbl lbl' then true else false
   | _ => false
   end.
-
-Definition instr_size (i:instr_with_info) : Z :=
-  si_size (snd i).
-
-Lemma instr_size_positive : forall i,
-  instr_size i > 0.
-Proof.
-  intros. destruct i. destruct s.
-  auto.
-Qed.
 
 Fixpoint code_size (c:code) : Z :=
   match c with
@@ -417,7 +400,6 @@ Proof.
   - simpl. generalize (instr_size_positive a). omega.
 Qed.
 
-
 Global Instance: FindLabels instr_size is_label fn_code.
 
 (* Lemma is_label_correct: *)
@@ -430,15 +412,15 @@ Global Instance: FindLabels instr_size is_label fn_code.
 
 
 Section WITH_FIND_LABELS.
-  Context {function instructionx instr_size is_label fn_code}
-          `{Hfl: FindLabels function instructionx instr_size is_label fn_code}.
+  Context {function instructionx instr_size_fl is_label fn_code}
+          `{Hfl: FindLabels function instructionx instr_size_fl is_label fn_code}.
 
-  Fixpoint label_pos `{Hfl: FindLabels function instructionx instr_size is_label fn_code}
+  Fixpoint label_pos `{Hfl: FindLabels function instructionx instr_size_fl is_label fn_code}
      (lbl: label) (pos: Z) (c: list instructionx) {struct c} : option Z :=
   match c with
   | nil => None
   | instr :: c' =>
-    let nextpos := pos + instr_size instr in
+    let nextpos := pos + instr_size_fl instr in
       if is_label lbl instr then Some nextpos else label_pos lbl nextpos c'
   end.
 
@@ -771,9 +753,9 @@ Proof.
   apply in_stack_dec.
 Qed.
 
-Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instr_with_info) (rs: regset) (m: mem): outcome :=
+Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instruction) (rs: regset) (m: mem): outcome :=
   let sz := Ptrofs.repr (instr_size i) in
-  match (fst i) with
+  match i with
   (** Moves *)
   | Pmov_rr rd r1 =>
       Next (nextinstr (rs#rd <- (rs r1)) sz) m
@@ -1268,10 +1250,10 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
       exec_instr ge f i rs m = Next rs' m' ->
       step ge (State rs m) E0 (State rs' m')
 | exec_step_builtin:
-    forall b ofs f ef args res rs m vargs t vres rs' m' m'' szinfo,
+    forall b ofs f ef args res rs m vargs t vres rs' m' m'',
       rs PC = Vptr b ofs ->
       Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res, szinfo) ->
+      find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res) ->
       eval_builtin_args ge rs (rs RSP) m args vargs ->
       external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
       Mem.unrecord_stack_block m' = Some m'' ->
@@ -1280,7 +1262,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
         rs' = nextinstr_nf
                 (set_res res vres
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs))
-                (Ptrofs.repr (si_size szinfo)) ->
+                (Ptrofs.repr (instr_size (Pbuiltin ef args res))) ->
         step ge (State rs m) t (State rs' m'')
 | exec_step_external:
     forall b ef args res rs m t rs' m' m'',
