@@ -171,22 +171,21 @@ Section WITHMEMORYMODEL.
 
   Inductive match_states: state -> state -> Prop :=
   | match_states_regular:
-      forall s1 s2 (SEQ: seq s1 s2)
-        (CL: ~ classify_state s1 SKalloc)
-        (CL2: ~ classify_state s1 SKret),
-        match_states s1 s2
+      forall s1 s1' (SEQ: seq s1 s1')
+        (CL: forall sk, classify_state s1 sk -> sk <> SKalloc /\ sk <> SKret),
+        match_states s1 s1'
   | match_states_call:
       forall s1 s2 s1'
-        (SEQ: seq s1 s2)
+        (SEQ: seq s1 s1' )
         (CL: classify_state s1 SKcall)
-        (STEP : RawAsm.step ge s1 E0 s1'),
-        match_states s1' s2
+        (STEP : RawAsm.step ge s1 E0 s2),
+        match_states s2 s1'
   | match_states_freeframe:
       forall s1 s2 s1'
-        (SEQ: seq s1 s2)
+        (SEQ: seq s1 s1')
         (CL: classify_state s1 SKfree)
-        (STEP : RawAsm.step ge s1 E0 s1'),
-        match_states s1' s2.
+        (STEP : RawAsm.step ge s1 E0 s2),
+        match_states s2 s1'.
 
   (* | match_states_alloc: *)
   (*     forall (rs rs': regset) (m m': mem) *)
@@ -223,23 +222,29 @@ Section WITHMEMORYMODEL.
     intros m1 m2 rs1 rs2 f i rs1' m1' MS b o RPC FFP FI EI SAME.
   Admitted.
 
-  Hypothesis calls_to_defined_functions:
+  Axiom calls_to_defined_functions:
     forall b f o symb sg,
       Genv.find_funct_ptr ge b = Some (Internal f) ->
       find_instr o (fn_code f) = Some (Pcall_s symb sg) ->
-      exists bf,
+      exists bf f',
         Genv.symbol_address ge symb Ptrofs.zero = Vptr bf Ptrofs.zero /\
-        match Genv.find_funct_ptr ge bf with
-          Some (Internal f') =>
-          find_instr (Ptrofs.unsigned Ptrofs.zero) (fn_code f') =
-          Some (Pallocframe (fn_frame f')
-                            (Ptrofs.sub (Ptrofs.repr (align (frame_size (fn_frame f')) 8))
-                                        (Ptrofs.repr (size_chunk Mptr))))
-        | Some (External ef) => True
-        | None => False
-        end.
+        Genv.find_funct_ptr ge bf = Some f'.
 
-  Hypothesis after_freeframe:
+  Axiom pallocframe_only_at_beginning:
+    forall b f o fi ora,
+      Genv.find_funct_ptr ge b = Some (Internal f) ->
+      find_instr o (fn_code f) = Some (Pallocframe fi ora) ->
+      o = 0.
+
+  Axiom pallocframe_at_beginning:
+    forall b f,
+      Genv.find_funct_ptr ge b = Some (Internal f) ->
+      find_instr 0 (fn_code f) = Some (Pallocframe
+                                         (fn_frame f)
+                                         (Ptrofs.sub (Ptrofs.repr (align (frame_size (fn_frame f)) 8))
+                                                     (Ptrofs.repr (size_chunk Mptr)))).
+
+  Axiom after_freeframe:
     forall b f o sz ora,
       Genv.find_funct_ptr ge b = Some (Internal f) ->
       find_instr (Ptrofs.unsigned o) (fn_code f) = Some (Pfreeframe sz ora) ->
@@ -248,13 +253,6 @@ Section WITHMEMORYMODEL.
         (i = Pret \/
         (exists symb sg fb, i = Pjmp_s symb sg /\ Genv.find_symbol ge symb = Some fb) \/
         (exists r sg, i = Pjmp_r r sg)).
-
-  Hypothesis pallocframe_only_at_beginning:
-    forall b f o fi ora,
-      Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr o (fn_code f) = Some (Pallocframe fi ora) ->
-      o = 0.
-
 
   Lemma ptrofs_sub_sub a b:
     Ptrofs.sub (Ptrofs.sub a b) a = Ptrofs.neg b.
@@ -315,7 +313,7 @@ Section WITHMEMORYMODEL.
   Qed.
 
 
-  Hypothesis instr_size_repr:
+  Axiom instr_size_repr:
     forall i,
       0 <= instr_size i <= Ptrofs.max_unsigned.
 
@@ -347,6 +345,39 @@ Section WITHMEMORYMODEL.
     intros; apply not_eq_sym; apply Z.lt_neq, instr_size_positive.
   Qed.
 
+  Lemma eval_builtin_arg_eq_rs:
+    forall (rs1 rs2: regset) (REQ: forall r, rs1 r = rs2 r) sp m args vargs,
+      eval_builtin_arg ge rs1 sp m args vargs ->
+      eval_builtin_arg ge rs2 sp m args vargs.
+  Proof.
+    induction 2; rewrite ? REQ; econstructor; eauto.
+  Qed.
+
+  Lemma eval_builtin_args_eq_rs:
+    forall (rs1 rs2: regset) (REQ: forall r, rs1 r = rs2 r) sp m args vargs,
+      eval_builtin_args ge rs1 sp m args vargs ->
+      eval_builtin_args ge rs2 sp m args vargs.
+  Proof.
+    induction 2; constructor; eauto using eval_builtin_arg_eq_rs.
+  Qed.
+
+  Fixpoint in_builtin_res (b: builtin_res preg) (r:preg) :=
+    match b with
+    | BR b => b = r
+    | BR_none => False
+    | BR_splitlong hi lo => in_builtin_res hi r \/ in_builtin_res lo r
+    end.
+
+  Lemma set_res_other:
+    forall res vres rs r,
+      ~ in_builtin_res res r ->
+      set_res res vres rs r = rs r.
+  Proof.
+    induction res; simpl; intros; eauto.
+    rewrite Pregmap.gso; auto.
+    rewrite IHres2. apply IHres1. intuition. intuition.
+  Qed.
+
   Theorem real_step_correct:
     forall s1 t s1' (STEP: RawAsm.step ge s1 t s1')
       s2 (MS: match_states s1 s2),
@@ -363,8 +394,8 @@ Section WITHMEMORYMODEL.
         * (* call_s *)
           simpl. simpl in H2. inv H2.
           right.
-          destruct (calls_to_defined_functions _ _ _ _ _ H0 H1) as (bf & SA & FI).
-          rewrite SA. destr_in FI.
+          destruct (calls_to_defined_functions _ _ _ _ _ H0 H1) as (bf & f' & SA & FFP).
+          rewrite SA.
           assert (FS: Genv.find_symbol ge symb = Some bf).
           {
             unfold Genv.symbol_address in SA; repeat destr_in SA.
@@ -372,17 +403,24 @@ Section WITHMEMORYMODEL.
           split.
           -- unfold measure. unfold classify_state_bool.
              rewrite H, H0, H1. simpl.
-             rewrite Heqo. rewrite FS. destr_in FI. rewrite FI. simpl. omega. omega.
+             rewrite FFP. rewrite FS. destr. 2: omega.
+             destr_in Heqo.
+             erewrite pallocframe_at_beginning in Heqo; eauto. simpl in Heqo. inv Heqo. omega.
+             inv Heqo. omega.
           -- split; auto.
              eapply match_states_call.
              3: eapply RawAsm.exec_step_internal.
              3: apply H. eauto. econstructor; eauto. econstructor; eauto. eauto. eauto.
-             simpl. f_equal. unfold Genv.symbol_address; rewrite FS. reflexivity.
+             simpl. f_equal. rewrite SA. reflexivity.
         * (* call_r *) admit.
         * (* ret *)
-          contradict CL2. econstructor; eauto. constructor.
+          specialize (CL SKret).
+          edestruct CL; [|congruence].
+          repeat econstructor; eauto.
         * (* allocframe *)
-          edestruct CL. econstructor; eauto. constructor.
+          specialize (CL SKalloc).
+          edestruct CL; [|congruence].
+          repeat econstructor; eauto.
         * (* freeframe *)
           destruct (after_freeframe _ _ _ _ _ H0 H1) as (i & NEXTINSTR & CHOICES).
           destruct CHOICES.
@@ -398,112 +436,101 @@ Section WITHMEMORYMODEL.
               2: eapply RawAsm.exec_step_internal; eauto.
               econstructor; eauto. constructor.
           }
-          admit.
-      +                         (* builtin *)
-        inv SEQ.
-        left. eexists; split. apply plus_one.
-        eapply exec_step_builtin. rewrite <- REQ. eauto. eauto. eauto. rewrite <- REQ. eauto.
-
-        Lemma eval_builtin_args_eq_rs:
-          forall (rs1 rs2: regset) (REQ: forall r, rs1 r = rs2 r) sp m args vargs,
-            eval_builtin_args ge rs1 sp m args vargs ->
-            eval_builtin_args ge rs2 sp m args vargs.
-        Proof.
-        Admitted.
-
-
-        eapply eval_builtin_args_eq_rs; eauto.
-        eauto. auto. reflexivity.
-        apply match_states_regular; auto.
-        constructor. intros. apply nextinstr_nf_eq.
-        intros. apply set_res_eq.
-        intros; apply undef_regs_eq; auto.
-        inversion 1. subst. inv H11.
-        unfold nextinstr_nf in H7.
-        rewrite Asmgenproof0.nextinstr_pc in H7. simpl in H7. simpl_regs_in H7.
-
-        Fixpoint in_builtin_res (b: builtin_res preg) (r:preg) :=
-          match b with
-          | BR b => b = r
-          | BR_none => False
-          | BR_splitlong hi lo => in_builtin_res hi r \/ in_builtin_res lo r
-          end.
-
-        Lemma set_res_other:
-          forall res vres rs r,
-            ~ in_builtin_res res r ->
-            set_res res vres rs r = rs r.
-        Proof.
-          induction res; simpl; intros; eauto.
-          rewrite Pregmap.gso; auto.
-          rewrite IHres2. apply IHres1. intuition. intuition.
-        Qed.
-        
-        setoid_rewrite set_res_other in H7.
-        erewrite Asmgenproof0.undef_regs_other in H7.
-        rewrite H in H7. simpl in H7. inv H7.
-        rewrite_hyps.
-        reflexivity.
+          admit.                (* cases jmp, i.e. tailcall *)
+      + inv SEQ.                (* builtin *)
+        left. eexists; split.
+        * apply plus_one.
+          eapply exec_step_builtin; rewrite <- ? REQ; eauto.
+          eapply eval_builtin_args_eq_rs; eauto.
+        * apply match_states_regular; auto.
+          -- constructor. intros. apply nextinstr_nf_eq.
+             intros. apply set_res_eq.
+             intros; apply undef_regs_eq; auto.
+          -- (* noalloc or ret *)
+            intros sk A; inv A. 2: split; congruence.
+            unfold nextinstr_nf in H6.
+            rewrite Asmgenproof0.nextinstr_pc in H6. simpl in H6. simpl_regs_in H6.
+            setoid_rewrite set_res_other in H6.
+            erewrite Asmgenproof0.undef_regs_other in H6.
+            rewrite H in H6. simpl in H6. inv H6.
+            rewrite_hyps.
+            inv H10; try (now intuition congruence).
+            eapply pallocframe_only_at_beginning in H8; eauto.
+            contradict H8. admit.
+            admit. (* ret is always preceded by freeframe. *)
+            Transparent destroyed_by_builtin.
+            intros r' IN EQ. subst. contradict IN.
+            unfold destroyed_by_builtin. repeat destr; simpl; try intuition congruence.
+            clear. induction clobbers; simpl; intros. inversion 1.
+            destr. simpl. intros [A|A]. destruct m; simpl in A; try congruence. auto.
+            admit.              (* res <> PC *)
+      + admit. (* external *)
     - inv CL. inv H2.
       + (* call_s *)
         inv STEP0; try congruence.
-        rewrite_hyps. simpl in H9. inv H9.
-        destruct (calls_to_defined_functions _ _ _ _ _ H0 H1) as (bf & SA & FI).
-        destr_in FI.
+        rewrite_hyps. simpl in H7. inv H7.
+        destruct (calls_to_defined_functions _ _ _ _ _ H0 H1) as (bf & f' & SA & FFP).
+        assert (bf = b0).
+        {
+          unfold Genv.symbol_address in SA; rewrite FS in SA. inv SA; auto.
+        }
+        subst.
+        inv SEQ.
         inv STEP; try congruence.
         * simpl_regs_in H4. rewrite_hyps.
-          simpl.
+          exploit pallocframe_at_beginning; eauto. intro FI. setoid_rewrite FI in H6. inv H6.
           left. simpl in H9. repeat destr_in H9.
           eexists. split.
-          eapply plus_two.
-          eapply exec_step_internal. rewrite <- REQ; eauto. eauto. eauto. simpl.
-          simpl_regs_in Heqo0.
-          rewrite Val.offset_ptr_assoc in Heqo0.
-          rewrite Ptrofs.add_commut in Heqo0.
-          rewrite <- Ptrofs.sub_add_opp in Heqo0.
-          rewrite ptrofs_sub_sub in Heqo0.
-          rewrite ! REQ in Heqo0. rewrite Heqo0. eauto.
-          eapply exec_step_internal.
-          simpl_regs. eauto. eauto. eauto.
-          simpl. eauto.
-          reflexivity.
-          eapply match_states_regular.
-          apply nextinstr_eq. simpl_regs.
-          intros. apply set_reg_eq.
-          intros. apply set_reg_eq.
-          intros. rewrite (Pregmap.gso _ _ H2).
-          apply set_reg_eq.
-          intros; apply set_reg_eq. auto.
-          rewrite REQ; auto.
-          auto.
-          auto.
-          rewrite REQ.
-          rewrite Val.offset_ptr_assoc.
-          rewrite <- Ptrofs.neg_add_distr. f_equal.
-          f_equal.
-          generalize (Ptrofs.repr (align (frame_size (fn_frame f1)) 8)).
-          generalize (Ptrofs.repr (size_chunk Mptr)). clear.
-          intros.
-          rewrite Ptrofs.sub_add_opp.
-          rewrite (Ptrofs.add_commut i0).
-          rewrite <- Ptrofs.add_assoc.
-          rewrite <- Ptrofs.sub_add_opp. rewrite Ptrofs.sub_idem.
-          rewrite Ptrofs.add_zero_l; auto.
-          intros sk CL fi ora. inv CL; try congruence.
-          inv H5; try congruence.
-          eapply pallocframe_only_at_beginning in H4; eauto.
-          contradict H4.
-          revert H2. rewrite Asmgenproof0.nextinstr_pc.
-          simpl_regs. rewrite SA. simpl. rewrite Ptrofs.add_zero_l. inversion 1; subst.
-          rewrite Ptrofs.unsigned_repr by apply instr_size_repr.
-          apply instr_size_not_zero.
+          -- eapply plus_two.
+             eapply exec_step_internal. rewrite <- REQ; eauto. eauto. eauto. simpl.
+             simpl_regs_in Heqo.
+             rewrite Val.offset_ptr_assoc in Heqo.
+             rewrite Ptrofs.add_commut in Heqo.
+             rewrite <- Ptrofs.sub_add_opp in Heqo.
+             rewrite ptrofs_sub_sub in Heqo.
+             rewrite ! REQ in Heqo. rewrite Heqo. eauto.
+             eapply exec_step_internal.
+             simpl_regs. eauto. eauto. eauto.
+             simpl. eauto.
+             reflexivity.
+          -- eapply match_states_regular.
+             ++ constructor.
+                apply nextinstr_eq. simpl_regs.
+                intros. apply set_reg_eq.
+                intros. apply set_reg_eq.
+                intros. rewrite (Pregmap.gso _ _ H2).
+                apply set_reg_eq.
+                intros; apply set_reg_eq. auto.
+                rewrite REQ; auto.
+                auto.
+                auto.
+                rewrite REQ.
+                rewrite Val.offset_ptr_assoc.
+                rewrite <- Ptrofs.neg_add_distr. f_equal.
+                f_equal.
+                generalize (Ptrofs.repr (align (frame_size (fn_frame f)) 8)).
+                generalize (Ptrofs.repr (size_chunk Mptr)). clear.
+                intros.
+                rewrite Ptrofs.sub_add_opp.
+                rewrite (Ptrofs.add_commut i0).
+                rewrite <- Ptrofs.add_assoc.
+                rewrite <- Ptrofs.sub_add_opp. rewrite Ptrofs.sub_idem.
+                rewrite Ptrofs.add_zero_l; auto.
+             ++ intros sk CL. inv CL; try intuition congruence.
+                revert H4. rewrite Asmgenproof0.nextinstr_pc.
+                simpl_regs. rewrite SA. simpl. rewrite Ptrofs.add_zero_l. intro A; inv A.
+                inv H8; try intuition congruence.
+                ** eapply pallocframe_only_at_beginning in H6; eauto.
+                   contradict H6.
+                   rewrite Ptrofs.unsigned_repr by apply instr_size_repr.
+                   apply instr_size_not_zero.
+                ** admit. (*ret not just after builtin *)
         * rewrite SA in H4. rewrite Pregmap.gss in H4. inv H4. rewrite_hyps.
+          erewrite pallocframe_at_beginning in H6; eauto; inv H6.
         * rewrite SA in H4. rewrite Pregmap.gss in H4. inv H4. rewrite_hyps.
-          assert (b = b0). unfold Genv.symbol_address in SA; rewrite FS in SA; congruence. subst.
-          (* left. *)
-          (* eexists. split. eapply plus_two. eapply exec_step_internal. rewrite <- REQ; eauto. eauto. eauto. *)
           admit.
-      + 
+      + admit. (* same thing with call_r *)
+    -  
 
   Qed.
 

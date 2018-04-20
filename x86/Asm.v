@@ -235,7 +235,7 @@ Inductive instruction: Type :=
   (** Branches and calls *)
   | Pjmp_l (l: label)
   | Pjmp_s (symb: ident) (sg: signature)
-  | Pjmp_r (r: ireg) (sg: signature)
+  | Pjmp_r (r: ireg) (sg: signature) (checkfunzero: bool)
   | Pjcc (c: testcond)(l: label)
   | Pjcc2 (c1 c2: testcond)(l: label)   (**r pseudo *)
   | Pjmptbl (r: ireg) (tbl: list label) (**r pseudo *)
@@ -1052,8 +1052,15 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       goto_label ge f lbl rs m
   | Pjmp_s id sg =>
       Next (rs#PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
-  | Pjmp_r r sg =>
-      Next (rs#PC <- (rs r)) m
+  | Pjmp_r r sg checkfunzero =>
+    if checkfunzero
+    then match rs r with
+           Vptr b o => if Ptrofs.eq_dec o Ptrofs.zero
+                      then Next (rs#PC <- (rs r)) m
+                      else Stuck
+         | _ => Stuck
+         end
+    else Next (rs#PC <- (rs r)) m
   | Pjcc cond lbl =>
       match eval_testcond cond rs with
       | Some true => goto_label ge f lbl rs m
@@ -1076,13 +1083,10 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       | _ => Stuck
       end
   | Pcall_s id sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m)
+    Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m)
   | Pcall_r r sg =>
-    match rs r with
-      Vptr b o =>
-      if Ptrofs.eq_dec o Ptrofs.zero
-      then Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) (Mem.push_new_stage m)
-      else Stuck
+    match Genv.find_funct ge (rs r) with
+    | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) (Mem.push_new_stage m)
     | _ => Stuck
     end
   | Pret =>
@@ -1528,7 +1532,7 @@ Definition instr_to_string (i:instruction) : string :=
   (* (** Branches and calls *) *)
   | Pjmp_l l  => "Pjmp_l"
   | Pjmp_s symb sg => "Pjmp_s"
-  | Pjmp_r r sg  => "Pjmp_r"
+  | Pjmp_r r sg checkfunzero  => "Pjmp_r"
   | Pjcc c l => "Pjcc"
   | Pjcc2 c1 c2 l => "Pjcc2"  (**r pseudo *)
   | Pjmptbl r tbl => "Pjmptbl"  (**r pseudo *)

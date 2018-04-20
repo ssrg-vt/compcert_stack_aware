@@ -944,12 +944,21 @@ Section WITHMEMORYMODEL.
         * rewrite_stack_blocks. simpl; auto.
         * red. auto.
       + (* call_r *)
-        repeat destr_in EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
+        repeat destr_in EI. inv MS.
+        assert (FFP: Genv.find_funct ge (rs2 r) = Some f0).
+        {
+          revert Heqo. unfold Genv.find_funct.
+          generalize (RINJ r). intro A; inv A; try congruence.
+          destr. subst. intro FFP.
+          erewrite GLOBFUN_INJ in H1; eauto. inv H1. rewrite pred_dec_true. eauto. reflexivity.
+        }
+        rewrite FFP.
+        do 4 eexists. split. eauto. split. econstructor; eauto.
         * instantiate (1:= (None,nil)::lprog). simpl. eapply Mem.inject_push_new_stage_left; eauto.
         * rewrite_stack_blocks. rewrite STK; auto. 
         * intros; apply val_inject_set; auto.
           intros; apply val_inject_set; auto.
-          apply Val.offset_ptr_inject; auto. rewrite <- Heqv; auto.
+          apply Val.offset_ptr_inject; auto.
         * red. rewrite_stack_blocks. simpl.
           repeat rewrite Pregmap.gso by congruence.
           rewrite Z.add_0_r. eauto.

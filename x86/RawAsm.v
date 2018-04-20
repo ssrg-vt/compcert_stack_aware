@@ -47,7 +47,10 @@ Section WITHGE.
     | Pcall_s id sg =>
       Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
     | Pcall_r r sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (rs r)) m
+      match Genv.find_funct ge (rs r) with
+      | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (rs r)) m
+      | _ => Stuck
+      end
     | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
     | _ => Asm.exec_instr nil ge f i rs m
     end.
