@@ -55,20 +55,20 @@ Section WITHMEMORYMODEL.
   (* Classify states wrt the instruction their [PC] points to. *)
   Inductive state_kind : Type :=
   | SKnormal
-  | SKcall (b: block) (sg: signature)
-  | SKalloc (fi: frame_info) (ora: ptrofs)
-  | SKfree (sz: Z) (ora: ptrofs)
+  | SKcall (* (b: block) (sg: signature) *)
+  | SKalloc (* (fi: frame_info) (ora: ptrofs) *)
+  | SKfree (* (sz: Z) (ora: ptrofs) *)
   | SKret.
 
   Inductive classify_instr rs : instruction -> state_kind -> Prop :=
   | classify_instr_call_s fid b sg (FS: Genv.find_symbol ge fid = Some b):
-      classify_instr rs (Pcall_s fid sg) (SKcall b sg)
+      classify_instr rs (Pcall_s fid sg) (SKcall)
   | classify_instr_call_r r b o sg (FS: rs r = Vptr b o):
-      classify_instr rs (Pcall_r r sg) (SKcall b sg)
+      classify_instr rs (Pcall_r r sg) (SKcall)
   | classify_instr_allocframe fi ora:
-      classify_instr rs (Pallocframe fi ora) (SKalloc fi ora)
+      classify_instr rs (Pallocframe fi ora) (SKalloc)
   | classify_instr_freeframe sz ora:
-      classify_instr rs (Pfreeframe sz ora) (SKfree sz ora)
+      classify_instr rs (Pfreeframe sz ora) (SKfree)
   | classify_instr_ret:
       classify_instr rs Pret SKret
   | classify_instr_unchanged i (SAME: instr_same i = true):
@@ -78,16 +78,16 @@ Section WITHMEMORYMODEL.
     match i with
     | Pcall_s fid sg =>
       match Genv.find_symbol ge fid with
-      | Some b => Some (SKcall b sg)
+      | Some b => Some (SKcall)
       | None => None
       end
     | Pcall_r r sg =>
       match rs r with
-      | Vptr b o => Some (SKcall b sg)
+      | Vptr b o => Some (SKcall)
       | _ => None
       end
-    | Pallocframe fi ora => Some (SKalloc fi ora)
-    | Pfreeframe sz ora => Some (SKfree sz ora)
+    | Pallocframe fi ora => Some (SKalloc)
+    | Pfreeframe sz ora => Some (SKfree)
     | Pret => Some SKret
     | _ => Some (SKnormal)
     end.
@@ -115,19 +115,20 @@ Section WITHMEMORYMODEL.
     unfold classify_instr_bool. repeat destr; simpl in *; try congruence.
   Qed.
 
-  Inductive classify_state rs : state_kind -> Prop :=
-  | classify_state_intro b o f i sk:
+  Inductive classify_state : state -> state_kind -> Prop :=
+  | classify_state_intro rs m b o f i sk:
       rs PC = Vptr b o ->
       Genv.find_funct_ptr ge b = Some (Internal f) ->
       find_instr (Ptrofs.unsigned o) (fn_code f) = Some i ->
       classify_instr rs i sk ->
-      classify_state rs sk
-  | classify_state_external b o f:
+      classify_state (State rs m) sk
+  | classify_state_external rs m b o f:
       rs PC = Vptr b o ->
       Genv.find_funct_ptr ge b = Some (External f) ->
-      classify_state rs SKnormal.
+      classify_state (State rs m) SKnormal.
 
-  Definition classify_state_bool rs :=
+  Definition classify_state_bool s :=
+    let '(State rs _) := s in
     match rs PC with
       Vptr b o =>
       match Genv.find_funct_ptr ge b with
@@ -143,21 +144,21 @@ Section WITHMEMORYMODEL.
     end.
 
   Lemma classify_state_correct:
-    forall rs sk,
-      classify_state_bool rs = Some sk ->
-      classify_state rs sk.
+    forall s sk,
+      classify_state_bool s = Some sk ->
+      classify_state s sk.
   Proof.
     unfold classify_state_bool.
-    intros rs sk CSB.
+    intros s sk CSB.
     repeat destr_in CSB.
     apply classify_instr_correct in H0. eapply classify_state_intro; eauto.
     econstructor 2; eauto.
   Qed.
 
   Lemma classify_state_complete:
-    forall rs sk,
-      classify_state rs sk ->
-      classify_state_bool rs = Some sk.
+    forall s sk,
+      classify_state s sk ->
+      classify_state_bool s = Some sk.
   Proof.
     intros rs sk CS.
     unfold classify_state_bool.
@@ -165,25 +166,27 @@ Section WITHMEMORYMODEL.
     rewrite H, H0. auto.
   Qed.
 
+  Inductive seq: state -> state -> Prop :=
+  | seq_intro rs1 rs2 m (REQ: forall r, rs1 r = rs2 r): seq (State rs1 m) (State rs2 m).
+
   Inductive match_states: state -> state -> Prop :=
   | match_states_regular:
-      forall (rs: regset) (m: mem) (rs': regset)
-        (REQ: forall r, rs r = rs' r)
-        (CL: forall fi ora, classify_state rs (SKalloc fi ora) -> False),
-        match_states (State rs m) (State rs' m)
+      forall s1 s2 (SEQ: seq s1 s2)
+        (CL: ~ classify_state s1 SKalloc)
+        (CL2: ~ classify_state s1 SKret),
+        match_states s1 s2
   | match_states_call:
-      forall (rs1: regset) (m: mem) (rs1': regset) b sg
-        (REQ: forall r, rs1 r = rs1' r)
-        (CL: classify_state rs1 (SKcall b sg))
-        rs2 m2
-        (STEP : RawAsm.step ge (State rs1 m) E0 (State rs2 m2)),
-        match_states (State rs2 m2) (State rs1' m)
-  | match_states_ret:
-      forall (rs1 rs1': regset) (m1 m: mem) (rs2: regset)
-        (REQ: forall r, rs1' r = rs2 r)
-        (CL: classify_state rs1 SKret)
-        (STEP : RawAsm.step ge (State rs1 m1) E0 (State rs1' m)),
-        match_states (State rs1 m1) (State rs2 m).
+      forall s1 s2 s1'
+        (SEQ: seq s1 s2)
+        (CL: classify_state s1 SKcall)
+        (STEP : RawAsm.step ge s1 E0 s1'),
+        match_states s1' s2
+  | match_states_freeframe:
+      forall s1 s2 s1'
+        (SEQ: seq s1 s2)
+        (CL: classify_state s1 SKfree)
+        (STEP : RawAsm.step ge s1 E0 s1'),
+        match_states s1' s2.
 
   (* | match_states_alloc: *)
   (*     forall (rs rs': regset) (m m': mem) *)
@@ -236,6 +239,15 @@ Section WITHMEMORYMODEL.
         | None => False
         end.
 
+  Hypothesis after_freeframe:
+    forall b f o sz ora,
+      Genv.find_funct_ptr ge b = Some (Internal f) ->
+      find_instr (Ptrofs.unsigned o) (fn_code f) = Some (Pfreeframe sz ora) ->
+      exists i,
+        find_instr (Ptrofs.unsigned (Ptrofs.add o (Ptrofs.repr (instr_size (Pfreeframe sz ora))))) (fn_code f) = Some i /\
+        (i = Pret \/
+        (exists symb sg fb, i = Pjmp_s symb sg /\ Genv.find_symbol ge symb = Some fb) \/
+        (exists r sg, i = Pjmp_r r sg)).
 
   Hypothesis pallocframe_only_at_beginning:
     forall b f o fi ora,
@@ -272,6 +284,37 @@ Section WITHMEMORYMODEL.
     setoid_rewrite Pregmap.gsspec. destr.
   Qed.
 
+  Lemma undef_regs_eq:
+    forall l (rs rs': regset) r,
+      (~ In r l -> rs r = rs' r) ->
+      undef_regs l rs r = undef_regs l rs' r.
+  Proof.
+    induction l; simpl; intros; eauto.
+    apply IHl. intros; apply set_reg_eq. intros; apply H. intuition. auto.
+  Qed.
+
+  Lemma nextinstr_nf_eq:
+    forall rs rs',
+      (forall r, rs r = rs' r) ->
+      forall sz r,
+        nextinstr_nf rs sz r = nextinstr_nf rs' sz r.
+  Proof.
+    unfold nextinstr_nf. intros.
+    apply nextinstr_eq.
+    intros; apply undef_regs_eq. auto.
+  Qed.
+
+  Lemma set_res_eq:
+    forall res rs rs',
+      (forall r, rs r = rs' r) ->
+      forall r vres,
+        set_res res vres rs r = set_res res vres rs' r.
+  Proof.
+    induction res; simpl; intros; eauto.
+    apply set_reg_eq; auto.
+  Qed.
+
+
   Hypothesis instr_size_repr:
     forall i,
       0 <= instr_size i <= Ptrofs.max_unsigned.
@@ -291,13 +334,11 @@ Section WITHMEMORYMODEL.
     try rewrite Pregmap.gss.
 
   Definition measure (s: state) : nat :=
-    let '(State rs m) := s in
-    match classify_state_bool rs with
-    | Some (SKcall _ _) => 1%nat
-    | Some (SKret) => 2%nat
-    | _ => O
+    match classify_state_bool s with
+    | Some SKcall => 2%nat
+    | Some SKret => 0%nat
+    | _ => 1%nat
     end.
-
 
   Lemma instr_size_not_zero:
     forall i,
@@ -305,7 +346,6 @@ Section WITHMEMORYMODEL.
   Proof.
     intros; apply not_eq_sym; apply Z.lt_neq, instr_size_positive.
   Qed.
-
 
   Theorem real_step_correct:
     forall s1 t s1' (STEP: RawAsm.step ge s1 t s1')
@@ -321,37 +361,89 @@ Section WITHMEMORYMODEL.
         admit.
         destruct i; simpl in SAME; try congruence.
         * (* call_s *)
-          simpl. simpl in H6. inv H6.
+          simpl. simpl in H2. inv H2.
           right.
-          destruct (calls_to_defined_functions _ _ _ _ _ H2 H3) as (bf & SA & FI).
+          destruct (calls_to_defined_functions _ _ _ _ _ H0 H1) as (bf & SA & FI).
           rewrite SA. destr_in FI.
           assert (FS: Genv.find_symbol ge symb = Some bf).
           {
             unfold Genv.symbol_address in SA; repeat destr_in SA.
           }
           split.
-          -- unfold classify_state_bool.
-             rewrite H1, H2, H3. simpl.
+          -- unfold measure. unfold classify_state_bool.
+             rewrite H, H0, H1. simpl.
              rewrite Heqo. rewrite FS. destr_in FI. rewrite FI. simpl. omega. omega.
           -- split; auto.
              eapply match_states_call.
              3: eapply RawAsm.exec_step_internal.
-             3: apply H1. auto. econstructor; eauto. constructor. eauto. eauto. eauto.
+             3: apply H. eauto. econstructor; eauto. econstructor; eauto. eauto. eauto.
              simpl. f_equal. unfold Genv.symbol_address; rewrite FS. reflexivity.
         * (* call_r *) admit.
         * (* ret *)
-          simpl. simpl in H6. inv H6.
-          right. split.
-          unfold classify_state_bool. rewrite H1, H2, H3. 
-          simpl.
-          simpl_regs. destruct (rs RA) eqn:?; simpl; try omega.
-          destr; try omega. repeat destr_in Heqo; try omega.
-          
-
+          contradict CL2. econstructor; eauto. constructor.
         * (* allocframe *)
           edestruct CL. econstructor; eauto. constructor.
-        * (* freeframe *) admit.
-          
+        * (* freeframe *)
+          destruct (after_freeframe _ _ _ _ _ H0 H1) as (i & NEXTINSTR & CHOICES).
+          destruct CHOICES.
+          {
+            right.
+            split.
+            - simpl in H2. repeat destr_in H2.
+              unfold measure, classify_state_bool. rewrite Asmgenproof0.nextinstr_pc. simpl_regs.
+              rewrite H. simpl. rewrite H0, H1. rewrite NEXTINSTR.
+              simpl. omega.
+            - split; auto.
+              eapply match_states_freeframe; eauto.
+              2: eapply RawAsm.exec_step_internal; eauto.
+              econstructor; eauto. constructor.
+          }
+          admit.
+      +                         (* builtin *)
+        inv SEQ.
+        left. eexists; split. apply plus_one.
+        eapply exec_step_builtin. rewrite <- REQ. eauto. eauto. eauto. rewrite <- REQ. eauto.
+
+        Lemma eval_builtin_args_eq_rs:
+          forall (rs1 rs2: regset) (REQ: forall r, rs1 r = rs2 r) sp m args vargs,
+            eval_builtin_args ge rs1 sp m args vargs ->
+            eval_builtin_args ge rs2 sp m args vargs.
+        Proof.
+        Admitted.
+
+
+        eapply eval_builtin_args_eq_rs; eauto.
+        eauto. auto. reflexivity.
+        apply match_states_regular; auto.
+        constructor. intros. apply nextinstr_nf_eq.
+        intros. apply set_res_eq.
+        intros; apply undef_regs_eq; auto.
+        inversion 1. subst. inv H11.
+        unfold nextinstr_nf in H7.
+        rewrite Asmgenproof0.nextinstr_pc in H7. simpl in H7. simpl_regs_in H7.
+
+        Fixpoint in_builtin_res (b: builtin_res preg) (r:preg) :=
+          match b with
+          | BR b => b = r
+          | BR_none => False
+          | BR_splitlong hi lo => in_builtin_res hi r \/ in_builtin_res lo r
+          end.
+
+        Lemma set_res_other:
+          forall res vres rs r,
+            ~ in_builtin_res res r ->
+            set_res res vres rs r = rs r.
+        Proof.
+          induction res; simpl; intros; eauto.
+          rewrite Pregmap.gso; auto.
+          rewrite IHres2. apply IHres1. intuition. intuition.
+        Qed.
+        
+        setoid_rewrite set_res_other in H7.
+        erewrite Asmgenproof0.undef_regs_other in H7.
+        rewrite H in H7. simpl in H7. inv H7.
+        rewrite_hyps.
+        reflexivity.
     - inv CL. inv H2.
       + (* call_s *)
         inv STEP0; try congruence.
