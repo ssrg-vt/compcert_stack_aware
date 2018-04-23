@@ -735,7 +735,7 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
   | Mtailcall sig (inl reg) =>
       do r <- ireg_of reg;
       OK ((Pfreeframe (StackADT.frame_size (f.(Mach.fn_frame))) f.(fn_retaddr_ofs)) ::
-          (Pjmp_r r sig true) :: k)
+          (Pjmp_r r sig) :: k)
   | Mtailcall sig (inr symb) =>
       OK ((Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs)) ::
           (Pjmp_s symb sig) :: k)
