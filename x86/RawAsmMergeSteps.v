@@ -63,6 +63,15 @@ Section WITHGE.
       frame_size f = sz ->
       is_alloc sz (Pallocframe f (Ptrofs.sub (Ptrofs.repr (align sz 8)) (Ptrofs.repr (size_chunk Mptr)))).
 
+  Definition make_palloc f : instruction :=
+    let sz := frame_size f in 
+    (Pallocframe f (Ptrofs.sub (Ptrofs.repr (align sz 8)) (Ptrofs.repr (size_chunk Mptr)))).
+
+  Lemma make_palloc_is_alloc:
+    forall f,
+      is_alloc (frame_size f) (make_palloc f).
+  Proof. constructor. auto. Qed.
+  
   Inductive is_free (sz: Z) : instruction -> Prop :=
     is_free_intro:
       is_free sz (Pfreeframe sz (Ptrofs.sub (Ptrofs.repr sz) (Ptrofs.repr (size_chunk Mptr)))).
@@ -126,11 +135,12 @@ Section WITHGE.
         (STEP2: RawAsm.step ge s2 E0 s3)
         (STEP3: RawAsm.step ge s3 t s4),
         step s1 t s4
-  | step_other_internal:
-      forall s1 t s2 f0 i
-        (PC: pc_at s1 = Some (inl (f0,i)))
-        (NOFREE: forall f, ~ is_free f i)
-        (NOCALL: ~ is_call (rs_state s1) i)
+  | step_other:
+      forall s1 t s2 r
+        (PC: pc_at s1 = Some r)
+        (NOFREE: forall f0 i, r = inl (f0,i) -> forall f, ~ is_free f i)
+        (NOFREE: forall f0 i, r = inl (f0,i) -> forall f, ~ is_alloc f i)
+        (NOCALL: forall f0 i, r = inl (f0,i) -> i <> Pret /\ ~ is_jmp i /\ ~ is_call (rs_state s1) i)
         (STEP: RawAsm.step ge s1 t s2),
         step s1 t s2
   .
@@ -211,15 +221,27 @@ Section SIMU.
     - rewrite H, H0. inversion 1.
   Qed.
 
+  Lemma nextinstr_nf_pc: forall rs sz, nextinstr_nf rs sz PC = Val.offset_ptr (rs PC) sz.
+  Proof.
+    unfold nextinstr_nf. simpl.
+    intros. rewrite Asmgenproof0.nextinstr_pc. f_equal.
+  Qed.
+
   Ltac simpl_regs_in H :=
-    repeat rewrite Pregmap.gso in H by congruence;
-    try rewrite Pregmap.gss in H;
-    try rewrite Asmgenproof0.nextinstr_pc in H.
+    repeat first [ rewrite Pregmap.gso in H by congruence
+                 | rewrite Pregmap.gss in H
+                 | rewrite Asmgenproof0.nextinstr_pc in H
+                 | rewrite nextinstr_nf_pc in H
+                 | rewrite Asmgenproof0.nextinstr_inv in H by congruence
+                 ].
 
   Ltac simpl_regs :=
-    repeat rewrite Pregmap.gso by congruence;
-    try rewrite Pregmap.gss;
-    try rewrite Asmgenproof0.nextinstr_pc.
+    repeat first [ rewrite Pregmap.gso by congruence
+                 | rewrite Pregmap.gss
+                 | rewrite Asmgenproof0.nextinstr_pc
+                 | rewrite nextinstr_nf_pc
+                 | rewrite Asmgenproof0.nextinstr_inv by congruence
+                 ].
 
   Record wf_asm_function (f: function): Prop :=
     {
@@ -229,14 +251,20 @@ Section SIMU.
           exists bf f',
             Genv.symbol_address ge symb Ptrofs.zero = Vptr bf Ptrofs.zero /\
             Genv.find_funct_ptr ge bf = Some f';
+
+      wf_asm_jmp_target_exists:
+        forall o symb sg,
+          find_instr o (fn_code f) = Some (Pjmp_s symb sg) ->
+          exists bf f',
+            Genv.symbol_address ge symb Ptrofs.zero = Vptr bf Ptrofs.zero /\
+            Genv.find_funct_ptr ge bf = Some f';
+
       wf_asm_alloc_only_at_beginning:
         forall o fi ora,
           find_instr o (fn_code f) = Some (Pallocframe fi ora) ->
           o = 0;
       wf_asm_alloc_at_beginning:
-        forall i,
-          find_instr 0 (fn_code f) = Some i ->
-          is_alloc (frame_size (fn_frame f)) i;
+        find_instr 0 (fn_code f) = Some (make_palloc (fn_frame f));
 
       wf_asm_after_freeframe:
         forall i o sz,
@@ -247,7 +275,15 @@ Section SIMU.
             find_instr (Ptrofs.unsigned (Ptrofs.add o (Ptrofs.repr (instr_size i)))) (fn_code f) = Some i' /\
             (i' = Pret \/ is_jmp ge i' );
 
-
+      wf_asm_ret_jmp_comes_after_freeframe:
+        forall i o,
+          find_instr (Ptrofs.unsigned o) (fn_code f) = Some i ->
+          i = Pret \/ is_jmp ge i ->
+          exists o' ifree,
+            find_instr (Ptrofs.unsigned o') (fn_code f) = Some ifree /\
+            is_free (frame_size (fn_frame f)) ifree /\
+            Ptrofs.unsigned (Ptrofs.repr (instr_size (make_palloc (fn_frame f)))) <= Ptrofs.unsigned o' < Ptrofs.unsigned o;
+      
     }.
 
   Hypothesis wf_asm_prog:
@@ -261,11 +297,56 @@ Section SIMU.
         H1 : ?a = _, H2: ?a = _ |- _ => rewrite H1 in H2; inv H2
       end.
 
+  Lemma pc_at_not_final:
+    forall s i r,
+      pc_at ge s = Some i ->
+      final_state s r ->
+      False.
+  Proof.
+    intros s i r PCAT FS; inv FS.
+    simpl in PCAT. rewrite H in PCAT.
+    unfold Vnullptr in PCAT. destruct (ptr64); inv PCAT.
+  Qed.
 
+  Inductive intermediate_instruction : instruction -> Prop :=
+  | ii_ret: intermediate_instruction Pret
+  | ii_alloc i sz: is_alloc sz i -> intermediate_instruction i
+  | ii_jmp i: is_jmp ge i -> intermediate_instruction i.
+
+
+  Axiom instr_size_repr:
+    forall i,
+      0 <= instr_size i <= Ptrofs.max_unsigned.
+
+  Lemma find_instr_pos_positive:
+    forall l o i,
+      find_instr o l = Some i -> 0 <= o.
+  Proof.
+    induction l; simpl; intros; eauto. congruence.
+    destr_in H. omega. apply IHl in H.
+    generalize (instr_size_positive a). omega.
+  Qed.
+  
+  Lemma find_instr_no_overlap:
+    forall l o1 o2 i1 i2,
+      find_instr o1 l = Some i1 ->
+      find_instr o2 l = Some i2 ->
+      o1 <> o2 ->
+      o1 + instr_size i1 <= o2 \/ o2 + instr_size i2 <= o1.
+  Proof.
+    induction l; simpl; intros; eauto. congruence.
+    repeat destr_in H; repeat destr_in H0.
+    - apply find_instr_pos_positive in H2. omega.
+    - apply find_instr_pos_positive in H3. omega.
+    - specialize (IHl _ _ _ _ H3 H2). trim IHl. omega. omega.
+  Qed.
+  
   Lemma group_progress:
     forall rs s1
-      (SAFE : safe (RawAsm.semantics prog rs) s1),
-      (exists r, final_state s1 r) \/ (exists t s2, step (Genv.globalenv prog) s1 t s2).
+      (SAFE : safe (RawAsm.semantics prog rs) s1)
+      (INV: forall f i, pc_at ge s1 = Some (inl (f, i)) -> ~ intermediate_instruction i),
+      (exists r, final_state s1 r) \/ (exists t s2, step (Genv.globalenv prog) s1 t s2 /\
+                                         forall f i, pc_at ge s2 = Some (inl (f, i)) -> ~ intermediate_instruction i).
   Proof.
     intros.
     destruct (SAFE _  (star_refl _ _ _)) as [(r & FS)|(t & s2 & STEP)].
@@ -294,81 +375,126 @@ Section SIMU.
           destruct H as (b & f' & FFP & PC2).
           inversion STEP2; subst.
           -- simpl in *. rewrite_hyps.
-             right; exists E0, (State rs' m').
+             right; exists E0, (State rs' m'). split.
              eapply step_call_internal.  5: apply STEP. 5: apply STEP2. eauto.
              unfold pc_at. rewrite PC2. rewrite H0, H1. eauto. eauto.
-             eapply wf_asm_alloc_at_beginning; eauto.
+             erewrite wf_asm_alloc_at_beginning in H1; eauto. inv H1. apply make_palloc_is_alloc.
+             simpl.
+             erewrite wf_asm_alloc_at_beginning in H1; eauto. inv H1.
+             simpl in H2. repeat destr_in H2. unfold ge in FFP; rewrite FFP in H0. inv H0.
+             simpl_regs. rewrite PC2. simpl. unfold ge. rewrite FFP.
+             destr. inversion 1; subst. intro A.
+             rewrite Ptrofs.add_zero_l in Heqo0.
+             inv A.
+             eapply wf_asm_ret_jmp_comes_after_freeframe in Heqo0; eauto.
+             destruct Heqo0 as (o' & ifree & FI & IFREE & RNG). omega.
+             inv H0. eapply wf_asm_alloc_only_at_beginning in Heqo0; eauto.
+             rewrite Ptrofs.unsigned_repr in Heqo0. generalize (instr_size_positive (make_palloc (fn_frame f1))). omega.
+             apply instr_size_repr.
+             eapply wf_asm_ret_jmp_comes_after_freeframe in Heqo0; eauto.
+             destruct Heqo0 as (o' & ifree & FI & IFREE & RNG). omega.
           -- simpl in *. rewrite_hyps.
-             eapply wf_asm_alloc_at_beginning in H1; eauto. inv H1.
+             erewrite wf_asm_alloc_at_beginning in H1; eauto. inv H1. 
           -- simpl in PC2. rewrite_hyps.
              right; eexists t, (State _ m').
-             eapply step_call_external.  4: apply STEP. 4: apply STEP2. eauto. eauto.
-             unfold pc_at. rewrite PC2. rewrite H0. eauto. 
+             split. eapply step_call_external.  4: apply STEP. 4: apply STEP2. eauto. eauto.
+             unfold pc_at. rewrite PC2. rewrite H0. eauto.
+             Opaque destroyed_at_call.
+             simpl. simpl_regs.
+             unfold pc_at in PCs; repeat destr_in PCs.
+             assert (rs0 RA = Vptr b (Ptrofs.add i0 (Ptrofs.repr (instr_size i)))).
+             {
+               inv CALL; simpl in EI; repeat destr_in EI; simpl_regs; rewrite Heqv; simpl; auto.
+             }
+             rewrite H. rewrite Heqo. destr. inversion 1; subst.
+             intro II; inv II.
+             eapply wf_asm_ret_jmp_comes_after_freeframe in Heqo1; eauto.
+             destruct Heqo1 as (o' & ifree & FO & IFREE & _ & RNG).
+             generalize (find_instr_no_overlap _ _ _ _ _ FO Heqo0). intro NOOV.
+             trim NOOV.
+             intro EQ; rewrite EQ in FO. rewrite Heqo0 in FO. inv FO. inv IFREE; inv CALL.
+             rewrite Ptrofs.add_unsigned in RNG. rewrite Ptrofs.unsigned_repr in RNG.
+             rewrite Ptrofs.unsigned_repr in RNG. 
+
       + (* not a call, free ? *)
         destruct (is_free_dec i) as [(sz & ISFREE)|NISFREE].
         * inversion ISFREE; subst. clear NOTCALL.
           exploit step_internal; eauto. intro IB; inv IB. intros (EI & T0). subst.
-
-          destruct (SAFE _ (star_one _ _ _ _ _ STEP)) as [(r & FS)|(t & s3 & STEP2)].
-          -- inv FS. simpl in EI. repeat destr_in EI.
-             unfold pc_at in PCs. repeat destr_in PCs.
-             rewrite Asmgenproof0.nextinstr_pc in H.
-             simpl_regs_in H. simpl in H. rewrite Heqv0 in H. simpl in H. inv H.
-          -- unfold pc_at in PCs. repeat destr_in PCs.
-             destruct (wf_asm_after_freeframe _ (wf_asm_prog _ _ Heqo) _ _ _ Heqo0 ISFREE) as (SZ & i0 & FI0 & SPECi0). subst.
-             simpl in EI. repeat destr_in EI.
-             assert (t = E0).
-             {
-               inv STEP2; auto; unfold ge in *; simpl in *; subst; rewrite_hyps.
-               repeat simpl_regs_in H. rewrite Heqv in H; simpl in H; inv H.
-               unfold ge in *; simpl in *; subst; rewrite_hyps.
-               destruct SPECi0 as [A|A]; inv A.
-               repeat simpl_regs_in H. rewrite Heqv in H; simpl in H; inv H. congruence.
-             }
-             subst.
-             destruct SPECi0 as [RET | JMP].
-             ++ subst. right.
-                eexists _, _; eapply step_free_ret. 4: apply STEP. 4: apply STEP2.
-                simpl. fold ge. rewrite Heqv, Heqo, Heqo0. eauto.
-                unfold pc_at. destr. simpl in *; subst. 
-                rewrite Asmgenproof0.nextinstr_pc.
-                simpl_regs. rewrite Heqv. simpl. fold ge; rewrite Heqo. rewrite FI0. eauto.
-                constructor.
-             ++ destruct (SAFE _ (star_two _ _ _ _ _ _ _ STEP STEP2 eq_refl)) as [(ret & FS)|(t & s4 & STEP3)].
-                ** inv FS.
-
-
-                
-
-                rewrite FI0 in H2.
-                eexists _, _; eapply step_call_internal. 5: apply STEP. 5: apply STEP2.
-
-
-        * simpl in STEP2.
-          assert (exists b f', Genv.find_funct_ptr ge b = Some f' /\
-                          rs_state s2 PC = Vptr b Ptrofs.zero).
+          assert (PC2: sz = frame_size (fn_frame f) /\ exists i, pc_at ge s2 = Some (inl (f, i)) /\ (i = Pret \/ is_jmp ge i)).
           {
-            inv CALL; simpl in EI; repeat destr_in EI.
-            - unfold pc_at in PCs; repeat destr_in PCs; simpl in *; subst.
-              eapply wf_asm_call_target_exists in Heqo0; eauto.
-              destruct Heqo0 as (bf & f' & SA & FFP).
-              inv STEP2; simpl in *; subst; simpl_regs; simpl_regs_in H0; eauto.
-            - simpl_regs. rewrite H in *. simpl in Heqo. destr_in Heqo. eauto.
+            unfold pc_at in PCs |- *. repeat destr_in PCs.
+            destr. simpl in EI. repeat destr_in EI.
+            repeat simpl_regs. rewrite Heqv. simpl. rewrite Heqo.
+            destruct (wf_asm_after_freeframe _ (wf_asm_prog _ _ Heqo) _ _ _ Heqo0 ISFREE) as (SZ & i0 & FI0 & SPECi0). rewrite FI0. eauto. 
           }
-          destruct H as (b & f' & FFP & PC2).
-          inversion STEP2; subst.
-          -- simpl in *. rewrite_hyps.
-             right; exists E0, (State rs' m').
-             eapply step_call_internal.  5: apply STEP. 5: apply STEP2. eauto.
-             unfold pc_at. rewrite PC2. rewrite H0, H1. eauto. eauto.
-             eapply wf_asm_alloc_at_beginning; eauto.
-          -- simpl in *. rewrite_hyps.
-             eapply wf_asm_alloc_at_beginning in H1; eauto. inv H1.
-          -- simpl in PC2. rewrite_hyps.
-             right; eexists t, (State _ m').
-             eapply step_call_external.  4: apply STEP. 4: apply STEP2. eauto. eauto.
-             unfold pc_at. rewrite PC2. rewrite H0. eauto. 
+          destruct PC2 as (SZ & i2 & PC2 & SPECi2). subst.
+          destruct (SAFE _ (star_one _ _ _ _ _ STEP)) as [(r & FS)|(t & s3 & STEP2)].
+          edestruct pc_at_not_final; eauto.
+          simpl in EI. repeat destr_in EI.
+          assert (t = E0).
+          {
+            inv STEP2; auto; unfold ge in *; simpl in *; subst; rewrite_hyps.
+            rewrite H, H2, H3 in PC2. inv PC2. destruct SPECi2 as [A|A]; inv A.
+            rewrite H, H2 in PC2. inv PC2.
+          }
+          subst.
+          destruct SPECi2 as [RET | JMP].
+          -- subst. right.
+             eexists _, _; eapply step_free_ret. 4: apply STEP. 4: apply STEP2.
+             eauto. eauto. eauto.
+          -- exploit step_internal; eauto. intro IB; inv JMP; inv IB. intros (EI & T0).
+             assert (PC3: exists i3,
+                        pc_at ge s3 = Some i3 /\
+                        ((exists f' ialloc, i3 = inl (f',ialloc) /\ is_alloc (frame_size (fn_frame f')) ialloc )
+                         \/ (exists ef, i3 = inr ef))).
+             {
+               unfold pc_at in PC2 |- *. repeat destr_in PC2. destr. simpl in *; subst.
+               inv JMP.
+               - (* jmp_s*)
+                 simpl in EI; repeat destr_in EI.
+                 unfold ge in *. rewrite_hyps.
+                 simpl_regs.
+                 destruct (wf_asm_jmp_target_exists _ (wf_asm_prog _ _ Heqo0) _ _ _ Heqo1)
+                   as (bf & f' & SA & FFP). 
+                 unfold ge in *. rewrite SA.
+                 unfold Genv.symbol_address in SA. rewrite H in SA. inv SA. rewrite FFP.
+                 destr.
+                 erewrite wf_asm_alloc_at_beginning; eauto.
+                 eexists; split; eauto. left; do 2 eexists; split; eauto using make_palloc_is_alloc.
+                 eexists; split; eauto.
+               - simpl in EI.
+                 repeat destr_in EI. simpl_regs.
+                 simpl_regs_in Heqo2.
+                 unfold Genv.find_funct in Heqo2. repeat destr_in Heqo2. rewrite H0.
+                 destr.
+                 erewrite wf_asm_alloc_at_beginning; eauto.
+                 eexists; split; eauto. left; do 2 eexists; split; eauto using make_palloc_is_alloc.
+                 eexists; split; eauto.
+             }
+             destruct PC3 as (i3 & PC3 & SPECi3).
+             destruct (SAFE _ (star_two _ _ _ _ _ _ _ STEP STEP2 eq_refl)) as [(ret & FS)|(t & s4 & STEP3)].
+             edestruct pc_at_not_final; eauto.
+             destruct SPECi3 as [(f' & ialloc & EQ & ALLOC)|(ef&EXT)]; subst.
+             ++
+               edestruct step_internal. apply STEP3. eauto. intro IB; inv IB; inv ALLOC. subst.
+               right; do 2 eexists. eapply step_free_tailcall.
+               apply PCs. apply PC2. apply PC3.
+               all: eauto.
+             ++ right; do 2 eexists. eapply step_free_external.
+                apply PCs. apply PC2. apply PC3. all: eauto.
+        * (* not call nor free -> regular step *)
 
+          right; do 2 eexists.
+          eapply step_other. eauto.
+          inversion 1; subst. intros f ISFREE; apply NISFREE. eauto.
+          inversion 1; subst; intros; eauto. eauto.
+    - right; do 2 eexists; eapply step_other; eauto.
+      inversion 1. inversion 1.
+    -
+      unfold pc_at in PCs. destr_in PCs. inv STEP; simpl in *; unfold ge in *.
+      + repeat destr_in PCs.
+      + repeat destr_in PCs.
+      + repeat destr_in PCs.
   Qed.
 
   Theorem group_correct:

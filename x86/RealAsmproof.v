@@ -15,6 +15,7 @@ Require Import Values.
 Require Import Conventions1.
 Require Import AsmFacts.
 Require Import RawAsm RealAsm.
+Require Import RawAsmMergeSteps.
 
 Section WITHMEMORYMODEL.
   
@@ -41,219 +42,6 @@ Section WITHMEMORYMODEL.
   Hypothesis init_sp_ptr: init_sp = Vptr binit_sp Ptrofs.zero.
 
 
-  (* Instructions whose semantics is not modified from RawAsm to RealAsm. *)
-  Definition instr_same (i: instruction) : bool :=
-    match i with
-      Pallocframe _ _
-    | Pfreeframe _ _
-    | Pcall_s _ _
-    | Pcall_r _ _
-    | Pret => false
-    | _ => true
-    end.
-
-  (* Classify states wrt the instruction their [PC] points to. *)
-  Inductive state_kind : Type :=
-  | SKnormal
-  | SKcall (* (b: block) (sg: signature) *)
-  | SKalloc (* (fi: frame_info) (ora: ptrofs) *)
-  | SKfree (* (sz: Z) (ora: ptrofs) *)
-  | SKret.
-
-  Inductive classify_instr rs : instruction -> state_kind -> Prop :=
-  | classify_instr_call_s fid b sg (FS: Genv.find_symbol ge fid = Some b):
-      classify_instr rs (Pcall_s fid sg) (SKcall)
-  | classify_instr_call_r r b o sg (FS: rs r = Vptr b o):
-      classify_instr rs (Pcall_r r sg) (SKcall)
-  | classify_instr_allocframe fi ora:
-      classify_instr rs (Pallocframe fi ora) (SKalloc)
-  | classify_instr_freeframe sz ora:
-      classify_instr rs (Pfreeframe sz ora) (SKfree)
-  | classify_instr_ret:
-      classify_instr rs Pret SKret
-  | classify_instr_unchanged i (SAME: instr_same i = true):
-      classify_instr rs i SKnormal.
-
-  Definition classify_instr_bool rs i :=
-    match i with
-    | Pcall_s fid sg =>
-      match Genv.find_symbol ge fid with
-      | Some b => Some (SKcall)
-      | None => None
-      end
-    | Pcall_r r sg =>
-      match rs r with
-      | Vptr b o => Some (SKcall)
-      | _ => None
-      end
-    | Pallocframe fi ora => Some (SKalloc)
-    | Pfreeframe sz ora => Some (SKfree)
-    | Pret => Some SKret
-    | _ => Some (SKnormal)
-    end.
-
-  Lemma classify_instr_correct:
-    forall rs i sk,
-      classify_instr_bool rs i = Some sk ->
-      classify_instr rs i sk.
-  Proof.
-    unfold classify_instr_bool.
-    intros rs i sk CIB.
-    repeat destr_in CIB;
-      first  [ now (econstructor; simpl; reflexivity)
-             | now (econstructor; eauto)
-             | idtac ].
-  Qed.
-
-  Lemma classify_instr_complete:
-    forall rs i sk,
-      classify_instr rs i sk ->
-      classify_instr_bool rs i = Some sk.
-  Proof.
-    intros rs i sk CI.
-    inv CI; simpl; repeat destr; auto.
-    unfold classify_instr_bool. repeat destr; simpl in *; try congruence.
-  Qed.
-
-  Inductive classify_state : state -> state_kind -> Prop :=
-  | classify_state_intro rs m b o f i sk:
-      rs PC = Vptr b o ->
-      Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr (Ptrofs.unsigned o) (fn_code f) = Some i ->
-      classify_instr rs i sk ->
-      classify_state (State rs m) sk
-  | classify_state_external rs m b o f:
-      rs PC = Vptr b o ->
-      Genv.find_funct_ptr ge b = Some (External f) ->
-      classify_state (State rs m) SKnormal.
-
-  Definition classify_state_bool s :=
-    let '(State rs _) := s in
-    match rs PC with
-      Vptr b o =>
-      match Genv.find_funct_ptr ge b with
-      | Some (Internal f) =>
-        match find_instr (Ptrofs.unsigned o) (fn_code f) with
-        | Some i => classify_instr_bool rs i
-        | _ => None
-        end
-      | Some (External ef) => Some SKnormal
-      | None => None
-      end
-    | _ => None
-    end.
-
-  Lemma classify_state_correct:
-    forall s sk,
-      classify_state_bool s = Some sk ->
-      classify_state s sk.
-  Proof.
-    unfold classify_state_bool.
-    intros s sk CSB.
-    repeat destr_in CSB.
-    apply classify_instr_correct in H0. eapply classify_state_intro; eauto.
-    econstructor 2; eauto.
-  Qed.
-
-  Lemma classify_state_complete:
-    forall s sk,
-      classify_state s sk ->
-      classify_state_bool s = Some sk.
-  Proof.
-    intros rs sk CS.
-    unfold classify_state_bool.
-    inv CS. rewrite H, H0, H1. eapply classify_instr_complete; eauto.
-    rewrite H, H0. auto.
-  Qed.
-
-  Inductive seq: state -> state -> Prop :=
-  | seq_intro rs1 rs2 m (REQ: forall r, rs1 r = rs2 r): seq (State rs1 m) (State rs2 m).
-
-  Inductive match_states: state -> state -> Prop :=
-  | match_states_regular:
-      forall s1 s1' (SEQ: seq s1 s1')
-        (CL: forall sk, classify_state s1 sk -> sk <> SKalloc /\ sk <> SKret),
-        match_states s1 s1'
-  | match_states_call:
-      forall s1 s2 s1'
-        (SEQ: seq s1 s1' )
-        (CL: classify_state s1 SKcall)
-        (STEP : RawAsm.step ge s1 E0 s2),
-        match_states s2 s1'
-  | match_states_freeframe:
-      forall s1 s2 s1'
-        (SEQ: seq s1 s1')
-        (CL: classify_state s1 SKfree)
-        (STEP : RawAsm.step ge s1 E0 s2),
-        match_states s2 s1'.
-
-  (* | match_states_alloc: *)
-  (*     forall (rs rs': regset) (m m': mem) *)
-  (*       fi ora *)
-  (*       (CL: classify_state rs = SKalloc fi ora) *)
-  (*       (RAWSTEP : *)
-  (*          forall rs1 m1 t, *)
-  (*            RawAsm.step  ge (State rs m) t (State rs1 m1) -> *)
-  (*            exists rs2 m2, *)
-  (*              RealAsm.step ge (State rs' m') t (State rs2 m2) /\ *)
-  (*              match_states (State rs1 m1) (State rs2 m2)), *)
-  (*       match_states (State rs m) (State rs' m') *)
-  (* | match_states_call: *)
-  (*     forall (rs rs': regset) (m m': mem) *)
-  (*       b sg *)
-  (*       (REQ: forall r, rs r = rs' r) *)
-  (*       (CL: classify_state rs = SKcall b sg) *)
-  (*       (RAWSTEP : exists rs2 m2, RealAsm.step ge (State rs' m') E0 (State rs2 m2)), *)
-  (*       match_states (State rs m) (State rs' m') *)
-  
-  Lemma real_instr_same:
-    forall m1 m2 rs1 rs2 f i rs1' m1'
-      (MS: match_states (State rs1 m1) (State rs2 m2))
-      b o
-      (RPC: rs1 PC = Vptr b o)
-      (FFP: Genv.find_funct_ptr ge b = Some (Internal f))
-      (FI: find_instr (Ptrofs.unsigned o) (fn_code f) = Some i)
-      (EI: RawAsm.exec_instr ge f i rs1 m1 = Next rs1' m1')
-      (SAME: instr_same i = true),
-      exists rs2' m2',
-        RealAsm.exec_instr ge f i rs2 m2 = Next rs2' m2'
-        /\ match_states (State rs1' m1') (State rs2' m2').
-  Proof.
-    intros m1 m2 rs1 rs2 f i rs1' m1' MS b o RPC FFP FI EI SAME.
-  Admitted.
-
-  Axiom calls_to_defined_functions:
-    forall b f o symb sg,
-      Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr o (fn_code f) = Some (Pcall_s symb sg) ->
-      exists bf f',
-        Genv.symbol_address ge symb Ptrofs.zero = Vptr bf Ptrofs.zero /\
-        Genv.find_funct_ptr ge bf = Some f'.
-
-  Axiom pallocframe_only_at_beginning:
-    forall b f o fi ora,
-      Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr o (fn_code f) = Some (Pallocframe fi ora) ->
-      o = 0.
-
-  Axiom pallocframe_at_beginning:
-    forall b f,
-      Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr 0 (fn_code f) = Some (Pallocframe
-                                         (fn_frame f)
-                                         (Ptrofs.sub (Ptrofs.repr (align (frame_size (fn_frame f)) 8))
-                                                     (Ptrofs.repr (size_chunk Mptr)))).
-
-  Axiom after_freeframe:
-    forall b f o sz ora,
-      Genv.find_funct_ptr ge b = Some (Internal f) ->
-      find_instr (Ptrofs.unsigned o) (fn_code f) = Some (Pfreeframe sz ora) ->
-      exists i,
-        find_instr (Ptrofs.unsigned (Ptrofs.add o (Ptrofs.repr (instr_size (Pfreeframe sz ora))))) (fn_code f) = Some i /\
-        (i = Pret \/
-        (exists symb sg fb, i = Pjmp_s symb sg /\ Genv.find_symbol ge symb = Some fb) \/
-        (exists r sg, i = Pjmp_r r sg)).
-
   Lemma ptrofs_sub_sub a b:
     Ptrofs.sub (Ptrofs.sub a b) a = Ptrofs.neg b.
   Proof.
@@ -261,6 +49,42 @@ Section WITHMEMORYMODEL.
     rewrite Ptrofs.sub_add_l. rewrite Ptrofs.sub_idem.
     apply Ptrofs.add_zero_l.
   Qed.
+
+  Inductive seq: state -> state -> Prop :=
+  | seq_intro rs1 rs2 m (REQ: forall r, rs1 r = rs2 r): seq (State rs1 m) (State rs2 m).
+
+  Lemma internal_step:
+    forall s f i
+      (PCAT: pc_at ge s = Some (inl (f,i)))
+      (NB: ~ is_builtin i) rs' m'
+      (EI: exec_instr ge f i (rs_state s) (m_state s) = Next rs' m'),
+      RealAsm.step ge s E0 (State rs' m').
+  Proof.
+    unfold pc_at; intros s f i PCAT NB rs' m' EI.
+    repeat destr_in PCAT.
+    eapply RealAsm.exec_step_internal; eauto.
+  Qed.
+
+  Ltac force_rewrite_match H :=
+    match goal with
+      H: ?b = _ |- context [ match ?a with _ => _ end ] =>
+      cut (b = a);[ let A := fresh in intro A; rewrite <- A, H | ]
+    end.
+  Ltac simpl_regs_in H :=
+    repeat first [ rewrite Pregmap.gso in H by congruence
+                 | rewrite Pregmap.gss in H
+                 | rewrite Asmgenproof0.nextinstr_pc in H
+                 | rewrite nextinstr_nf_pc in H
+                 | rewrite Asmgenproof0.nextinstr_inv in H by congruence
+                 ].
+
+  Ltac simpl_regs :=
+    repeat first [ rewrite Pregmap.gso by congruence
+                 | rewrite Pregmap.gss
+                 | rewrite Asmgenproof0.nextinstr_pc
+                 | rewrite nextinstr_nf_pc
+                 | rewrite Asmgenproof0.nextinstr_inv by congruence
+                 ].
 
   Lemma nextinstr_eq:
     forall rs rs',
@@ -312,10 +136,179 @@ Section WITHMEMORYMODEL.
     apply set_reg_eq; auto.
   Qed.
 
+  Axiom frame_size_aligned:
+    forall f,
+      frame_size f = align (frame_size f) 8.
 
-  Axiom instr_size_repr:
-    forall i,
-      0 <= instr_size i <= Ptrofs.max_unsigned.
+  
+  Lemma steps_correct:
+    forall s1 t s2
+      (STEP : step (Genv.globalenv prog) s1 t s2)
+    s1' (SEQ: seq s1 s1'),
+    exists s2',
+      plus RealAsm.step (Genv.globalenv prog) s1' t s2'
+      /\ seq s2 s2'.
+  Proof.
+    intros s1 t s2 STEP s1' SEQ; inv STEP.
+    - (* call -> alloc *)
+      inv SEQ.
+      edestruct (step_internal _ _ _ _ STEP1) as (EI1 & T1); eauto. intro IB; inv IB; inv CALL.
+      edestruct (step_internal _ _ _ _ STEP2) as (EI2 & T2); eauto. intro IB; inv IB; inv ALLOC.
+      inv ALLOC. simpl in EI2; repeat destr_in EI2.
+      destruct s2, s3; simpl in *. subst.
+
+      assert (call_ok: m1 = m /\ exists b rs',
+                  r0 PC = Vptr b Ptrofs.zero /\ Genv.find_funct_ptr ge b = Some (Internal f) /\
+                  exec_instr ge f0 icall rs2 m = Next rs' m0 /\
+                  (forall r:preg, r <> RSP -> rs' r = r0 r) /\
+                  rs' RSP = Val.offset_ptr (rs2 RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))) /\
+                  r0 RSP = rs1 RSP).
+      {
+        unfold pc_at in PC2. repeat destr_in PC2.
+        split.
+        inv CALL; simpl in EI1; repeat destr_in EI1; eauto.
+        exists b.
+        inv CALL; simpl in EI1; repeat destr_in EI1.
+        - simpl_regs_in Heqv. revert Heqv.  unfold Genv.symbol_address. rewrite H0. intro A; inv A.
+          unfold ge. rewrite Heqo0.
+          simpl.
+          force_rewrite_match Heqo.
+          + eexists; repeat apply conj; eauto.
+            * intros. rewrite (Pregmap.gso _ _ H2).
+              simpl_regs. unfold Genv.symbol_address. unfold ge. rewrite H0. rewrite REQ.
+              apply set_reg_eq. intros.
+              apply set_reg_eq. auto.
+              auto. auto.
+          + rewrite ! REQ.
+            f_equal.
+            simpl_regs. 
+            rewrite Val.offset_ptr_assoc.
+            rewrite Ptrofs.add_commut.
+            rewrite <- Ptrofs.sub_add_opp.
+            rewrite H, ptrofs_sub_sub. rewrite REQ. auto.
+        - simpl_regs_in Heqv. revert Heqv. rewrite H0. intro A; inv A.
+          unfold ge. rewrite Heqo0.
+          simpl.
+          force_rewrite_match Heqo.
+          + eexists; repeat apply conj; eauto.
+            * intros. rewrite (Pregmap.gso _ _ H2).
+              simpl_regs.
+              apply set_reg_eq; auto. intros.
+              apply set_reg_eq. auto. rewrite REQ. auto.
+              rewrite <- REQ. auto.
+          + rewrite ! REQ.
+            f_equal.
+            simpl_regs. 
+            rewrite Val.offset_ptr_assoc.
+            rewrite Ptrofs.add_commut.
+            rewrite <- Ptrofs.sub_add_opp.
+            rewrite H, ptrofs_sub_sub. rewrite REQ. auto.
+      }
+      destruct call_ok as (MEQ & b & rs' & PC3 & FFP & EIcall & SAMErs & rs'RSP & r0RSP).
+      subst.
+      eexists; split. eapply plus_two.
+      eapply internal_step; eauto.
+      rewrite <- PC1.
+      unfold ge. simpl. rewrite <- REQ. auto. intro IB; inv IB; inv CALL.
+      eapply internal_step; eauto.
+      rewrite <- PC2. rewrite <- SAMErs by congruence.
+      unfold ge. simpl. auto.
+      inversion 1.
+      simpl. eauto. traceEq.
+      econstructor.
+      apply nextinstr_eq.
+      intros. apply set_reg_eq; auto.
+      intros. rewrite rs'RSP.
+      apply set_reg_eq; auto. intros. rewrite <- SAMErs; eauto.
+      rewrite r0RSP.
+      rewrite REQ.
+      rewrite Val.offset_ptr_assoc. rewrite Ptrofs.add_commut.
+      rewrite Ptrofs.add_neg_zero.
+      admit. (* RSP should be a pointer *)
+      rewrite r0RSP. rewrite rs'RSP. rewrite REQ.
+      rewrite Val.offset_ptr_assoc. f_equal.
+      rewrite <- Ptrofs.neg_add_distr. f_equal.
+      rewrite Ptrofs.sub_add_opp.
+      rewrite (Ptrofs.add_commut _ (Ptrofs.neg _)).
+      rewrite <- Ptrofs.add_assoc. rewrite Ptrofs.add_neg_zero. rewrite Ptrofs.add_zero_l; auto.
+    - admit.                    (* call -> external *)
+    - (* free -> ret *)
+      inv SEQ.
+      edestruct (step_internal _ _ _ _ STEP1) as (EI1 & T1); eauto. intro IB; inv IB; inv FREE.
+      edestruct (step_internal _ _ _ _ STEP2) as (EI2 & T2); eauto. intro IB; inv IB.
+      inv FREE. simpl in EI1; repeat destr_in EI1.
+      simpl in EI2. inv EI2.
+      destruct s2, s3; simpl in *. subst.
+      simpl_regs_in PC2.
+      repeat destr_in PC1. simpl in PC2.
+      repeat destr_in PC2.
+      eexists. split.
+      eapply plus_two.
+      eapply internal_step. simpl.
+      unfold ge. rewrite <- REQ, Heqv0, Heqo2, Heqo1. eauto.
+      inversion 1.
+      simpl. eauto.
+      eapply internal_step. simpl. simpl_regs.
+      unfold ge. rewrite <- REQ, Heqv0. simpl.
+      rewrite Heqo2, Heqo3. eauto. inversion 1.
+      simpl. force_rewrite_match Heqo. eauto.
+      f_equal. simpl_regs.
+      rewrite REQ. f_equal.
+      rewrite Z.max_r by apply frame_size_pos. rewrite <- frame_size_aligned. auto.
+      traceEq.
+      constructor. intros.
+      simpl_regs.
+      apply set_reg_eq.
+      intros; apply set_reg_eq.
+      intros.
+      repeat simpl_regs.
+      intros; apply set_reg_eq.
+      intros. simpl_regs. auto.
+      rewrite Val.offset_ptr_assoc. f_equal. auto.
+      rewrite <- Ptrofs.sub_add_l.
+      rewrite Ptrofs.add_commut.
+      rewrite Ptrofs.sub_add_l.
+      rewrite Ptrofs.sub_idem. rewrite Ptrofs.add_zero_l. auto. auto. auto.
+    - admit. (* free -> jmp -> alloc (tailcall to internal function) *)
+    - admit. (* free -> jmp -> external (tailcall to external function) *)
+    - (* regular instruction *)
+      inv STEP0; simpl in PC; rewrite H in PC; repeat destr_in PC; inv H0.
+      rewrite Heqo0 in H1; inv H1.
+      inv SEQ.
+      eexists; split. apply plus_one.
+      eapply RealAsm.exec_step_internal. rewrite <- REQ; eauto. eauto. eauto.
+
+      Lemma exec_instr_same_rs:
+        forall f i rs m rs' m' rs2 (SEQ: seq (State rs m) (State rs2 m))
+          (EI: RawAsm.exec_instr ge f i rs m = Next rs' m'),
+        exists rs2',
+          exec_instr ge f i rs2 m = Next rs2' m' /\ seq (State rs' m') (State rs2' m').
+      Proof.
+        
+      Qed.
+
+      eapply
+      
+  Qed.
+
+  Theorem real_asm_correct rs:
+    forward_simulation (RawAsmMergeSteps.semantics prog rs) (RealAsm.semantics prog rs).
+  Proof.
+    eapply forward_simulation_plus with (match_states := fun s1 s2 : Asm.state => s1 = s2).
+    - reflexivity.
+    - intros; eauto.
+    - intros; subst; eauto.
+    - simpl. intros; subst.
+      eexists; split; eauto.
+      
+      inv H.
+      + eapply plus_two; eauto.
+      inv H; first [ eapply plus_one; eauto; try reflexivity
+                   | eapply plus_two; eauto; try reflexivity
+                   | eapply plus_three; eauto; try reflexivity ].
+  Qed.
+
+  
 
   Ltac rewrite_hyps :=
     repeat

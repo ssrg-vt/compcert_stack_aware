@@ -99,7 +99,7 @@ BACKEND=\
   Inlining.v Inliningspec.v Inliningproof.v \
   Tailcall.v Tailcallproof.v \
   AsmFacts.v RawAsm.v RawAsmproof.v \
-  RealAsm.v RealAsmproof.v
+  RealAsm.v RealAsmproof.v RawAsmMergeSteps.v
   # Sect.v Sectinj.v \
   # FlatAsm.v FlatAsmGlobenv.v FlatAsmGlobdef.v FlatAsmBuiltin.v \
   # FlatAsmgen.v FlatAsmgenproof.v 

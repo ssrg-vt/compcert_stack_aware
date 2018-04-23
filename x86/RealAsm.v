@@ -30,9 +30,9 @@ Section WITHGE.
     match i with
     | Pallocframe fi ofs_ra =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.sub (Ptrofs.repr (align (frame_size fi) 8)) (Ptrofs.repr (size_chunk Mptr)))) in
-      Next (nextinstr (rs #RSP <- sp) sz) m
+      Next (nextinstr (rs #RAX <- (Val.offset_ptr (rs RSP) (Ptrofs.repr (size_chunk Mptr))) #RSP <- sp) sz) m
     | Pfreeframe fsz ofs_ra =>
-      let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 fsz) 8 - size_chunk Mptr)) in
+      let sp := Val.offset_ptr (rs RSP) (Ptrofs.sub (Ptrofs.repr (align (Z.max 0 fsz) 8)) (Ptrofs.repr (size_chunk Mptr))) in
       Next (nextinstr (rs#RSP <- sp) sz) m
     | Pload_parent_pointer rd z =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 z) 8)) in
@@ -44,8 +44,7 @@ Section WITHGE.
       | Some m2 =>
         Next (rs#RA <- (Val.offset_ptr rs#PC sz)
                 #PC <- (Genv.symbol_address ge id Ptrofs.zero)
-                #RSP <- sp
-                #RAX <- (rs#RSP)) m2
+                #RSP <- sp) m2
       end
     | Pcall_r r sg =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))) in
@@ -54,8 +53,7 @@ Section WITHGE.
       | Some m2 =>
         Next (rs#RA <- (Val.offset_ptr rs#PC sz)
                 #PC <- (rs r)
-                #RSP <- sp
-                #RAX <- (rs#RSP)) m2
+                #RSP <- sp) m2
       end
     | Pret =>
       match Mem.loadv Mptr m rs#RSP with

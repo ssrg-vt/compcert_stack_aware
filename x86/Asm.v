@@ -1054,10 +1054,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
       Next (rs#PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
   | Pjmp_r r sg checkfunzero =>
     if checkfunzero
-    then match rs r with
-           Vptr b o => if Ptrofs.eq_dec o Ptrofs.zero
-                      then Next (rs#PC <- (rs r)) m
-                      else Stuck
+    then match Genv.find_funct ge (rs r) with
+         | Some _ => Next (rs#PC <- (rs r)) m
          | _ => Stuck
          end
     else Next (rs#PC <- (rs r)) m
