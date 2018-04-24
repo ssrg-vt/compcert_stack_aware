@@ -44,17 +44,6 @@ Require Export StackADT.
 (* To avoid useless definitions of inductors in extracted code. *)
 Local Unset Elimination Schemes.
 Local Unset Case Analysis Schemes.
-
-Program Definition inject_perm_upto_writable: InjectPerm :=
-  {|
-    inject_perm_condition := fun p => perm_order Writable p
-  |}.
-
-Program Definition inject_perm_all: InjectPerm :=
-  {|
-    inject_perm_condition := fun p => True
-  |}.
-
 Close Scope nat_scope.
 Open Scope Z_scope.
 

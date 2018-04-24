@@ -487,7 +487,7 @@ Definition transl_expr_prop
   /\ Val.lessdef v rs'#rd
   /\ (forall r, In r pr -> rs'#r = rs#r)
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 Definition transl_exprlist_prop
      (le: letenv) (al: exprlist) (vl: list val) : Prop :=
@@ -502,7 +502,7 @@ Definition transl_exprlist_prop
   /\ Val.lessdef_list vl rs'##rl
   /\ (forall r, In r pr -> rs'#r = rs#r)
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 Definition transl_condexpr_prop
      (le: letenv) (a: condexpr) (v: bool) : Prop :=
@@ -516,7 +516,7 @@ Definition transl_condexpr_prop
   /\ match_env map e le rs'
   /\ (forall r, In r pr -> rs'#r = rs#r)
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 (** The correctness of the translation is a huge induction over
   the CminorSel evaluation derivation for the source program.  To keep
@@ -969,7 +969,7 @@ Definition transl_exitexpr_prop
   /\ nth_error nexits x = Some nd
   /\ match_env map e le rs'
   /\ Mem.extends m tm'
-  /\ Mem.stack_adt tm' = Mem.stack_adt tm.
+  /\ Mem.stack tm' = Mem.stack tm.
 
 Theorem transl_exitexpr_correct:
   forall le a x,
@@ -1227,17 +1227,16 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
         (TK: tr_cont tf.(fn_code) map k ncont nexits ngoto nret rret cs)
         (ME: match_env map e nil rs)
         (MEXT: Mem.extends m tm)
-        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
+        (SE: stack_equiv (Mem.stack m) (Mem.stack tm)),
       match_states (CminorSel.State f s k sp e m)
                    (RTL.State cs tf sp ns rs tm)
-  | match_callstate:
+  | match_callstate: 
       forall f args targs k m tm cs tf sz
         (TF: transl_fundef f = OK tf)
         (MS: match_stacks k cs)
         (LD: Val.lessdef_list args targs)
         (MEXT: Mem.extends m tm)
-        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm))
-        (* (TAILNOPERM: tc = true -> Mem.top_tframe_no_perm (Mem.perm tm) (Mem.stack_adt tm)) *),
+        (SE: stack_equiv (Mem.stack m) (Mem.stack tm)),
       match_states (CminorSel.Callstate f args k m sz)
                    (RTL.Callstate cs tf targs tm sz)
   | match_returnstate:
@@ -1245,7 +1244,7 @@ Inductive match_states: CminorSel.state -> RTL.state -> Prop :=
         (MS: match_stacks k cs)
         (LD: Val.lessdef v tv)
         (MEXT: Mem.extends m tm)
-        (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt tm)),
+        (SE: stack_equiv (Mem.stack m) (Mem.stack tm)),
       match_states (CminorSel.Returnstate v k m)
                    (RTL.Returnstate cs tv tm).
 
@@ -1423,6 +1422,11 @@ Proof.
       assert (fn_stacksize tf = fn_stackspace f). inv TF; auto.
       edestruct Mem.free_parallel_extends as [tm''' []]; eauto.
       constructor.
+
+      edestruct (Mem.tailcall_stage_extends) as (m2' & TC & EXT); eauto.
+      inv MSA1.
+      eapply Mem.free_top_tframe_no_perm; eauto. rewrite STK2, STK1. eauto.
+      congruence.
       econstructor; split.
       left; eapply plus_right. eapply star_trans. eexact A. eexact E. reflexivity.
       eapply exec_Itailcall; eauto.
@@ -1433,7 +1437,9 @@ Proof.
       rewrite H; eauto.
       traceEq.
       constructor; auto.
-      repeat rewrite_stack_blocks. congruence.
+      eapply Mem.tailcall_stage_stack_equiv; eauto.
+      repeat rewrite_stack_blocks. rewrite STK2, STK1. eauto.
+      
 
     + (* direct *)
       exploit transl_exprlist_correct; eauto.
@@ -1443,21 +1449,26 @@ Proof.
       assert (fn_stacksize tf = fn_stackspace f). inv TF; auto.
       edestruct Mem.free_parallel_extends as [tm''' []]; eauto.
       constructor.
+      edestruct (Mem.tailcall_stage_extends) as (m2' & TC & EXT); eauto.
+      inv MSA1.
+      eapply Mem.free_top_tframe_no_perm; eauto. rewrite STK1. eauto.
+      congruence.
       econstructor; split.
       left; eapply plus_right. eexact E.
       eapply exec_Itailcall; eauto.
       simpl. reflexivity. 
-      simpl. rewrite symbols_preserved. rewrite H5.
+      simpl. rewrite symbols_preserved. rewrite H6.
       rewrite Genv.find_funct_find_funct_ptr in P. eauto.
       apply sig_transl_function; auto.
       rewrite H; eauto.
       traceEq.
       assert (id = id0).
-      apply Genv.find_invert_symbol in H5.
+      apply Genv.find_invert_symbol in H6.
       destruct IFI as (bb & oo & EQ3 & EQ2). inv EQ3.
       apply Genv.find_invert_symbol in EQ2. congruence.  subst.
       constructor; auto.
-      repeat rewrite_stack_blocks. congruence.
+      eapply Mem.tailcall_stage_stack_equiv; eauto.
+      repeat rewrite_stack_blocks. rewrite STK1. eauto.
 
   - (* builtin *)
     inv TS.
@@ -1589,22 +1600,7 @@ Proof.
     exploit (add_vars_valid (CminorSel.fn_params f)); eauto. intros [A B].
     eapply add_vars_wf; eauto. eapply add_vars_wf; eauto. apply init_mapping_wf.
     edestruct Mem.alloc_extends as [tm' []]; eauto; try apply Zle_refl.
-    exploit Mem.record_stack_blocks_extends. 2: eauto. eauto.
-    + unfold in_frame. simpl. intros ? [?|[]]; subst.
-      intro IFF.
-      erewrite Mem.alloc_stack_blocks in IFF; eauto.
-      eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in H6. congruence.
-    + intros b fi o k0 p [A|[]] P; inv A.
-      revert P; rewrite_perms. rewrite peq_true. simpl; intros; rewrite Z.max_r; omega.
-    + rewrite_stack_blocks.
-      inv TOPNOPERM. constructor.
-      red in H10. red.
-      intros. intro P.
-      eapply Mem.perm_alloc_inv in P; eauto.
-      destr_in P. subst.
-      exploit Mem.in_frames_valid. rewrite <- H9. rewrite in_stack_cons. left. eauto.
-      eapply Mem.fresh_block_alloc; eauto.
-      eapply H10 in P; eauto.
+    exploit Mem.record_push_extends_flat_alloc. apply H. apply H6. eauto. all: eauto.
     + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
     + intros (m2' & USB & EXT).
       econstructor; split.
@@ -1613,9 +1609,9 @@ Proof.
       econstructor; eauto.
       inversion MS; subst; econstructor; eauto.
       repeat rewrite_stack_blocks.
-      revert EQ1 EQ0; repeat rewrite_stack_blocks.
-      intros EQ1 EQ0; rewrite EQ1, EQ0 in SE.
+      intros A B; rewrite A, B in SE.
       inv SE; constructor; eauto. repeat constructor; auto.
+      simpl. inv LF2. simpl in *; auto.
 
   - (* external call *)
     monadInv TF.

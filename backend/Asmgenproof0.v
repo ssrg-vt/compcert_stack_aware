@@ -530,17 +530,6 @@ Qed.
   and [tc] is the tail of the generated code at the position corresponding
   to the code pointer [pc]. *)
 
-Section WITHINSTRSIZEMAP.
-
-Variable instr_size_map : instruction -> Z.
-Hypothesis instr_size_non_zero : forall i, instr_size_map i > 0.
-
-Definition transf_function := transf_function instr_size_map instr_size_non_zero.
-Definition transl_code := transl_code instr_size_map instr_size_non_zero.
-Definition transl_code_rec := transl_code_rec instr_size_map instr_size_non_zero.
-Definition transl_code' := transl_code' instr_size_map instr_size_non_zero.
-Definition transl_instr := transl_instr instr_size_map instr_size_non_zero.
-
 Inductive transl_code_at_pc (ge: Mach.genv):
     val -> block -> Mach.function -> Mach.code -> bool -> Asm.function -> Asm.code -> Prop :=
   transl_code_at_pc_intro:
@@ -784,7 +773,7 @@ Ltac TailNoLabel :=
 Section WITHCONFIG.
 
   Local Existing Instance mem_accessors_default.
-  Variable init_stk: stack_adt.
+  Variable init_stk: stack.
 
 Section STRAIGHTLINE.
 
@@ -935,7 +924,6 @@ End MATCH_STACK.
 
 End WITHCONFIG.
 
-End WITHINSTRSIZEMAP.
 End WITHEXTERNALCALLS.
 
 Hint Extern 1 (nolabel _) => exact I : labels.

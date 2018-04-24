@@ -316,7 +316,7 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (PC: match_pc f rs m n pc pc')
            (REGS: regs_lessdef rs rs')
            (MEM: Mem.extends m m')
-           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+           (SE: stack_equiv (Mem.stack m) (Mem.stack m')),
       match_states n (State s f sp pc rs m)
                     (State s' (transf_function (romem_for cu) f) sp pc' rs' m')
   | match_states_call:
@@ -325,7 +325,7 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (STACKS: list_forall2 match_stackframes s s')
            (ARGS: Val.lessdef_list args args')
            (MEM: Mem.extends m m')
-           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+           (SE: stack_equiv (Mem.stack m) (Mem.stack m')),
       match_states O (Callstate s f args m sz)
                      (Callstate s' (transf_fundef (romem_for cu) f) args' m' sz)
   | match_states_return:
@@ -333,7 +333,7 @@ Inductive match_states: nat -> state -> state -> Prop :=
            (STACKS: list_forall2 match_stackframes s s')
            (RES: Val.lessdef v v')
            (MEM: Mem.extends m m')
-           (SE: stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m')),
+           (SE: stack_equiv (Mem.stack m) (Mem.stack m')),
       list_forall2 match_stackframes s s' ->
       match_states O (Returnstate s v m)
                      (Returnstate s' v' m').
@@ -344,7 +344,7 @@ Lemma match_states_succ:
   list_forall2 match_stackframes s s' ->
   regs_lessdef rs rs' ->
   Mem.extends m m' ->
-  stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m) (Mem.stack_adt m') ->
+  stack_equiv (Mem.stack m) (Mem.stack m') ->
   match_states O (State s f sp pc rs m)
                  (State s' (transf_function (romem_for cu) f) sp pc rs' m').
 Proof.
@@ -510,6 +510,8 @@ Proof.
 
 - (* Itailcall *)
   exploit Mem.free_parallel_extends; eauto. constructor. intros [m2' [A B]].
+  exploit Mem.tailcall_stage_extends; eauto.
+  inv IS. inv MSA1. eapply Mem.free_top_tframe_no_perm; eauto. intros (m3' & C & D).
   exploit transf_ros_correct; eauto. intros (cu' & FIND & LINK').
   TransfInstr; intro.
   left; econstructor; econstructor; split.
@@ -528,16 +530,18 @@ Proof.
     simpl.
     destruct RIF as (b & o & EQ & EQ1).
     generalize (EM r). setoid_rewrite Heqa. rewrite EQ. inversion 1. subst.
-    inv H6.
-    apply GE in H7.
-    apply Genv.find_invert_symbol in H7.
+    inv H7.
+    apply GE in H8.
+    apply Genv.find_invert_symbol in H8.
     apply Genv.find_invert_symbol in EQ1. unfold ge in EQ1. congruence.
     auto.
   }
   apply sig_function_translated; auto.
   constructor; auto.
   apply regs_lessdef_regs; auto.
-  repeat rewrite_stack_blocks. congruence.
+  repeat rewrite_stack_blocks. intros E F; rewrite E, F in SE.
+  inv SE; constructor; auto. split; simpl; auto.
+  destruct LF2 as (LF1 & LF2); red in LF1; repeat destr_in LF1; constructor; auto.
 
 - (* Ibuiltin *)
   rename pc'0 into pc. TransfInstr; intros.
@@ -608,23 +612,8 @@ Opaque builtin_strength_reduction.
 - (* internal function *)
   exploit Mem.alloc_extends. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros [m2' [A B]].
-  exploit Mem.record_stack_blocks_extends. 2: eauto.
-  eauto.
-  + unfold in_frame. simpl. intros ? [?|[]]; subst.
-    intro IFF.
-    erewrite Mem.alloc_stack_blocks in IFF; eauto.
-    eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in A. congruence.
-  + intros b fi o k0 p [AA|[]] P; inv AA. simpl.
-    revert P; rewrite_perms. rewrite peq_true. intros; rewrite Z.max_r; omega.
-  + inv IS. inv TOPNOPERM.
-    rewrite_stack_blocks. rewrite <- H1. constructor.
-    red in H2. red.
-    intros. intro P.
-    eapply Mem.perm_alloc_inv in P; eauto.
-    destr_in P. subst.
-    exploit Mem.in_frames_valid. rewrite <- H1. rewrite in_stack_cons. left. eauto.
-    eapply Mem.fresh_block_alloc; eauto.
-    eapply H2 in P; eauto.
+  exploit Mem.record_push_extends_flat_alloc. apply H. apply A. all: eauto.
+  + inv IS. auto.
   + repeat rewrite_stack_blocks. apply Z.eq_le_incl. eauto using stack_equiv_fsize, stack_equiv_tail.
   + intros (m2'' & C & D).
     simpl. unfold transf_function.
@@ -633,11 +622,11 @@ Opaque builtin_strength_reduction.
     simpl. econstructor; eauto.
     constructor.
     apply init_regs_lessdef; auto.
-    repeat rewrite_stack_blocks.
-    revert EQ1 EQ0; repeat rewrite_stack_blocks.
-    intros EQ1 EQ0; rewrite EQ1, EQ0 in SE.
-    inv SE; constructor; eauto. repeat constructor; auto.
-
+    repeat rewrite_stack_blocks. intros E F; rewrite E, F in SE.
+    inv SE; constructor; auto. split; simpl; auto.
+    destruct LF2 as (LF1 & LF2); red in LF1; repeat destr_in LF1; constructor; auto.
+    destruct LF2; auto.
+    
 - (* external function *)
   exploit external_call_mem_extends; eauto.
   intros [v' [m2' [A [B [C D]]]]].

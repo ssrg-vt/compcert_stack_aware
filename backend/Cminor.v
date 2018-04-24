@@ -471,14 +471,15 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State f (Scall optid sig a bl) k sp e m)
         E0 (Callstate fd vargs (Kcall optid f sp e k) (Mem.push_new_stage m) (fn_stack_requirements id))
 
-  | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' id (IFI: is_function_ident ge vf id),
+  | step_tailcall: forall f sig a bl k sp e m vf vargs fd m' m'' id (IFI: is_function_ident ge vf id),
       eval_expr (Vptr sp Ptrofs.zero) e m a vf ->
       eval_exprlist (Vptr sp Ptrofs.zero) e m bl vargs ->
       Genv.find_funct ge vf = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stackspace) = Some m' ->
+      Mem.tailcall_stage m' = Some m'' ->
       step (State f (Stailcall sig a bl) k (Vptr sp Ptrofs.zero) e m)
-        E0 (Callstate fd vargs (call_cont k) m' (fn_stack_requirements id))
+        E0 (Callstate fd vargs (call_cont k) m'' (fn_stack_requirements id))
 
   | step_builtin: forall f optid ef bl k sp e m vargs t vres m' m'',
       eval_exprlist sp e m bl vargs ->
@@ -571,14 +572,14 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
 
   Inductive stack_inv : state -> Prop :=
   | stack_inv_regular: forall k f s sp m o e
-                         (MSA1: match_stack_adt (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack_adt m)),
+                         (MSA1: match_stack (Some (sp, fn_stackspace f)::funs_of_cont k) (Mem.stack m)),
       stack_inv (State f s k (Vptr sp o) e m)
   | stack_inv_call: forall k fd args m sz
-                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
-                      (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
+                      (TOPNOPERM: top_tframe_tc (Mem.stack m))
+                      (MSA1: match_stack (funs_of_cont k) (tl (Mem.stack m))),
       stack_inv (Callstate fd args k m sz)
   | stack_inv_return: forall k res m 
-                        (MSA1: match_stack_adt (funs_of_cont k) (tl (Mem.stack_adt m))),
+                        (MSA1: match_stack (funs_of_cont k) (tl (Mem.stack m))),
       stack_inv (Returnstate res k m).
 
   Lemma funs_of_call_cont:
@@ -600,7 +601,7 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
     - apply IHs in H. simpl in H; auto.
     - destr_in H; eauto.
   Qed.
-  
+
   Lemma stack_inv_inv:
     forall S1 t S2,
       step S1 t S2 ->
@@ -609,23 +610,16 @@ Fixpoint funs_of_cont k : list (option (block * Z)) :=
     destruct 1; simpl; intros SI;
       inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
         try solve [inv MSA1; simpl; rewrite ?funs_of_call_cont; eauto].
-    - constructor; red; easy.
-    - erewrite <- Mem.free_stack_blocks by eauto.
-      eapply Mem.noperm_top.
-      rewrite_stack_blocks. inv MSA1.
-      intros b IFR o k0 p0 P.
-      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
-      eapply Mem.perm_free_2 in P; eauto.
-      exploit Mem.agree_perms_mem.
-      rewrite <- H7. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-      eapply Mem.perm_free_3 in P; eauto.
-      rewrite SIZE; auto. rewrite Zmax_spec. destr. omega.
+    - constructor. reflexivity.
+    - intros; constructor. reflexivity.
+    - simpl. inv MSA1. inversion 1; subst.
+      rewrite funs_of_call_cont. auto.
     - erewrite find_label_funs_of_cont by eauto.
-      rewrite funs_of_call_cont.  auto.
-    - apply Mem.alloc_stack_blocks in H.
-      rewrite <- H, EQ1 in *. simpl in *.
+      rewrite funs_of_call_cont. auto.
+    - intros EQ; rewrite EQ in *. simpl in *.
       econstructor; eauto; reflexivity.
-    - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite_stack_blocks. rewrite <- H4. econstructor; eauto.
+    - simpl in MSA1. repeat destr_in MSA1. econstructor. rewrite_stack_blocks.
+      rewrite <- H4. econstructor; eauto.
   Qed.
   
 End RELSEM.
@@ -636,14 +630,13 @@ End RELSEM.
   without arguments and with an empty continuation. *)
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall b f m0 m1 b1 m2,
+  | initial_state_intro: forall b f m0 m2,
       let ge := Genv.globalenv p in
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some b ->
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
-      Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      Mem.record_init_sp m0 = Some m2 ->
       initial_state p (Callstate f nil Kstop (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 
@@ -653,7 +646,7 @@ Lemma stack_inv_initial:
     stack_inv S.
 Proof.
   intros; inv INIT; econstructor.
-  rewrite_stack_blocks; constructor. red; easy.
+  rewrite_stack_blocks; constructor. reflexivity.
   constructor.
 Qed.
 
@@ -679,7 +672,7 @@ Proof.
     intros. subst. inv H0. exists s1; auto.
   inversion H; subst; auto.
   exploit external_call_receptive; eauto. intros [vres2 [m2 EC2]].
-  destruct (Mem.unrecord_stack_adt _ _ H4) as (b & EQ).
+  destruct (Mem.unrecord_stack _ _ H4) as (b & EQ).
   edestruct (Mem.unrecord_stack_block_succeeds m2) as (m2' & USB & STK).
   apply external_call_stack_blocks in EC2.
   repeat rewrite_stack_blocks.

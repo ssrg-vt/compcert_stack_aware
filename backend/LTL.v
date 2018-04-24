@@ -232,13 +232,14 @@ Inductive step: state -> trace -> state -> Prop :=
       funsig fd = sig ->
       step (Block s f sp (Lcall sig ros :: bb) rs m)
         E0 (Callstate (Stackframe f sp rs bb :: s) fd rs (Mem.push_new_stage m) (fn_stack_requirements id))
-  | exec_Ltailcall: forall s f sp sig ros bb rs m fd rs' m' id (IFI: ros_is_function ros rs' id),
+  | exec_Ltailcall: forall s f sp sig ros bb rs m fd rs' m' m'' id (IFI: ros_is_function ros rs' id),
       rs' = return_regs (parent_locset s) rs ->
       find_function ros rs' = Some fd ->
       funsig fd = sig ->
       Mem.free m sp 0 f.(fn_stacksize) = Some m' ->
+      Mem.tailcall_stage m' = Some m'' ->
       step (Block s f (Vptr sp Ptrofs.zero) (Ltailcall sig ros :: bb) rs m)
-        E0 (Callstate s fd rs' m' (fn_stack_requirements id))
+        E0 (Callstate s fd rs' m'' (fn_stack_requirements id))
   | exec_Lbuiltin: forall s f sp ef args res bb rs m vargs t vres rs' m' m'',
       eval_builtin_args ge rs sp m args vargs ->
       external_call ef ge vargs (Mem.push_new_stage m) t vres m' ->
@@ -291,14 +292,13 @@ End RELSEM.
   by the calling conventions. *)
 
 Inductive initial_state (p: program): state -> Prop :=
-  | initial_state_intro: forall b f m0 m1 b1 m2,
+  | initial_state_intro: forall b f m0 m2,
       let ge := Genv.globalenv p in
       Genv.init_mem p = Some m0 ->
       Genv.find_symbol ge p.(prog_main) = Some b ->
       Genv.find_funct_ptr ge b = Some f ->
       funsig f = signature_main ->
-      Mem.alloc m0 0 0 = (m1,b1) ->
-      Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt b1 0 0) = Some m2 ->
+      Mem.record_init_sp m0 = Some m2 ->
       initial_state p (Callstate nil f (Locmap.init Vundef) (Mem.push_new_stage m2) (fn_stack_requirements (prog_main p))).
 
 Inductive final_state: state -> int -> Prop :=
@@ -340,17 +340,17 @@ Section STACKINV.
 
   Inductive stack_inv : state -> Prop :=
   | stack_inv_regular: forall s f sp pc rs m o
-                         (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+                         (MSA1: match_stack (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack m)),
       stack_inv (State s f (Vptr sp o) pc rs m)
   | stack_inv_block: forall s f sp pc rs m o
-                       (MSA1: match_stack_adt (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack_adt m)),
+                       (MSA1: match_stack (Some (sp, fn_stacksize f)::map block_of_stackframe s) (Mem.stack m)),
       stack_inv (Block s f (Vptr sp o) pc rs m)
   | stack_inv_call: forall s fd args m sz
-                      (TOPNOPERM: top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m))
-                      (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
+                      (TOPNOPERM: top_tframe_tc (Mem.stack m))
+                      (MSA1: match_stack (map block_of_stackframe s) (tl (Mem.stack m))),
       stack_inv (Callstate s fd args m sz)
   | stack_inv_return: forall s res m 
-                        (MSA1: match_stack_adt (map block_of_stackframe s) (tl (Mem.stack_adt m))),
+                        (MSA1: match_stack (map block_of_stackframe s) (tl (Mem.stack m))),
       stack_inv (Returnstate s res m).
 
   Variable fn_stack_requirements: ident -> Z.
@@ -366,20 +366,11 @@ Section STACKINV.
     destruct 1; simpl; intros SI;
       inv SI; try econstructor; repeat rewrite_stack_blocks; eauto;
         try solve [inv MSA1; eauto].
-    - constructor. red. easy.
-    - erewrite <- Mem.free_stack_blocks by eauto.
-      eapply Mem.noperm_top.
-      rewrite_stack_blocks. inv MSA1.
-      intros b IFR o k p0 P.
-      red in IFR. unfold get_frame_blocks in IFR. rewrite BLOCKS in IFR. destruct IFR as [EQ|[]]. simpl in EQ. subst.
-      eapply Mem.perm_free_2 in P; eauto.
-      exploit Mem.agree_perms_mem.
-      rewrite <- H. left; reflexivity. left; reflexivity. rewrite BLOCKS; left; reflexivity.
-      eapply Mem.perm_free_3 in P; eauto.
-      rewrite SIZE; auto.
-      intros RNG; rewrite Zmax_spec in RNG. destr_in RNG; omega.
-    - revert EQ1; repeat rewrite_stack_blocks; intro EQ1.
-      rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
+    - constructor. reflexivity.
+    - intros; constructor; reflexivity.
+    - simpl.
+      inv MSA1. inversion 1; subst. auto.
+    - intro EQ1; rewrite EQ1 in MSA1; simpl in MSA1. econstructor; eauto; reflexivity.
     - inv MSA1. repeat destr_in H1. econstructor.
       rewrite_stack_blocks. rewrite <- H3. econstructor; eauto.
   Qed.
@@ -390,7 +381,7 @@ Section STACKINV.
       stack_inv S.
   Proof.
     intros; inv INIT; econstructor; rewrite_stack_blocks.
-    constructor; red; easy.
+    constructor; reflexivity.
     constructor.
   Qed.
 

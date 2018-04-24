@@ -37,11 +37,6 @@ Definition ireg_of (r: mreg) : res ireg :=
 Definition freg_of (r: mreg) : res freg :=
   match preg_of r with FR mr => OK mr | _ => Error(msg "Asmgen.freg_of") end.
 
-Section WITHINSTRSIZEMAP.
-
-Variable instr_size_map : instruction -> Z.
-Hypothesis instr_size_non_zero : forall i, instr_size_map i > 0.
-
 Definition instr_to_with_info (i: instruction) : instr_with_info :=
   (i, mk_sizeinfo (instr_size_map i) (instr_size_non_zero i)).
 
@@ -824,5 +819,3 @@ Definition transf_fundef (f: Mach.fundef) : res Asm.fundef :=
 
 Definition transf_program (p: Mach.program) : res Asm.program :=
   transform_partial_program transf_fundef p.
-
-End WITHINSTRSIZEMAP.

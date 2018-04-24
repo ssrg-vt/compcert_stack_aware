@@ -33,32 +33,52 @@ Require Import Memdata.
 Require Import MemPerm.
 Require Import StackADT.
 
-
-Definition store_spec_of_ofs_spec b (l: list (memory_chunk * ptrofs * val)) : list (memory_chunk * val * val) :=
-  (map (fun cov => let '(ch, o, v) := cov in (ch, Vptr b o, v)) l).
-
-Definition can_record f s thr :=
-  forall m,
-    maxl (map frame_adt_size (f :: hd nil s)) = Some m ->
-    (size_stack (tl s) + m < thr)%Z.
-
 Module Mem.
 
 Definition locset := block -> Z -> Prop.
 
 Close Scope nat_scope.
 
-Definition stack_limit: Z := 4096.
+Parameter stack_limit': Z.
+Definition stack_limit: Z := Z.max 8 (Ptrofs.unsigned (Ptrofs.repr (align stack_limit' 8))).
 
 Lemma stack_limit_range: 0 <= stack_limit <= Ptrofs.max_unsigned.
 Proof.
-  simpl. vm_compute. intuition congruence.
+  unfold stack_limit.
+  rewrite Zmax_spec. destr. vm_compute. intuition congruence.
+  apply Ptrofs.unsigned_range_2.
+Qed.
+
+Lemma stack_limit_pos: 0 < stack_limit.
+Proof.
+  unfold stack_limit.
+  rewrite Zmax_spec. destr. omega. omega.
+Qed.
+
+Lemma mod_divides:
+  forall a b c,
+    c <> 0 ->
+    (a | c) ->
+    (a | b) ->
+    (a | b mod c).
+Proof.
+  intros.
+  rewrite Zmod_eq_full.
+  apply Z.divide_sub_r. auto.
+  apply Z.divide_mul_r. auto. auto.
 Qed.
 
 Lemma stack_limit_aligned: (8 | stack_limit).
 Proof.
-  simpl. unfold stack_limit. exists 512; omega.
+  unfold stack_limit.
+  rewrite Zmax_spec. destr. exists 1; omega.
+  rewrite Ptrofs.unsigned_repr_eq.
+  apply mod_divides. vm_compute. congruence. rewrite Ptrofs.modulus_power.
+  exists (two_p (Ptrofs.zwordsize - 3)). change 8 with (two_p 3). rewrite <- two_p_is_exp. f_equal. vm_compute. congruence. omega.
+  apply align_divides. omega.  
 Qed.
+
+Global Opaque stack_limit.
 
 Class MemoryModelOps
       (** The abstract type of memory states. *)
@@ -200,19 +220,15 @@ that we now axiomatize. *)
  ;
 
  (* Stack ADT and methods *)
- stack_adt: mem -> stack_adt;
+ stack: mem -> StackADT.stack;
  (* Pushes a new stage on the stack, with no frames in it. *)
  push_new_stage: mem -> mem;
+ (* Marks the current active frame in the top stage as tailcalled. *)
+ tailcall_stage: mem -> option mem;
+ (* Records a [frame_adt] on the current top stage. *)
  record_stack_blocks: mem -> frame_adt -> option mem;
- (* record_stack_blocks_tailcall: mem -> frame_adt -> mem -> Prop; *)
- (* push_frame: mem -> frame_info -> list (memory_chunk * ptrofs * val) -> option (mem*block); *)
- (* record_stack_blocks_none: forall (m: mem) (bl : list (block * frame_info)) (sz: Z), *)
- (*                           Forall *)
- (*                             (fun b : block * frame_info => *)
- (*                                forall (o : Z) (k : perm_kind) (p : permission), perm m (fst b) o k p -> 0 <= o < frame_size (snd b)) bl ->  *)
- (*                           option mem; *)
+ (* Pops the topmost stage of the stack, if any. *)
  unrecord_stack_block: mem -> option mem;
- frame_inject f := StackADT.frame_inject f;
 }.
 
 
@@ -248,7 +264,6 @@ Fixpoint free_list (m: mem) (l: list (block * Z * Z)) {struct l}: option mem :=
 
 Definition valid_block (m: mem) (b: block) := Plt b (nextblock m).
 
-
 Definition valid_frame f m :=
   forall b, in_frame f b -> valid_block m b.
 
@@ -258,7 +273,7 @@ Definition valid_frame f m :=
 Definition valid_access (m: mem) (chunk: memory_chunk) (b: block) (ofs: Z) (p: permission): Prop :=
   range_perm m b ofs (ofs + size_chunk chunk) Cur p
   /\ (align_chunk chunk | ofs)
-  /\ (perm_order p Writable -> stack_access ( (stack_adt m)) b ofs (ofs + size_chunk chunk)).
+  /\ (perm_order p Writable -> stack_access (stack m) b ofs (ofs + size_chunk chunk)).
 
 (** C allows pointers one past the last element of an array.  These are not
   valid according to the previously defined [valid_pointer]. The property
@@ -292,8 +307,8 @@ Definition meminj_no_overlap (f: meminj) (m: mem) : Prop :=
   perm m b2 ofs2 Max Nonempty ->
   b1' <> b2' \/ ofs1 + delta1 <> ofs2 + delta2.
 
-Definition abstract_unchanged (T: mem -> mem -> Prop) :=
-  forall m1 m2, T m1 m2 -> stack_adt m2 = stack_adt m1.
+Definition stack_unchanged (T: mem -> mem -> Prop) :=
+  forall m1 m2, T m1 m2 -> stack m2 = stack m1.
 
 Definition mem_unchanged (T: mem -> mem -> Prop) :=
   forall m1 m2, T m1 m2 ->
@@ -302,16 +317,29 @@ Definition mem_unchanged (T: mem -> mem -> Prop) :=
            /\ (forall P, strong_unchanged_on P m1 m2)
            /\ (forall b o chunk, load chunk m2 b o = load chunk m1 b o).
 
-Definition top_is_new (m:mem) :=
-  top_tframe_prop (fun tf => tf = nil) (stack_adt m).
+(* Definition top_is_new (m:mem) := *)
+(*   top_tframe_prop (fun tf => tf = (None,nil)) (stack m). *)
 
-Lemma check_top_is_new m : { top_is_new m } + { ~ top_is_new m }.
+Lemma check_top_tc m : { top_tframe_tc (stack m) } + { ~ top_tframe_tc (stack m) }.
 Proof.
-  unfold top_is_new.
-  destruct (stack_adt m) eqn:STK. right; intro A; inv A.
-  destruct t. left; constructor. auto.
-  right; intro A; inv A. inv H0.
+  unfold top_tframe_tc.
+  destruct (stack m) eqn:STK. right; intro A; inv A.
+  destruct t.
+  destruct o.
+  right. intro A. inv A. inv H0.
+  left; constructor. auto.
 Defined.
+
+Definition top_frame_no_perm m :=
+  top_tframe_prop
+    (fun tf : tframe_adt =>
+     forall b : block,
+     in_frames tf b -> forall (o : Z) (k : perm_kind) (p : permission), ~ Mem.perm m b o k p)
+    (Mem.stack m).
+
+Definition record_init_sp m :=
+  let (m1, b1) := Mem.alloc (Mem.push_new_stage m) 0 0 in
+  Mem.record_stack_blocks m1 (make_singleton_frame_adt b1 0 0).
 
 
 End WITHMEMORYMODELOPS.
@@ -640,14 +668,14 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
  range_perm_storebytes' :
   forall m1 b ofs bytes,
     range_perm m1 b ofs (ofs + Z_of_nat (length bytes)) Cur Writable ->
-    stack_access ( (stack_adt m1)) b ofs (ofs + Z_of_nat (length bytes)) ->
+    stack_access ( (stack m1)) b ofs (ofs + Z_of_nat (length bytes)) ->
   exists m2 : mem, storebytes m1 b ofs bytes = Some m2;
  storebytes_range_perm:
   forall m1 b ofs bytes m2, storebytes m1 b ofs bytes = Some m2 ->
                        range_perm m1 b ofs (ofs + Z_of_nat (length bytes)) Cur Writable;
  storebytes_stack_access:
   forall m1 b ofs bytes m2, storebytes m1 b ofs bytes = Some m2 ->
-     stack_access ( (stack_adt m1)) b ofs (ofs + Z_of_nat (length bytes)) ;
+     stack_access ( (stack m1)) b ofs (ofs + Z_of_nat (length bytes)) ;
  perm_storebytes_1:
   forall m1 b ofs bytes m2, storebytes m1 b ofs bytes = Some m2 ->
   forall b' ofs' k p, perm m1 b' ofs' k p -> perm m2 b' ofs' k p;
@@ -1430,7 +1458,7 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
    perm m1 b ofs k p ->
    lo + delta <= ofs + delta' < hi + delta -> False) ->
   (forall (fi : frame_info),
-      in_stack' (stack_adt m2) (b2,fi) ->
+      in_stack' (stack m2) (b2,fi) ->
       forall (o : Z) (k : perm_kind) (pp : permission), perm m1' b1 o k pp -> inject_perm_condition pp -> frame_public fi (o + delta)) ->
   exists f',
      inject f' g m1' m2
@@ -1509,19 +1537,14 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
      forall o b' o' q n,
        loadbytes m b o 1 = Some (Fragment (Vptr b' o') q n :: nil) ->
        f b' <> None) ->
-  inject f (flat_frameinj (length (stack_adt m))) m m;
+  inject f (flat_frameinj (length (stack m))) m m;
 
- inject_stack_adt {injperm: InjectPerm}:
+ inject_stack_inj_wf {injperm: InjectPerm}:
    forall f g m1 m2,
      inject f g m1 m2 ->
-     stack_inject f g (perm m1) ( (stack_adt m1)) ( (stack_adt m2));
+     sum_list g = length (stack m1) /\ length g = length (stack m2);
 
- extends_stack_adt {injperm: InjectPerm}:
-   forall m1 m2,
-     extends m1 m2 ->
-     stack_inject inject_id (flat_frameinj (length (stack_adt m1))) (perm m1) (stack_adt m1) (stack_adt m2);
-
-(* Needed by Stackingproof, with Linear2 to Mach,
+ (* Needed by Stackingproof, with Linear2 to Mach,
    to compose extends (in Linear2) and inject. *)
  extends_inject_compose {injperm: InjectPerm}:
    forall f g m1 m2 m3,
@@ -1536,13 +1559,13 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
 
  neutral_inject {injperm: InjectPerm}:
   forall m, inject_neutral (nextblock m) m ->
-  inject (flat_inj (nextblock m)) (flat_frameinj (length (stack_adt m))) m m;
+  inject (flat_inj (nextblock m)) (flat_frameinj (length (stack m))) m m;
 
  empty_inject_neutral {injperm: InjectPerm}:
   forall thr, inject_neutral thr empty;
 
- empty_stack_adt {injperm: InjectPerm}:
-   stack_adt empty = nil;
+ empty_stack {injperm: InjectPerm}:
+   stack empty = nil;
 
  alloc_inject_neutral {injperm: InjectPerm}:
   forall thr m lo hi b m',
@@ -1565,10 +1588,10 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   inject_neutral thr m ->
   Plt b thr ->
   inject_neutral thr m';
-drop_perm_stack_adt {injperm: InjectPerm}:
+drop_perm_stack {injperm: InjectPerm}:
   forall m1 b lo hi p m1',
     drop_perm m1 b lo hi p = Some m1' ->
-    stack_adt m1' = stack_adt m1;
+    stack m1' = stack m1;
 
 (** ** Properties of [unchanged_on] and [strong_unchanged_on] *)
 
@@ -1664,62 +1687,50 @@ for [unchanged_on]. *)
         exists (b0 : block) (delta : Z),
           j b0 = Some (b, delta) /\
           perm m0 b0 (ofs - delta) Max Nonempty) m m' ->
-   stack_adt m' = stack_adt m ->
+   stack m' = stack m ->
    inject j g m0 m';
 
- (* Original operations don't modify the abstract part. *)
+ (* Original operations don't modify the stack. *)
  store_no_abstract:
-   forall chunk b o v, abstract_unchanged (fun m1 m2 => store chunk m1 b o v = Some m2);
+   forall chunk b o v, stack_unchanged (fun m1 m2 => store chunk m1 b o v = Some m2);
 
  storebytes_no_abstract:
-   forall b o bytes, abstract_unchanged (fun m1 m2 => storebytes m1 b o bytes = Some m2);
+   forall b o bytes, stack_unchanged (fun m1 m2 => storebytes m1 b o bytes = Some m2);
 
  alloc_no_abstract:
-   forall lo hi b, abstract_unchanged (fun m1 m2 => alloc m1 lo hi = (m2, b));
+   forall lo hi b, stack_unchanged (fun m1 m2 => alloc m1 lo hi = (m2, b));
 
  free_no_abstract:
-   forall lo hi b, abstract_unchanged (fun m1 m2 => free m1 b lo hi = Some m2);
+   forall lo hi b, stack_unchanged (fun m1 m2 => free m1 b lo hi = Some m2);
 
  freelist_no_abstract:
-   forall bl, abstract_unchanged (fun m1 m2 => free_list m1 bl = Some m2);
+   forall bl, stack_unchanged (fun m1 m2 => free_list m1 bl = Some m2);
 
  drop_perm_no_abstract:
-   forall b lo hi p, abstract_unchanged (fun m1 m2 => drop_perm m1 b lo hi p = Some m2);
+   forall b lo hi p, stack_unchanged (fun m1 m2 => drop_perm m1 b lo hi p = Some m2);
 
- (* Properties of record_stack_block *)
-
- record_stack_blocks_inject_left {injperm: InjectPerm}:
-   forall m1 m1' m2 j g f1 f2
-     (INJ: inject j g m1 m2)
-     (FAP2: frame_at_pos (stack_adt m2) 0 f2)
-     (FI: tframe_inject j (perm m1) (f1::nil) f2)
-     (RSB: record_stack_blocks (push_new_stage m1) f1 = Some m1'),
-     inject j (fun n : nat => if Nat.eq_dec n 0 then Some O else g (Init.Nat.pred n)) m1' m2;
+ (* Properties of [record_stack_block] *)
 
  record_stack_blocks_inject_left' {injperm: InjectPerm}:
    forall m1 m1' m2 j g f1 f2
      (INJ: inject j g m1 m2)
-     (FAP2: frame_at_pos (stack_adt m2) 0 f2)
-     (G0: g O = Some O)
-     (FI: tframe_inject j (perm m1) (f1::nil) f2)
+     (FAP2: frame_at_pos (stack m2) 0 f2)
+     (FI: tframe_inject j (perm m1) (Some f1, nil) f2)
      (RSB: record_stack_blocks m1 f1 = Some m1'),
      inject j g m1' m2;
-
 
  record_stack_blocks_inject_parallel {injperm: InjectPerm}:
    forall m1 m1' m2 j g fi1 fi2,
      inject j g m1 m2 ->
      frame_inject j fi1 fi2 ->
-     (forall b : block, in_stack (stack_adt m2) b -> ~ in_frame fi2 b) ->
+     (forall b : block, in_stack (stack m2) b -> ~ in_frame fi2 b) ->
      (valid_frame fi2 m2) ->
-     (forall b fi, In (b,fi) (frame_adt_blocks fi2) ->
-              forall o k p, perm m2 b o k p -> 0 <= o < frame_size fi) ->
+     frame_agree_perms (perm m2) fi2 ->
      (forall (b1 b2 : block) (delta : Z), j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2) ->
      frame_adt_size fi1 = frame_adt_size fi2 ->
      record_stack_blocks m1 fi1 = Some m1' ->
-     top_tframe_no_perm (perm m2) (stack_adt m2) ->
-     g O = Some O ->
-     size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) ->
+     top_tframe_tc (stack m2) ->
+     size_stack (tl (stack m2)) <= size_stack (tl (stack m1)) ->
      exists m2',
        record_stack_blocks m2 fi2 = Some m2' /\
        inject j g m1' m2';
@@ -1728,10 +1739,10 @@ for [unchanged_on]. *)
     forall m1 m2 m1' fi,
       extends m1 m2 ->
       record_stack_blocks m1 fi = Some m1' ->
-      (forall b, in_frame fi b -> ~ in_stack ( (stack_adt m2)) b ) ->
+      (forall b, in_frame fi b -> ~ in_stack ( (stack m2)) b ) ->
       frame_agree_perms (perm m2) fi ->
-      top_tframe_no_perm (perm m2) (stack_adt m2) ->
-      size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) ->
+      top_tframe_tc (stack m2) ->
+      size_stack (tl (stack m2)) <= size_stack (tl (stack m1)) ->
       exists m2',
         record_stack_blocks m2 fi = Some m2' /\
         extends m1' m2';
@@ -1740,11 +1751,11 @@ for [unchanged_on]. *)
    forall bfi,
      mem_unchanged (fun m1 m2 => record_stack_blocks m1 bfi = Some m2);
 
- record_stack_blocks_stack_adt:
+ record_stack_blocks_stack:
    forall m fi m' f s,
      record_stack_blocks m fi = Some m' ->
-     stack_adt m = f::s ->
-     stack_adt m' = (fi :: f) :: s;
+     stack m = f::s ->
+     stack m' = (Some fi , snd f) :: s;
 
  record_stack_blocks_inject_neutral {injperm: InjectPerm}:
    forall thr m fi m',
@@ -1757,28 +1768,23 @@ for [unchanged_on]. *)
 
  unrecord_stack_block_inject_parallel {injperm: InjectPerm}:
    forall (m1 m1' m2 : mem) (j : meminj) g,
-     inject j g m1 m2 ->
+     inject j (1%nat :: g) m1 m2 ->
      unrecord_stack_block m1 = Some m1' ->
-     (forall i j, g i = Some j -> (O < i) -> (O < j))%nat ->
-     g O = Some O ->
-     (* size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) -> *)
      exists m2',
-       unrecord_stack_block m2 = Some m2' /\ inject j (fun n => option_map pred (g (S n))) m1' m2';
+       unrecord_stack_block m2 = Some m2' /\ inject j g m1' m2';
 
  unrecord_stack_block_inject_left {injperm: InjectPerm}:
-   forall (m1 m1' m2 : mem) (j : meminj) g,
-     inject j g m1 m2 ->
+   forall (m1 m1' m2 : mem) (j : meminj) n g,
+     inject j (S n :: g) m1 m2 ->
      unrecord_stack_block m1 = Some m1' ->
-     g 1%nat = Some O \/ g O = None->
-     (forall b, is_stack_top (stack_adt m1) b -> forall o k p, ~ perm m1 b o k p) ->
-     (* size_stack (stack_adt m2) <= size_stack (stack_adt m1') -> *)
-     inject j (fun n => g (S n)) m1' m2;
+     (1 <= n)%nat ->
+     top_frame_no_perm m1 ->
+     inject j (n :: g) m1' m2;
 
  unrecord_stack_block_extends {injperm: InjectPerm}:
    forall m1 m2 m1',
      extends m1 m2 ->
      unrecord_stack_block m1 = Some m1' ->
-     (* size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) -> *)
      exists m2',
        unrecord_stack_block m2 = Some m2' /\
        extends m1' m2';
@@ -1786,18 +1792,18 @@ for [unchanged_on]. *)
  unrecord_stack_block_mem_unchanged:
    mem_unchanged (fun m1 m2 => unrecord_stack_block m1 = Some m2);
 
- unrecord_stack_adt:
+ unrecord_stack:
    forall m m',
      unrecord_stack_block m = Some m' ->
      exists b,
-       stack_adt m = b :: stack_adt m';
+       stack m = b :: stack m';
 
  unrecord_stack_block_succeeds:
    forall m b r,
-     stack_adt m = b :: r ->
+     stack m = b :: r ->
      exists m',
        unrecord_stack_block m = Some m'
-       /\ stack_adt m' = r;
+       /\ stack m' = r;
 
  unrecord_stack_block_inject_neutral {injperm: InjectPerm}:
    forall thr m m',
@@ -1813,8 +1819,8 @@ for [unchanged_on]. *)
      extends m1 m2 ->
      range_perm m1 b lo hi Cur p ->
      inject_perm_condition p ->
-     public_stack_access ( (stack_adt m1)) b lo hi ->
-     public_stack_access ( (stack_adt m2)) b lo hi;
+     public_stack_access ( (stack m1)) b lo hi ->
+     public_stack_access ( (stack m2)) b lo hi;
 
  public_stack_access_inject {injperm: InjectPerm}:
    forall f g m1 m2 b b' delta lo hi p,
@@ -1822,42 +1828,27 @@ for [unchanged_on]. *)
      inject f g m1 m2 ->
      range_perm m1 b lo hi Cur p ->
      inject_perm_condition p ->
-     public_stack_access ( (stack_adt m1)) b lo hi ->
-     public_stack_access ( (stack_adt m2)) b' (lo + delta) (hi + delta);
+     public_stack_access ( (stack m1)) b lo hi ->
+     public_stack_access ( (stack m2)) b' (lo + delta) (hi + delta);
 
  public_stack_access_magree {injperm: InjectPerm}: forall P (m1 m2 : mem) (b : block) (lo hi : Z) p,
      magree m1 m2 P ->
      range_perm m1 b lo hi Cur p ->
      inject_perm_condition p ->
-     public_stack_access ( (stack_adt m1)) b lo hi ->
-     public_stack_access ( (stack_adt m2)) b lo hi;
-
-
- (* not_in_frames_extends {injperm: InjectPerm}: *)
- (*   forall m1 m2 b, *)
- (*     extends m1 m2 -> *)
- (*     ~ in_frames ( (stack_adt m1)) b -> *)
- (*     ~ in_frames ( (stack_adt m2)) b; *)
-
-
- (* not_in_frames_inject {injperm: InjectPerm}: *)
- (*   forall f g m1 m2 b b' delta, *)
- (*     f b = Some (b', delta) -> *)
- (*     inject f g m1 m2 -> *)
- (*     ~ in_frames ( (stack_adt m1)) b -> *)
- (*     ~ in_frames ( (stack_adt m2)) b'; *)
+     public_stack_access ( (stack m1)) b lo hi ->
+     public_stack_access ( (stack m2)) b lo hi;
 
  in_frames_valid:
    forall m b,
-     in_stack ( (stack_adt m)) b -> valid_block m b;
+     in_stack ( (stack m)) b -> valid_block m b;
 
  is_stack_top_extends {injperm: InjectPerm}:
    forall m1 m2 b
      (MINJ: extends m1 m2)
      (PERM: exists (o : Z) (k : perm_kind) (p : permission),
          perm m1 b o k p /\ inject_perm_condition p)
-     (IST: is_stack_top ( (stack_adt m1)) b),
-     is_stack_top ( (stack_adt m2)) b ;
+     (IST: is_stack_top ( (stack m1)) b),
+     is_stack_top ( (stack m2)) b ;
 
  is_stack_top_inject {injperm: InjectPerm}:
    forall f g m1 m2 b1 b2 delta
@@ -1865,164 +1856,66 @@ for [unchanged_on]. *)
      (FB: f b1 = Some (b2, delta))
      (PERM: exists (o : Z) (k : perm_kind) (p : permission),
          perm m1 b1 o k p /\ inject_perm_condition p)
-     (IST: is_stack_top ( (stack_adt m1)) b1),
-     is_stack_top ( (stack_adt m2)) b2 ;
+     (IST: is_stack_top ( (stack m1)) b1),
+     is_stack_top ( (stack m2)) b2 ;
 
  size_stack_below:
-   forall m, size_stack (stack_adt m) < stack_limit;
-
+   forall m, size_stack (stack m) < stack_limit;
  
  record_stack_block_inject_left_zero {injperm: InjectPerm}:
     forall m1 m1' m2 j g f1 f2
       (INJ: inject j g m1 m2)
-      (TIN: top_is_new m1)
-      (FAP2: frame_at_pos (stack_adt m2) O f2)
-      (FI: tframe_inject j (perm m1) (f1::nil) f2)
-      (HP: has_perm_frame (perm m1) j f1)
-      (RSB: record_stack_blocks m1 f1 = Some m1')
-      (G0: g O = Some O),
+      (FAP2: frame_at_pos (stack m2) O f2)
+      (FI: tframe_inject j (perm m1) (Some f1,nil) f2)
+      (RSB: record_stack_blocks m1 f1 = Some m1'),
       inject j g m1' m2;
 
  unrecord_stack_block_inject_left_zero {injperm: InjectPerm}:
-    forall (m1 m1' m2 : mem) (j : meminj) g,
-      inject j g m1 m2 ->
+    forall (m1 m1' m2 : mem) (j : meminj) n g,
+      inject j (S n :: g) m1 m2 ->
       unrecord_stack_block m1 = Some m1' ->
-      (* (forall i j, g i = Some j -> j = O) -> *)
-      (forall b, is_stack_top (stack_adt m1) b -> forall o k p, ~ perm m1 b o k p) ->
-      g 1%nat = Some O ->
-      (* size_stack (stack_adt m2) <= size_stack (stack_adt m1') -> *)
-      inject j (fun n => g (S n)) m1' m2;
-
-
- mem_inject_ext {injperm: InjectPerm}:
-   forall j g1 g2 m1 m2,
-     inject j g1 m1 m2 ->
-     (forall x, g1 x = g2 x) ->
-     inject j g2 m1 m2;
-
- (* record_stack_blocks_intro: *)
- (*    forall m1 f, *)
- (*      valid_frame f m1 -> *)
- (*      Forall (fun b => ~ in_stack (stack_adt m1) b) (map fst (frame_adt_blocks f)) -> *)
- (*      Forall *)
- (*        (fun bfi : block * frame_info => *)
- (*           forall (o : Z) (k : perm_kind) (p : permission), *)
- (*             perm m1 (fst bfi) o k p -> (0 <= o < frame_size (snd bfi))%Z)  *)
- (*        (frame_adt_blocks f) -> *)
- (*      (size_stack (stack_adt m1) + align (frame_adt_size f) 8 < stack_limit)%Z -> *)
- (*      top_tframe_no_perm (perm m1) (stack_adt m1) -> *)
- (*      exists m2, *)
- (*        record_stack_blocks m1 f = Some m2; *)
-
- extends_same_length_stack:
-   forall {injperm: InjectPerm} m1 m2,
-     extends m1 m2 ->
-     length (stack_adt m2) = length (stack_adt m1);
+      top_frame_no_perm m1 ->
+      (1 <= n)%nat ->
+      inject j (n :: g) m1' m2;
 
  stack_norepet:
-   forall m, nodup (stack_adt m);
-
- stack_norepet':
-   forall m, Forall nodupt (stack_adt m);
+   forall m, nodup (stack m);
  
  inject_ext {injperm: InjectPerm}:
     forall j1 j2 g m1 m2,
       inject j1 g m1 m2 ->
       (forall x, j1 x = j2 x) ->
       inject j2 g m1 m2;
-unrecord_stack_block_inject_right {injperm: InjectPerm}:
-    forall j g m1 m2 m2'
-      (MI: inject j g m1 m2)
-      (TOPNOPERM: forall b, is_stack_top (stack_adt m1) b -> ~ exists o k p, perm m1 b o k p)
-      (NO0: forall i j, g i = Some j -> (O < i -> O < j)%nat)
-      (Ginit: (g O = Some O)%nat)
-      (USB: unrecord_stack_block m2 = Some m2'),
-      inject j (fun n => if Nat.eq_dec n O then None else option_map pred (g n)) m1 m2';
-
-stack_inject_unrecord_parallel_frameinj_flat {injperm: InjectPerm}:
-  forall j m1 m2
-    (MI: inject j (flat_frameinj (length (stack_adt m2))) m1 m2)
-    (LEN: length (stack_adt m1) = length (stack_adt m2))
-    (* fr2 l2 *)
-    (* (STK2 : stack_adt m2 = fr2 :: l2) *)
-    (* fr1 l1 *)
-    (* (STK1 : stack_adt m1 = fr1 :: l1) *)
-    m1'
-    (USB: unrecord_stack_block m1 = Some m1')
-    (* (SZ: size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1))) *),
-  exists m2',
-    unrecord_stack_block m2 = Some m2' /\ 
-    inject j (flat_frameinj (pred (length (stack_adt m2)))) m1' m2';
 
 record_stack_block_inject_flat {injperm: InjectPerm}:
    forall m1 m1' m2 j  f1 f2
-     (INJ: inject j (flat_frameinj (length (stack_adt m1))) m1 m2)
+     (INJ: inject j (flat_frameinj (length (stack m1))) m1 m2)
      (FI: frame_inject j f1 f2)
-     (NOIN: forall b, in_stack (stack_adt m2) b -> ~ in_frame f2 b)
+     (NOIN: forall b, in_stack (stack m2) b -> ~ in_frame f2 b)
      (VF: valid_frame f2 m2)
-     (BOUNDS: forall b fi,
-         In (b,fi) (frame_adt_blocks f2) ->
-         forall (o : Z) (k : perm_kind) (p : permission), perm m2 b o k p -> (0 <= o < frame_size fi)%Z)
+     (BOUNDS: frame_agree_perms (perm m2) f2)
      (EQINF: forall (b1 b2 : block) (delta : Z), j b1 = Some (b2, delta) -> in_frame f1 b1 <-> in_frame f2 b2)
      (EQsz: frame_adt_size f1 = frame_adt_size f2)
      (RSB: record_stack_blocks m1 f1 = Some m1')
-     (TNF: top_tframe_no_perm (perm m2) (stack_adt m2))
-     (SZ: size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1))),
+     (TNF: top_tframe_tc (stack m2))
+     (SZ: size_stack (tl (stack m2)) <= size_stack (tl (stack m1))),
      exists m2',
        record_stack_blocks m2 f2 = Some m2' /\
-       inject j (flat_frameinj (length (stack_adt m1'))) m1' m2' /\
-       (length (stack_adt m1) = length (stack_adt m2) ->
-        length (stack_adt m1') = length (stack_adt m2'));
+       inject j (flat_frameinj (length (stack m1'))) m1' m2';
 
 unrecord_stack_block_inject_parallel_flat {injperm: InjectPerm}:
   forall (m1 m1' m2 : mem) (j : meminj),
-    inject j (flat_frameinj (length (stack_adt m1))) m1 m2 ->
+    inject j (flat_frameinj (length (stack m1))) m1 m2 ->
     unrecord_stack_block m1 = Some m1' ->
-    (* size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) -> *)
     exists m2',
       unrecord_stack_block m2 = Some m2' /\
-      inject j (flat_frameinj (length (stack_adt m1'))) m1' m2' /\
-      (length (stack_adt m1) = length (stack_adt m2) ->
-       length (stack_adt m1') = length (stack_adt m2'));
-
-(* mem_inject_tailcall_inlined {injperm: InjectPerm}: *)
-(*     forall F g m m'0 stk szstk *)
-(*       (INJ: inject F g m m'0) *)
-(*       m' (FREE: free m stk 0 szstk = Some m')  *)
-(*       (* m'' (USB: unrecord_stack_block m' = Some m'' ) *) *)
-(*       m'1 stk0 szstk0 (ALLOC: alloc m' 0 szstk0 = (m'1, stk0)) *)
-(*       stkreq m''0 (RSB: record_stack_blocks m'1 (make_singleton_frame_adt stk0 szstk0 stkreq) = Some m''0) *)
-(*       sp' delta (Fstk: F stk = Some (sp', delta)) *)
-(*       delta0 *)
-(*       (LE: (delta <= delta0)%Z) *)
-(*       (PERMinjstk0: forall o, (0 <= o < szstk0)%Z -> perm m'0 sp' (o + delta0) Cur Freeable) *)
-(*       (DIV: inj_offset_aligned delta0 szstk0) *)
-(*       (G0 : g O = Some O) *)
-(*       vf1 f1 s1 *)
-(*       (STKeq: stack_adt m = f1::s1) *)
-(*       (FrameSTK: nth_error f1 O = Some vf1) *)
-(*       (STACKTOP: get_frame_blocks vf1 = stk::nil) *)
-(*       (PERMstk: forall o k p, perm m stk o k p -> (0 <= o < szstk)%Z) *)
-(*       sz1 sz2 *)
-(*       (STACKTOP':  exists r rt, stack_adt m'0 = (make_singleton_frame_adt sp' sz1 sz2 :: rt) :: r) *)
-(*       (RNG: forall o : Z, (0 <= o < szstk0)%Z -> (0 <= o + delta0 < sz1)%Z) *)
-(*       (JBstack: forall b, in_stack (stack_adt m) b -> exists b' delta, F b = Some (b', delta)) *)
-(*       (* (SIZE: (sz2 <= stkreq)%Z) *) *)
-(*       (PERMsp': forall b d o p, *)
-(*           F b = Some (sp', d) -> b <> stk -> *)
-(*           perm m b o Max p -> *)
-(*           (o + d < delta)%Z) *)
-(*       (REPR: (0 <= Z.max szstk0 0 + delta0 <= Ptrofs.max_unsigned)%Z) *)
-(*     , *)
-(*       let F' := fun b => if peq b stk0 then Some (sp', delta0) else F b in *)
-(*       inject F' g m''0 m'0; *)
-
+      inject j (flat_frameinj (length (stack m1'))) m1' m2';
 
 record_stack_blocks_tailcall_original_stack:
   forall m1 f1 m2,
     record_stack_blocks m1 f1 = Some m2 ->
     exists f r,
-      stack_adt m1 = f::r;
+      stack m1 = (None,f)::r;
 
 push_new_stage_nextblock: forall m, nextblock (push_new_stage m) = nextblock m;
  push_new_stage_load: forall chunk m b o, load chunk (push_new_stage m) b o = load chunk m b o;
@@ -2030,58 +1923,44 @@ push_new_stage_nextblock: forall m, nextblock (push_new_stage m) = nextblock m;
  push_new_stage_inject  {injperm: InjectPerm}:
    forall j g m1 m2,
         inject j g m1 m2 ->
-        inject j (fun n => if Nat.eq_dec n O then Some O else option_map S (g (pred n)))
-               (push_new_stage m1) (push_new_stage m2);
+        inject j (1%nat :: g) (push_new_stage m1) (push_new_stage m2);
 
  inject_push_new_stage_left {injperm: InjectPerm}:
-   forall j g m1 m2,
-     inject j g m1 m2 ->
-     stack_adt m2 <> nil ->
-     inject j (upstar g) (push_new_stage m1) m2;
+   forall j n g m1 m2,
+     inject j (n::g) m1 m2 ->
+     inject j (S n :: g) (push_new_stage m1) m2;
 
  inject_push_new_stage_right {injperm: InjectPerm}:
-   forall j g m1 m2,
-     inject j g m1 m2 ->
-     top_tframe_no_perm (perm m1) (stack_adt m1) ->
-     g 1%nat = Some O ->
-     inject j (fun n => if Nat.eq_dec n O then Some O else option_map S (g n)) m1 (push_new_stage m2);
-
+   forall j n g m1 m2,
+     inject j (S n :: g) m1 m2 ->
+     top_tframe_tc (stack m1) ->
+     (O < n)%nat ->
+     inject j (1%nat :: n :: g) m1 (push_new_stage m2);
 
  push_new_stage_length_stack:
       forall m,
-        length (stack_adt (push_new_stage m)) = S (length (stack_adt m));
+        length (stack (push_new_stage m)) = S (length (stack m));
+
  push_new_stage_stack:
       forall m,
-        stack_adt (push_new_stage m) = nil :: stack_adt m;
-
-
- (* inject_stack_size {injperm: InjectPerm}: *)
- (*      forall j g m1 m2, *)
- (*        inject j g m1 m2 -> *)
- (*        size_stack (stack_adt m2) <= size_stack (stack_adt m1); *)
-
-
- (* extends_stack_size {injperm: InjectPerm}: *)
- (*      forall m1 m2, *)
- (*        extends m1 m2 -> *)
- (*        size_stack (stack_adt m2) <= size_stack (stack_adt m1); *)
+        stack (push_new_stage m) = (None, nil) :: stack m;
 
  push_new_stage_perm:
       forall m b o k p,
         perm (push_new_stage m) b o k p <-> perm m b o k p;
 
-wf_stack_mem:
-  forall j m,
-    wf_stack (Mem.perm m) j (Mem.stack_adt m);
+ wf_stack_mem:
+   forall m,
+     wf_stack (Mem.perm m) (Mem.stack m);
 
  agree_perms_mem:
   forall m,
-    stack_agree_perms (Mem.perm m) (Mem.stack_adt m);
+    stack_agree_perms (Mem.perm m) (Mem.stack m);
 
  record_stack_blocks_top_tframe_no_perm:
    forall m1 f m2,
      Mem.record_stack_blocks m1 f = Some m2 ->
-    top_tframe_no_perm (Mem.perm m1) (Mem.stack_adt m1);
+    top_tframe_tc (Mem.stack m1);
 
  extends_push {injperm: InjectPerm}:
    forall m1 m2,
@@ -2092,7 +1971,11 @@ wf_stack_mem:
    forall P m,
      Mem.strong_unchanged_on P m (Mem.push_new_stage m);
 
-
+ tailcall_stage_unchanged_on:
+   forall P m1 m2,
+     Mem.tailcall_stage m1 = Some m2 ->
+     Mem.strong_unchanged_on P m1 m2;
+ 
  unrecord_push:
    forall m, Mem.unrecord_stack_block (Mem.push_new_stage m) = Some m;
 
@@ -2117,96 +2000,188 @@ wf_stack_mem:
       magree m1 m2 P ->
       forall m1',
         Mem.unrecord_stack_block m1 = Some m1' ->
-        (* size_stack (tl (Mem.stack_adt m2)) <= size_stack (tl (Mem.stack_adt m1)) -> *)
         exists m2',
           Mem.unrecord_stack_block m2 = Some m2' /\ magree m1' m2' P;
- (* magree_stack_size {injperm:InjectPerm}: *)
- (*    forall m1 m2 P, *)
- (*      magree m1 m2 P -> *)
- (*      size_stack (Mem.stack_adt m2) <= size_stack (Mem.stack_adt m1); *)
 
+ magree_tailcall_stage {injperm:InjectPerm}:
+      forall P m1 m2 m1',
+        magree m1 m2 P ->
+        tailcall_stage m1 = Some m1' ->
+        top_frame_no_perm m2 ->
+        exists m2', tailcall_stage m2 = Some m2' /\ magree m1' m2' P;
+
+ 
  loadbytes_push:
    forall m b o n,
      Mem.loadbytes (Mem.push_new_stage m) b o n = Mem.loadbytes m b o n;
 
- record_stack_blocks_inject_right {injpern: InjectPerm}:
-   forall j g m1 m2 fi m2',
-     inject j g m1 m2 ->
-     (forall b bi, in_frame' fi (b, bi) -> forall o, frame_perm bi o = Public) ->
-     (forall b f1 i1, g i1 = Some O -> f1 @ stack_adt m1 : i1 -> in_frames f1 b -> forall o k p, ~ perm m1 b o k p) ->
-     record_stack_blocks m2 fi = Some m2' ->
-     inject j g m1 m2';
+ (* store_unchanged_on_1: *)
+ (*    forall chunk m m' b ofs v m1 *)
+ (*      (UNCH: Mem.unchanged_on (fun _ _ => True) m m') *)
+ (*      (SH: same_head (perm m) (Mem.stack m) (Mem.stack m') \/ ~ in_stack (Mem.stack m') b) *)
+ (*      (STORE: Mem.store chunk m b ofs v = Some m1), *)
+ (*    exists m1', *)
+ (*      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on (fun _ _ => True) m1 m1'; *)
 
-
- store_unchanged_on_1:
-    forall P chunk m m' b ofs v m1
-      (UNCH: Mem.unchanged_on P m m')
-      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
-      (PERMALL: forall b o, P b o)
-      (STORE: Mem.store chunk m b ofs v = Some m1),
-    exists m1',
-      Mem.store chunk m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1';
-
- storebytes_unchanged_on_1:
-    forall P m m' b ofs v m1
-      (UNCH: Mem.unchanged_on P m m')
-      (SH: same_head (Mem.stack_adt m) (Mem.stack_adt m') \/ ~ in_stack (Mem.stack_adt m') b)
-      (PERMALL: forall b o, P b o)
-      (STORE: Mem.storebytes m b ofs v = Some m1),
-    exists m1',
-      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on P m1 m1';
-
+ (* storebytes_unchanged_on_1: *)
+ (*    forall m m' b ofs v m1 *)
+ (*      (UNCH: Mem.unchanged_on (fun _ _ => True) m m') *)
+ (*      (SH: same_head (perm m) (Mem.stack m) (Mem.stack m') \/ ~ in_stack (Mem.stack m') b) *)
+ (*      (STORE: Mem.storebytes m b ofs v = Some m1), *)
+ (*    exists m1', *)
+ (*      Mem.storebytes m' b ofs v = Some m1' /\ Mem.unchanged_on (fun _ _ => True) m1 m1'; *)
  
- valid_pointer_unchanged:
+ (* valid_pointer_unchanged: *)
+ (*  forall m1 m2, *)
+ (*    Mem.unchanged_on (fun _ _ => True) m1 m2 -> *)
+ (*    Mem.nextblock m1 = Mem.nextblock m2 -> *)
+ (*    Mem.valid_pointer m1 = Mem.valid_pointer m2; *)
+
+ (* push_new_stage_strong_unchanged_on: *)
+ (*    forall m1 m2 P, *)
+ (*      Mem.unchanged_on P m1 m2 -> *)
+ (*      Mem.unchanged_on P (Mem.push_new_stage m1) (Mem.push_new_stage m2); *)
+
+ (* unchanged_on_free: *)
+ (*    forall m1 m2, *)
+ (*      Mem.unchanged_on (fun _ _ => True) m1 m2 -> *)
+ (*      forall b lo hi m1', *)
+ (*        Mem.free m1 b lo hi = Some m1' -> *)
+ (*        exists m2', *)
+ (*          Mem.free m2 b lo hi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2'; *)
+
+ (* unchanged_on_unrecord: *)
+ (*    forall m1 m2, *)
+ (*      Mem.unchanged_on (fun _ _ => True) m1 m2 -> *)
+ (*      length (stack m1) = length (stack m2) -> *)
+ (*      forall m1', *)
+ (*        Mem.unrecord_stack_block m1 = Some m1' -> *)
+ (*        exists m2', *)
+ (*          Mem.unrecord_stack_block m2 = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2'; *)
+
+ (* unchanged_on_record: *)
+ (*    forall m1 m2, *)
+ (*      Mem.unchanged_on (fun _ _ => True) m1 m2 -> *)
+ (*      nextblock m1 = nextblock m2 -> *)
+ (*      same_head (perm m1) ((stack m1)) ((stack m2)) -> *)
+ (*      forall m1' fi, *)
+ (*        Mem.record_stack_blocks m1 fi = Some m1' -> *)
+ (*        exists m2', *)
+ (*          Mem.record_stack_blocks m2 fi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2'; *)
+
+ (* unrecord_push_unchanged: *)
+ (*    forall m1 m2 m2', *)
+ (*      Mem.unchanged_on (fun _ _ => True) m1 m2 -> *)
+ (*      Mem.unrecord_stack_block m2 = Some m2' -> *)
+ (*      Mem.unchanged_on (fun _ _ => True) m1 (Mem.push_new_stage m2'); *)
+
+ (* unchanged_on_alloc: *)
+ (*   forall m1 m2 (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2) *)
+ (*     lo hi m1' b (ALLOC1: Mem.alloc m1 lo hi = (m1', b)) *)
+ (*     m2' (ALLOC2: Mem.alloc m2 lo hi = (m2', b)), *)
+ (*     Mem.unchanged_on (fun _ _ => True) m1' m2'; *)
+
+ (* inject_unchanged_compose {injperm: InjectPerm}: *)
+ (*   forall f g m1 m2 m3, *)
+ (*     inject f g m1 m2 -> *)
+ (*     unchanged_on (fun _ _ => True) m2 m3 -> *)
+ (*     same_head (perm m2) (Mem.stack m2) (Mem.stack m3) -> *)
+ (*     inject f g m1 m3; *)
+
+ (* extends_unchanged_compose {injperm: InjectPerm}: forall (m1 m2 m3 : mem), *)
+ (*       Mem.extends m1 m2 -> *)
+ (*       Mem.unchanged_on (fun (_ : Values.block) (_ : Z) => True) m2 m3 -> *)
+ (*       Mem.nextblock m2 = Mem.nextblock m3 -> *)
+ (*       same_head (Mem.perm m2) (Mem.stack m2) (Mem.stack m3) -> Mem.extends m1 m3; *)
+
+ tailcall_stage_tc:
   forall m1 m2,
-    Mem.unchanged_on (fun _ _ => True) m1 m2 ->
-    Mem.nextblock m1 = Mem.nextblock m2 ->
-    Mem.valid_pointer m1 = Mem.valid_pointer m2;
+    Mem.tailcall_stage m1 = Some m2 ->
+    top_tframe_tc (Mem.stack m2);
 
- push_new_stage_strong_unchanged_on:
-    forall m1 m2 P,
-      Mem.unchanged_on P m1 m2 ->
-      Mem.unchanged_on P (Mem.push_new_stage m1) (Mem.push_new_stage m2);
-
- unchanged_on_free:
-    forall m1 m2,
-      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
-      forall b lo hi m1',
-        Mem.free m1 b lo hi = Some m1' ->
-        exists m2',
-          Mem.free m2 b lo hi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2';
-
- unchanged_on_unrecord:
-    forall m1 m2,
-      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
-      length (stack_adt m1) = length (stack_adt m2) ->
-      forall m1',
-        Mem.unrecord_stack_block m1 = Some m1' ->
-        exists m2',
-          Mem.unrecord_stack_block m2 = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2';
-
- unchanged_on_record:
-    forall m1 m2,
-      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
-      nextblock m1 = nextblock m2 ->
-      same_head ((stack_adt m1)) ((stack_adt m2)) ->
-      forall m1' fi,
-        Mem.record_stack_blocks m1 fi = Some m1' ->
-        exists m2',
-          Mem.record_stack_blocks m2 fi = Some m2' /\ Mem.unchanged_on (fun _ _ => True) m1' m2';
-
- unrecord_push_unchanged:
-    forall m1 m2 m2',
-      Mem.unchanged_on (fun _ _ => True) m1 m2 ->
-      Mem.unrecord_stack_block m2 = Some m2' ->
-      Mem.unchanged_on (fun _ _ => True) m1 (Mem.push_new_stage m2');
-
- unchanged_on_alloc:
-   forall m1 m2 (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
-     lo hi m1' b (ALLOC1: Mem.alloc m1 lo hi = (m1', b))
-     m2' (ALLOC2: Mem.alloc m2 lo hi = (m2', b)),
-     Mem.unchanged_on (fun _ _ => True) m1' m2';
+ tailcall_stage_perm:
+   forall m1 m2,
+     Mem.tailcall_stage m1 = Some m2 ->
+     forall b o k p,
+       Mem.perm m2 b o k p <-> Mem.perm m1 b o k p;
  
+ tailcall_stage_tl_stack:
+  forall m1 m2,
+    Mem.tailcall_stage m1 = Some m2 ->
+    tl (Mem.stack m2) = tl (Mem.stack m1);
+
+ tailcall_stage_extends {injperm: InjectPerm}:
+   forall m1 m2 m1',
+     Mem.extends m1 m2 ->
+     Mem.tailcall_stage m1 = Some m1' ->
+     Mem.top_frame_no_perm m2 ->
+     exists m2',
+       Mem.tailcall_stage m2 = Some m2' /\ Mem.extends m1' m2';
+
+
+ tailcall_stage_inject {injperm: InjectPerm}:
+  forall j g m1 m2 m1',
+    Mem.inject j g m1 m2 ->
+    Mem.tailcall_stage m1 = Some m1' ->
+    top_frame_no_perm m2 ->
+    exists m2',
+      Mem.tailcall_stage m2 = Some m2' /\ Mem.inject j g m1' m2';
+
+ tailcall_stage_stack_equiv:
+  forall m1 m2 m1' m2',
+    Mem.tailcall_stage m1 = Some m1' ->
+    Mem.tailcall_stage m2 = Some m2' ->
+    stack_equiv (Mem.stack m1) (Mem.stack m2) ->
+    stack_equiv (Mem.stack m1') (Mem.stack m2');
+
+ tailcall_stage_same_length_pos:
+    forall m1 m2,
+      Mem.tailcall_stage m1 = Some m2 ->
+      length (Mem.stack m2) = length (Mem.stack m1) /\ lt O (length (Mem.stack m1));
+
+
+ tailcall_stage_nextblock:
+    forall m1 m2,
+      Mem.tailcall_stage m1 = Some m2 ->
+      Mem.nextblock m2 = Mem.nextblock m1;
+
+
+ inject_new_stage_left_tailcall_right {injperm: InjectPerm}:
+    forall j n g m1 m2,
+      Mem.inject j (n :: g) m1 m2 ->
+      (forall l, take ( n) (stack m1) = Some l ->
+          Forall (fun tf => forall b, in_frames tf b -> forall o k p, ~ perm m1 b o k p) l) ->
+      top_frame_no_perm m2 ->
+      exists m2',
+        Mem.tailcall_stage m2 = Some m2' /\
+        Mem.inject j (S n :: g) (Mem.push_new_stage m1) m2';
+
+ inject_tailcall_left_new_stage_right {injperm:InjectPerm}:
+   forall (j : meminj) (n : nat) (g : list nat) (m1 m2 m1' : mem),
+     Mem.inject j (S n :: g) m1 m2 ->
+     lt O n ->
+     tailcall_stage m1 = Some m1' ->
+     Mem.inject j (1%nat:: n :: g) m1' (Mem.push_new_stage m2);
+
+ tailcall_stage_inject_left {injperm: InjectPerm}:
+  forall j n g m1 m2 m1',
+    Mem.inject j (n :: g) m1 m2 ->
+    Mem.tailcall_stage m1 = Some m1' ->
+    Mem.inject j (n::g) m1' m2;
+
+ tailcall_stage_right_extends {injperm: InjectPerm}:
+        forall m1 m2 (EXT: Mem.extends m1 m2)
+          (TFNP1: Mem.top_frame_no_perm m1)
+          (TFNP2: Mem.top_frame_no_perm m2),
+        exists m2', Mem.tailcall_stage m2 = Some m2' /\ Mem.extends m1 m2';
+      
+ 
+ tailcall_stage_stack:
+    forall m1 m2,
+      Mem.tailcall_stage m1 = Some m2 ->
+      exists f r,
+        Mem.stack m1 = f :: r /\ Mem.stack m2 = (None, opt_cons (fst f) (snd f))::r;
+
 }.
 
 Section WITHMEMORYMODEL.
@@ -2214,7 +2189,7 @@ Section WITHMEMORYMODEL.
 Context `{memory_model_prf: MemoryModel}.
 
 Lemma stack_top_valid:
-  forall m b, is_stack_top (stack_adt m) b -> valid_block m b.
+  forall m b, is_stack_top (stack m) b -> valid_block m b.
 Proof.
   intros. rewrite is_stack_top_stack_blocks in H.
   decompose [ex and] H.
@@ -2222,7 +2197,7 @@ Proof.
 Qed.
 
 Lemma get_frame_info_valid:
-  forall m b f, get_frame_info (stack_adt m) b = Some f -> valid_block m b.
+  forall m b f, get_frame_info (stack m) b = Some f -> valid_block m b.
 Proof.
   intros. eapply in_frames_valid. eapply get_frame_info_in_stack; eauto.
 Qed.
@@ -2230,7 +2205,7 @@ Qed.
 Lemma invalid_block_stack_access:
   forall m b lo hi,
     ~ valid_block m b ->
-    stack_access (stack_adt m) b lo hi.
+    stack_access (stack m) b lo hi.
 Proof.
   right.
   red.
@@ -2240,7 +2215,7 @@ Qed.
 
 Lemma store_get_frame_info:
   forall chunk m1 b o v m2 (STORE: store chunk m1 b o v = Some m2),
-  forall b', get_frame_info (stack_adt m2) b' = get_frame_info (stack_adt m1) b'.
+  forall b', get_frame_info (stack m2) b' = get_frame_info (stack m1) b'.
 Proof.
   intros. 
   erewrite store_no_abstract; eauto.
@@ -2249,7 +2224,7 @@ Qed.
 Lemma store_stack_blocks:
   forall m1 sp chunk o v m2,
     store chunk m1 sp o v = Some m2 ->
-    stack_adt m2 = stack_adt m1.
+    stack m2 = stack m1.
 Proof.
   intros. 
   eapply store_no_abstract; eauto.
@@ -2257,42 +2232,42 @@ Qed.
 
 Lemma store_is_stack_top:
    forall chunk m1 b o v m2 (STORE: store chunk m1 b o v = Some m2),
-   forall b', is_stack_top (stack_adt m2) b' <-> is_stack_top (stack_adt m1) b'.
+   forall b', is_stack_top (stack m2) b' <-> is_stack_top (stack m1) b'.
 Proof.
   intros; erewrite store_no_abstract; eauto. tauto.
 Qed.
 
 Lemma storebytes_get_frame_info:
    forall m1 b o v m2 (STOREBYTES: storebytes m1 b o v = Some m2),
-   forall b', get_frame_info (stack_adt m2) b' = get_frame_info (stack_adt m1) b'.
+   forall b', get_frame_info (stack m2) b' = get_frame_info (stack m1) b'.
 Proof.
   intros; erewrite storebytes_no_abstract; eauto.
 Qed.
 
 Lemma storebytes_is_stack_top:
   forall m1 b o v m2 (STOREBYTES: storebytes m1 b o v = Some m2),
-  forall b', is_stack_top (stack_adt m2) b' <-> is_stack_top (stack_adt m1) b'.
+  forall b', is_stack_top (stack m2) b' <-> is_stack_top (stack m1) b'.
 Proof.
   intros; erewrite storebytes_no_abstract; eauto. tauto.
 Qed.
 
 Lemma alloc_get_frame_info:
   forall m1 lo hi m2 b (ALLOC: alloc m1 lo hi = (m2, b)),
-  forall b', get_frame_info (stack_adt m2) b' = get_frame_info (stack_adt m1) b'.
+  forall b', get_frame_info (stack m2) b' = get_frame_info (stack m1) b'.
 Proof.
   intros; erewrite alloc_no_abstract; eauto.
 Qed.
 
 Lemma alloc_is_stack_top:
   forall m1 lo hi m2 b (ALLOC: alloc m1 lo hi = (m2, b)),
-  forall b', is_stack_top (stack_adt m2) b' <-> is_stack_top (stack_adt m1) b'.
+  forall b', is_stack_top (stack m2) b' <-> is_stack_top (stack m1) b'.
 Proof.
   intros; erewrite alloc_no_abstract; eauto. tauto.
 Qed.
 
 Lemma alloc_get_frame_info_fresh:
   forall m1 lo hi m2 b (ALLOC: alloc m1 lo hi = (m2, b)),
-    get_frame_info (stack_adt m2) b = None.
+    get_frame_info (stack m2) b = None.
 Proof.
   intros; eapply not_in_stack_get_assoc; auto.
   rewrite alloc_no_abstract; eauto.
@@ -2303,19 +2278,19 @@ Qed.
 Lemma alloc_stack_blocks:
   forall m1 lo hi m2 b,
     alloc m1 lo hi = (m2, b) ->
-    stack_adt m2 = stack_adt m1.
+    stack m2 = stack m1.
 Proof. intros; eapply alloc_no_abstract; eauto. Qed.
 
 Lemma free_stack_blocks:
   forall m1 b lo hi m2,
     free m1 b lo hi = Some m2 ->
-    stack_adt m2 = stack_adt m1.
+    stack m2 = stack m1.
 Proof. intros; eapply free_no_abstract; eauto. Qed.
 
 Lemma free_get_frame_info:
   forall m1 b lo hi m2 b',
     free m1 b lo hi = Some m2 ->
-    get_frame_info (stack_adt m2) b' = get_frame_info (stack_adt m1) b'.
+    get_frame_info (stack m2) b' = get_frame_info (stack m1) b'.
 Proof.
   intros; erewrite free_no_abstract; eauto.
 Qed.
@@ -2323,7 +2298,7 @@ Qed.
 Lemma storebytes_stack_blocks:
   forall m1 b o bytes m2,
     storebytes m1 b o bytes = Some m2 ->
-    stack_adt m2 = stack_adt m1.
+    stack m2 = stack m1.
 Proof.
   intros; eapply storebytes_no_abstract; eauto.
 Qed.
@@ -2331,7 +2306,7 @@ Qed.
 Lemma free_list_stack_blocks:
   forall m bl m',
     free_list m bl = Some m' ->
-    stack_adt m' = stack_adt m.
+    stack m' = stack m.
 Proof.
   intros; eapply freelist_no_abstract; eauto.
 Qed.
@@ -2389,14 +2364,13 @@ Lemma record_stack_block_is_stack_top:
   forall m b fi m',
     record_stack_blocks m fi = Some m' ->
     in_frame fi b ->
-    is_stack_top (stack_adt m') b.
+    is_stack_top (stack m') b.
 Proof.
   unfold is_stack_top, get_stack_top_blocks.
   intros.
   edestruct (record_stack_blocks_tailcall_original_stack _ _ _ H) as (f & r & EQ).
-  erewrite record_stack_blocks_stack_adt; eauto.
-  unfold get_frames_blocks. simpl.
-  rewrite in_app; left. auto.
+  erewrite record_stack_blocks_stack; eauto.
+  unfold get_frames_blocks. simpl. auto.
 Qed.
 
 Lemma unrecord_stack_block_unchanged_on:
@@ -2441,11 +2415,11 @@ Qed.
 Lemma unrecord_stack_block_get_frame_info:
    forall m m' b,
      unrecord_stack_block m = Some m' ->
-     ~ is_stack_top (stack_adt m) b ->
-     get_frame_info (stack_adt m') b = get_frame_info (stack_adt m) b.
+     ~ is_stack_top (stack m) b ->
+     get_frame_info (stack m') b = get_frame_info (stack m) b.
 Proof.
   unfold is_stack_top, get_stack_top_blocks, get_frame_info. intros.
-  exploit unrecord_stack_adt. eauto. intros (b0 & EQ).
+  exploit unrecord_stack. eauto. intros (b0 & EQ).
   rewrite EQ in *. simpl.
   destr.
 Qed.
@@ -2466,7 +2440,7 @@ Defined.
 Lemma range_perm_storebytes:
   forall m1 b ofs bytes,
     range_perm m1 b ofs (ofs + Z_of_nat (length bytes)) Cur Writable ->
-    stack_access (stack_adt m1) b ofs (ofs + Z_of_nat (length bytes)) ->
+    stack_access (stack m1) b ofs (ofs + Z_of_nat (length bytes)) ->
   { m2 : mem | storebytes m1 b ofs bytes = Some m2 }.
 Proof.
   intros m1 b ofs bytes H NPSA.
@@ -2596,59 +2570,13 @@ Lemma store_stack_access:
   forall chunk m b o v m1 ,
     store chunk m b o v = Some m1 ->
     forall b' lo hi,
-      stack_access (stack_adt m1) b' lo hi <-> stack_access (stack_adt m) b' lo hi.
+      stack_access (stack m1) b' lo hi <-> stack_access (stack m) b' lo hi.
 Proof.
   intros; erewrite store_no_abstract; eauto. tauto.
 Qed.
 
 
 Context {injperm: InjectPerm}.
-
-Lemma frameinj_order_strict_0:
-  forall g j m1 m2,
-    inject j g m1 m2 ->
-    frameinj_order_strict g ->
-    g O = Some O ->
-    forall i j0 : nat, g i = Some j0 -> (0 < i)%nat -> (0 < j0)%nat.
-Proof.
-  intros. eapply inject_stack_adt in H.
-  eapply H0; eauto.
-Qed.
-
-Lemma frameinj_order_strict_pop:
-  forall g j m1 m2,
-    inject j g m1 m2 ->
-    g O = Some O ->
-    frameinj_order_strict g ->
-    frameinj_order_strict (fun n : nat => option_map Init.Nat.pred (g (Datatypes.S n))).
-Proof.
-  red; intros g j m1 m2 INJ GO. intros.
-  unfold option_map in H1, H2.
-  destr_in H1; destr_in H2. inv H1; inv H2.
-  exploit H. 2: exact Heqo. 2: exact Heqo0. omega. intros.
-  exploit stack_inject_pack. apply inject_stack_adt. eauto. apply Heqo.
-  exploit stack_inject_pack. apply inject_stack_adt. eauto. apply Heqo0.
-  eapply frameinj_order_strict_0 in Heqo; eauto. omega. omega.
-Qed.
-
-Lemma unrecord_stack_block_inject_parallel_strict:
-   forall (m1 m1' m2 : mem) (j : meminj) g,
-     inject j g m1 m2 ->
-     frameinj_order_strict g ->
-     unrecord_stack_block m1 = Some m1' ->
-     g O = Some O ->
-     (* size_stack (tl (stack_adt m2)) <= size_stack (tl (stack_adt m1)) -> *)
-     exists m2',
-       unrecord_stack_block m2 = Some m2'
-       /\ inject j (fun n => option_map pred (g (S n))) m1' m2'
-       /\ frameinj_order_strict (fun n => option_map pred (g (S n))).
-Proof.
-  intros.
-  generalize (frameinj_order_strict_0 _ _ _ _ H H0 H2). intros.
-  generalize (frameinj_order_strict_pop _ _ _ _ H H2 H0). intros.
-  exploit unrecord_stack_block_inject_parallel; eauto.
-  intros (m2' & USB & INJ); eauto.
-Qed.
 
 Lemma storev_nextblock :
   forall m chunk addr v m',
@@ -2659,10 +2587,10 @@ Proof.
   eapply nextblock_store; eauto.
 Qed.
 
-Lemma storev_stack_adt :
+Lemma storev_stack :
   forall m chunk addr v m',
     storev chunk m addr v = Some m' ->
-    stack_adt m' = stack_adt m.
+    stack m' = stack m.
 Proof.
   intros; destruct addr; simpl in *; try congruence.
   eapply store_stack_blocks; eauto.
@@ -2679,56 +2607,6 @@ Proof.
   eapply perm_store_2; eauto.
 Qed.
 
-(* Lemma frameinj_surjective_free_list_unrecord: *)
-(*   forall g j m P tm tm' tm'' l, *)
-(*     free_list tm l = Some tm' -> *)
-(*     unrecord_stack_block tm' = Some tm'' -> *)
-(*     stack_inject j g P (stack_adt m) (stack_adt tm) -> *)
-(*     frameinj_surjective g (length (stack_adt tm)) -> *)
-(*     frameinj_surjective (fun n : nat => option_map Init.Nat.pred (g (Datatypes.S n))) *)
-(*                         (length (stack_adt tm'')). *)
-(* Proof. *)
-(*   intros g j m P tm tm' tm'' l FL USB SI SURJ. *)
-(*   intros. erewrite <- free_list_stack_blocks in SURJ by eauto. *)
-(*   edestruct unrecord_stack_adt as (x & EQ). eauto. rewrite EQ in SURJ. *)
-(*   red; intros. *)
-(*   destruct (SURJ (S j0)) as (? & G). *)
-(*   simpl; omega. *)
-(*   destruct (Nat.eq_dec x0 O). subst. *)
-(*   { *)
-(*     erewrite stack_inject_g0_0 in G. inv G. eauto. eapply stack_inject_range in G; eauto. tauto. *)
-(*     eapply stack_inject_range in G; eauto. omega. *)
-(*   } *)
-(*   exists (pred x0). *)
-(*   replace (S (pred x0)) with x0 by omega. rewrite G. simpl. auto. *)
-(* Qed. *)
-
-
-(* Lemma frameinj_surjective_free_unrecord: *)
-(*   forall g j m P tm tm' tm'' b lo hi, *)
-(*     free tm b lo hi = Some tm' -> *)
-(*     unrecord_stack_block tm' = Some tm'' -> *)
-(*     stack_inject j g P (stack_adt m) (stack_adt tm) -> *)
-(*     frameinj_surjective g (length (stack_adt tm)) -> *)
-(*     frameinj_surjective (fun n : nat => option_map Init.Nat.pred (g (Datatypes.S n))) *)
-(*                         (length (stack_adt tm'')). *)
-(* Proof. *)
-(*   intros g j m P tm tm' tm'' b lo hi FL USB SI SURJ. *)
-(*   intros. erewrite <- free_stack_blocks in SURJ by eauto. *)
-(*   edestruct unrecord_stack_adt as (x & EQ). eauto. rewrite EQ in SURJ. *)
-(*   red; intros. *)
-(*   destruct (SURJ (S j0)) as (? & G). *)
-(*   simpl; omega. *)
-(*   destruct (Nat.eq_dec x0 O). subst. *)
-(*   { *)
-(*     erewrite stack_inject_g0_0 in G. inv G. eauto. eapply stack_inject_range in G; eauto. tauto. *)
-(*     eapply stack_inject_range in G; eauto. omega. *)
-(*   } *)
-(*   exists (pred x0). *)
-(*   replace (S (pred x0)) with x0 by omega. rewrite G. simpl. auto.   *)
-(* Qed. *)
-
-
 Lemma frame_inject_flat:
   forall thr f,
     Forall (fun bfi => Plt (fst bfi) thr) (frame_adt_blocks f) ->
@@ -2741,138 +2619,65 @@ Proof.
   rewrite <- surjective_pairing. auto.
 Qed.
 
-Lemma noperm_top:
-  forall m,
-    match Mem.stack_adt m with
-      (f::_)::_ => forall b, in_frame f b -> forall o k p, ~ Mem.perm m b o k p
-    | _ => False
-    end ->
-    top_tframe_no_perm (Mem.perm m) (Mem.stack_adt m).
-Proof.
-  intros.
-  repeat destr_in H.
-  constructor.
-  red; intros.
-  rewrite in_frames_cons in H1. destruct H1; eauto.
-  generalize (wf_stack_mem inject_id m); rewrite Heqs. inversion 1. subst.
-  eapply H5. congruence. simpl; assumption.
-Qed.
-
 Lemma record_push_inject:
-  forall j g m1 m2 (MINJ: Mem.inject j g m1 m2)
-    fi1 fi2 (FI: Mem.frame_inject j fi1 fi2)
-    (NINSTACK: forall b, in_stack (Mem.stack_adt m2) b -> in_frame fi2 b -> False)
+  forall j n g m1 m2 (MINJ: Mem.inject j (n :: g) m1 m2)
+    fi1 fi2 (FI: frame_inject j fi1 fi2)
+    (NINSTACK: forall b, in_stack (Mem.stack m2) b -> in_frame fi2 b -> False)
     (VALID: Mem.valid_frame fi2 m2)
     (FAP2: frame_agree_perms (Mem.perm m2) fi2)
     (INF: forall b1 b2 delta, j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2)
     (SZ: frame_adt_size fi1 = frame_adt_size fi2)
-    (tc: bool)
     m1'
-    (RSB: Mem.record_stack_blocks (if tc then m1 else Mem.push_new_stage m1) fi1 = Some m1')
-    (TTNP: tc = true -> top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
-    newframeinj
-    (NFI: forall b, newframeinj b = (if tc then g else up g) b)
-    (NFI0: newframeinj O = Some O)
-    (SZ: size_stack (tl (stack_adt (if tc then m2 else Mem.push_new_stage m2))) <= size_stack (tl (stack_adt (if tc then m1 else Mem.push_new_stage m1)))),
-  exists m2', Mem.record_stack_blocks (if tc then m2 else Mem.push_new_stage m2) fi2 = Some m2' /\ Mem.inject j newframeinj m1' m2'.
+    (RSB: Mem.record_stack_blocks m1 fi1 = Some m1')
+    (TTNP: top_tframe_tc (Mem.stack m2))
+    (SZ: size_stack (tl (stack m2)) <= size_stack (tl (stack m1))),
+  exists m2', Mem.record_stack_blocks m2 fi2 = Some m2' /\ Mem.inject j (n::g) m1' m2'.
 Proof.
   intros.
-  destruct tc.
-  - subst.
-    eapply Mem.record_stack_blocks_inject_parallel.
-    eapply Mem.mem_inject_ext. eauto. eauto. all: eauto.
-  - eapply Mem.record_stack_blocks_inject_parallel.
-    eapply Mem.mem_inject_ext. 
-    apply Mem.push_new_stage_inject. eauto. all: eauto.
-    + rewrite Mem.push_new_stage_stack. setoid_rewrite in_stack_cons. intros b [[]|INS]. eauto.
-    + red; red; intros; rewrite Mem.push_new_stage_nextblock; eauto. apply VALID; auto.
-    + setoid_rewrite Mem.push_new_stage_perm. eauto.
-    + rewrite Mem.push_new_stage_stack. constructor. red. easy.
+  eapply Mem.record_stack_blocks_inject_parallel; eauto.
 Qed.
 
 Lemma record_stack_blocks_length_stack:
   forall m1 f m2,
     Mem.record_stack_blocks m1 f = Some m2 ->
-    length (Mem.stack_adt m2) = length (Mem.stack_adt m1).
+    length (Mem.stack m2) = length (Mem.stack m1).
 Proof.
   intros.
   edestruct Mem.record_stack_blocks_tailcall_original_stack as (ff & r & eq); eauto. rewrite eq.
-  eapply Mem.record_stack_blocks_stack_adt in eq; eauto. rewrite eq. reflexivity.
+  eapply Mem.record_stack_blocks_stack in eq; eauto. rewrite eq. reflexivity.
 Qed.
 
 Lemma record_stack_blocks_stack_eq:
   forall m1 f m2,
     Mem.record_stack_blocks m1 f = Some m2 ->
     exists tf r,
-      Mem.stack_adt m1 = tf::r /\ Mem.stack_adt m2 = (f::tf)::r.
+      Mem.stack m1 = (None,tf)::r /\ Mem.stack m2 = (Some f,tf)::r.
 Proof.
   intros.
   edestruct Mem.record_stack_blocks_tailcall_original_stack as (ff & r & eq); eauto. rewrite eq.
-  eapply Mem.record_stack_blocks_stack_adt in eq; eauto.
+  eapply Mem.record_stack_blocks_stack in eq; eauto.
 Qed.
 
 Lemma record_push_inject_flat:
-  forall j m1 m2 (MINJ: Mem.inject j (flat_frameinj (length (Mem.stack_adt m1))) m1 m2)
-    fi1 fi2 (FI: Mem.frame_inject j fi1 fi2)
-    (NINSTACK: forall b, in_stack (Mem.stack_adt m2) b -> in_frame fi2 b -> False)
+  forall j m1 m2 (MINJ: Mem.inject j (flat_frameinj (length (Mem.stack m1))) m1 m2)
+    fi1 fi2 (FI: frame_inject j fi1 fi2)
+    (NINSTACK: forall b, in_stack (Mem.stack m2) b -> in_frame fi2 b -> False)
     (VALID: Mem.valid_frame fi2 m2)
     (FAP2: frame_agree_perms (Mem.perm m2) fi2)
     (INF: forall b1 b2 delta, j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2)
     (SZ: frame_adt_size fi1 = frame_adt_size fi2)
-    (tc: bool)
     m1'
-    (RSB: Mem.record_stack_blocks (if tc then m1 else Mem.push_new_stage m1) fi1 = Some m1')
-    (TTNP: tc = true -> top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2))
-    (SZ: size_stack (tl (stack_adt (if tc then m2 else Mem.push_new_stage m2))) <= size_stack (tl (stack_adt (if tc then m1 else Mem.push_new_stage m1)))),
-  exists m2', Mem.record_stack_blocks (if tc then m2 else Mem.push_new_stage m2) fi2 = Some m2' /\
-         Mem.inject j (flat_frameinj (length (Mem.stack_adt m1'))) m1' m2'.
+    (RSB: Mem.record_stack_blocks m1 fi1 = Some m1')
+    (TTNP: top_tframe_tc (Mem.stack m2))
+    (SZ: size_stack (tl (stack m2)) <= size_stack (tl (stack m1))),
+  exists m2', Mem.record_stack_blocks m2 fi2 = Some m2' /\
+         Mem.inject j (flat_frameinj (length (Mem.stack m1'))) m1' m2'.
 Proof.
   intros.
+  destruct (record_stack_blocks_tailcall_original_stack _ _ _ RSB) as (f & r & EQ).
+  rewrite (record_stack_blocks_length_stack _ _ _ RSB).
+  rewrite EQ in MINJ |- *.
   eapply record_push_inject; eauto.
-  - intros.
-    rewrite (record_stack_blocks_length_stack _ _ _ RSB).
-    destr.
-    rewrite <- up_flatinj.
-    rewrite Mem.push_new_stage_stack. reflexivity.
-  - rewrite (record_stack_blocks_length_stack _ _ _ RSB).
-    destr.
-    apply record_stack_blocks_top_tframe_no_perm in RSB. inv RSB. reflexivity.
-    rewrite Mem.push_new_stage_stack; reflexivity.
-Qed.
-
-Lemma unrecord_parallel_inject_equiv:
-  forall j m1 m2,
-    Mem.inject j (flat_frameinj (length (Mem.stack_adt m1))) m1 m2 ->
-    stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
-    forall m1',
-      Mem.unrecord_stack_block m1 = Some m1' ->
-      exists m2',
-        Mem.unrecord_stack_block m2 = Some m2' /\
-        Mem.inject j (flat_frameinj (length (Mem.stack_adt m1'))) m1' m2'.
-Proof.
-  intros.
-  edestruct Mem.stack_inject_unrecord_parallel_frameinj_flat as (m2' & USB & INJ).
-  - erewrite (stack_equiv_length) in H by eauto. eauto.
-  - eapply stack_equiv_length; eauto.
-  - eauto.
-  - exists m2'; split; eauto.
-    eapply Mem.mem_inject_ext. eauto.
-    unfold flat_frameinj.
-    edestruct unrecord_stack_adt. exact H1.
-    edestruct unrecord_stack_adt. exact USB.
-    rewrite H3. simpl.
-    apply stack_equiv_length in H0.
-    rewrite H2, H3 in H0. simpl in H0. inv H0. rewrite H5. reflexivity.
-Qed.
-
-Lemma extends_maybe_push:
-  forall m1 m2,
-    Mem.extends m1 m2 ->
-    forall b: bool,
-      Mem.extends (if b then m1 else Mem.push_new_stage m1)
-                  (if b then m2 else Mem.push_new_stage m2).
-Proof.
-  intros; destruct b; eauto using extends_push.
 Qed.
 
 Lemma push_new_stage_loadv:
@@ -2900,44 +2705,409 @@ Proof.
   revert PSA. rewrite push_new_stage_stack. simpl; auto.
 Qed.
 
-Definition clear_stage (m: mem): option mem :=
-  match Mem.unrecord_stack_block m with
-  | Some m' => Some (Mem.push_new_stage m')
-  | None => None
-  end.
+(* Definition clear_stage (m: mem): option mem := *)
+(*   match Mem.unrecord_stack_block m with *)
+(*   | Some m' => Some (Mem.push_new_stage m') *)
+(*   | None => None *)
+(*   end. *)
 
-Lemma clear_stage_perm:
-  forall m m'
-    (CS: clear_stage m = Some m')
-    b o k p,
-    perm m' b o k p <-> perm m b o k p.
+(* Lemma clear_stage_perm: *)
+(*   forall m m' *)
+(*     (CS: clear_stage m = Some m') *)
+(*     b o k p, *)
+(*     perm m' b o k p <-> perm m b o k p. *)
+(* Proof. *)
+(*   unfold clear_stage; intros. repeat destr_in CS. *)
+(*   rewrite push_new_stage_perm. *)
+(*   split. eapply unrecord_stack_block_perm; eauto. *)
+(*   eapply unrecord_stack_block_perm'; eauto. *)
+(* Qed. *)
+
+(* Lemma clear_stage_nextblock: *)
+(*   forall m m' *)
+(*     (CS: clear_stage m = Some m'), *)
+(*     nextblock m' = nextblock m. *)
+(* Proof. *)
+(*   unfold clear_stage; intros. repeat destr_in CS. *)
+(*   rewrite push_new_stage_nextblock. *)
+(*   eapply unrecord_stack_block_nextblock; eauto. *)
+(* Qed. *)
+
+(* Lemma clear_stage_stack: *)
+(*   forall m m' *)
+(*     (CS: clear_stage m = Some m'), *)
+(*     stack m' = nil :: tl (stack m). *)
+(* Proof. *)
+(*   unfold clear_stage; intros. repeat destr_in CS. *)
+(*   rewrite push_new_stage_stack. *)
+(*   edestruct unrecord_stack; eauto. rewrite H. simpl. auto. *)
+(* Qed. *)
+
+Lemma push_new_stage_inject_flat:
+   forall j m1 m2,
+        inject j (flat_frameinj (length (stack m1))) m1 m2 ->
+        inject j (flat_frameinj (length (stack (push_new_stage m1))))
+               (push_new_stage m1) (push_new_stage m2).
 Proof.
-  unfold clear_stage; intros. repeat destr_in CS.
-  rewrite push_new_stage_perm.
-  split. eapply unrecord_stack_block_perm; eauto.
-  eapply unrecord_stack_block_perm'; eauto.
+  intros j m1 m2 INJ.
+  apply push_new_stage_inject in INJ.
+  rewrite push_new_stage_length_stack.
+  unfold flat_frameinj in *. simpl in *; auto.
 Qed.
 
-Lemma clear_stage_nextblock:
-  forall m m'
-    (CS: clear_stage m = Some m'),
-    nextblock m' = nextblock m.
+Lemma record_stack_blocks_inject_parallel_flat:
+   forall m1 m1' m2 j fi1 fi2,
+     inject j (flat_frameinj (length (stack m1))) m1 m2 ->
+     frame_inject j fi1 fi2 ->
+     (forall b : block, in_stack (stack m2) b -> ~ in_frame fi2 b) ->
+     (valid_frame fi2 m2) ->
+     frame_agree_perms (perm m2) fi2 ->
+     (forall (b1 b2 : block) (delta : Z), j b1 = Some (b2, delta) -> in_frame fi1 b1 <-> in_frame fi2 b2) ->
+     frame_adt_size fi1 = frame_adt_size fi2 ->
+     record_stack_blocks m1 fi1 = Some m1' ->
+     top_tframe_tc (stack m2) ->
+     size_stack (tl (stack m2)) <= size_stack (tl (stack m1)) ->
+     exists m2',
+       record_stack_blocks m2 fi2 = Some m2' /\
+       inject j (flat_frameinj (length (stack m1'))) m1' m2'.
 Proof.
-  unfold clear_stage; intros. repeat destr_in CS.
-  rewrite push_new_stage_nextblock.
-  eapply unrecord_stack_block_nextblock; eauto.
+  intros.
+  edestruct record_stack_blocks_inject_parallel as (m2' & RSB & INJ'); eauto.
+  eexists; split; eauto.
+  erewrite record_stack_blocks_length_stack; eauto.
 Qed.
 
-Lemma clear_stage_stack_adt:
-  forall m m'
-    (CS: clear_stage m = Some m'),
-    stack_adt m' = nil :: tl (stack_adt m).
+
+Lemma stack_inject_aux_tailcall_stage:
+  forall j g m f1 l1 s1 f2 l2 s2,
+    stack_inject_aux j m (1%nat::g) ((Some f1,l1)::s1) ((Some f2, l2)::s2) ->
+    stack_inject_aux j m (1%nat::g) ((None, f1::l1)::s1) ((None, f2::l2)::s2).
 Proof.
-  unfold clear_stage; intros. repeat destr_in CS.
-  rewrite push_new_stage_stack.
-  edestruct unrecord_stack_adt; eauto. rewrite H. simpl. auto.
+  intros j g m f1 l1 s1 f2 l2 s2 SI. inv SI; econstructor.
+  reflexivity. reflexivity. simpl in *; auto.
+  constructor; auto.
+  simpl in *. inv TAKE.
+  red. simpl. congruence.
 Qed.
 
+Lemma stack_inject_tailcall_stage:
+  forall j g m f1 l1 s1 f2 l2 s2,
+    top_tframe_prop (fun tf => forall b, in_frames tf b -> forall o k p, ~ m b o k p) ((Some f1,l1)::s1) ->
+    stack_inject j (1%nat::g) m ((Some f1,l1)::s1) ((Some f2, l2)::s2) ->
+    stack_inject j (1%nat::g) m ((None, f1::l1)::s1) ((None, f2::l2)::s2).
+Proof.
+  intros j g m f1 l1 s1 f2 l2 s2 NOPERM SI. inv SI; constructor.
+  eapply stack_inject_aux_tailcall_stage; eauto.
+  simpl. setoid_rewrite in_stack_cons. intros b1 b2 delta bi2 H H0 FI o k p0 PERM IPC.
+  destruct FI as [FI | FI]. easy.
+  eapply stack_inject_not_in_source; eauto. 
+  2: right; auto.
+  rewrite in_stack_cons. intros [A|A].
+  red in A. simpl in A.
+  inv NOPERM. eapply H2 in PERM; eauto.
+  apply H0; right. auto.
+Qed.
+
+  Lemma tailcall_stage_inject_flat:
+  forall j m1 m2 m1',
+    Mem.inject j (flat_frameinj (length (Mem.stack m1))) m1 m2 ->
+    Mem.tailcall_stage m1 = Some m1' ->
+    top_frame_no_perm m2 ->
+     exists m2',
+      Mem.tailcall_stage m2 = Some m2' /\ Mem.inject j (flat_frameinj (length (Mem.stack m1'))) m1' m2'.
+  Proof.
+    intros j m1 m2 m1' INJ TS TOPNOPERM.
+    destruct (tailcall_stage_same_length_pos _ _ TS) as (LENEQ & LENPOS).
+    rewrite LENEQ.
+    destruct (length (Mem.stack m1)); simpl in *. omega.
+    rewrite frameinj_push_flat in *.
+    eapply tailcall_stage_inject; eauto.
+  Qed.
+
+  Lemma free_no_perm_stack:
+    forall m b sz m',
+      Mem.free m b 0 sz = Some m' ->
+      forall bi,
+        in_stack' (Mem.stack m) (b, bi) ->
+        frame_size bi = Z.max 0 sz ->
+        forall o k p,
+          ~ Mem.perm m' b o k p.
+  Proof.
+    intros. rewrite perm_free. 2: eauto.
+    intros (NORANGE & P).
+    apply NORANGE. split; auto.
+    rewrite in_stack'_rew in H0. destruct H0 as (tf & IFR & INS).
+    rewrite in_frames'_rew in IFR. destruct IFR as (fr & IFR & EQfr).
+    exploit Mem.agree_perms_mem. apply INS. eauto. apply IFR. eauto. rewrite H1.
+    rewrite Zmax_spec. destr. omega.
+  Qed.
+
+  Lemma free_no_perm_stack':
+    forall m b sz m',
+      Mem.free m b 0 sz = Some m' ->
+      forall bi f0 r s0 l,
+        Mem.stack m = (Some f0, r) :: s0 ->
+        frame_adt_blocks f0 = (b, bi) :: l ->
+        frame_size bi = Z.max 0 sz ->
+        forall o k p,
+          ~ Mem.perm m' b o k p.
+  Proof.
+    intros; eapply free_no_perm_stack; eauto.
+    rewrite H0; left. red; simpl; red. rewrite H1. left; reflexivity.
+  Qed.
+
+  Lemma free_top_tframe_no_perm:
+    forall m b sz m'
+      (FREE: Mem.free m b 0 sz = Some m')
+      bi f0 r s0
+      (STKeq: Mem.stack m = (Some f0, r) :: s0)
+      (BLOCKS: frame_adt_blocks f0 = (b, bi) :: nil)
+      (SZ: frame_size bi = Z.max 0 sz),
+      top_frame_no_perm m'.
+  Proof.
+    intros.
+    red. erewrite free_stack_blocks; eauto.
+    rewrite STKeq.
+    constructor.
+    generalize (Mem.wf_stack_mem m). rewrite STKeq. intro A; inv A.
+    unfold in_frames. simpl. unfold get_frame_blocks. rewrite BLOCKS.
+    simpl. intros bb [EQ|[]].
+    subst. simpl in *.
+    intros; eapply free_no_perm_stack'; eauto.
+  Qed.
+
+  Lemma free_top_tframe_no_perm':
+    forall m b sz m'
+      (FREE: Mem.free m b 0 sz = Some m')
+      bi f0 r s0
+      (STKeq: Mem.stack m = (Some f0, r) :: s0)
+      (BLOCKS: frame_adt_blocks f0 = (b, bi) :: nil)
+      (SZ: frame_size bi = sz),
+      top_frame_no_perm m'.
+  Proof.
+    intros.
+    eapply free_top_tframe_no_perm; eauto.
+    rewrite Z.max_r. auto. subst; apply frame_size_pos.
+  Qed.
+
+  
+  Lemma record_push_inject_alloc
+    : forall m01 m02 m1 m2 j0 j g fsz b1 b2 sz
+        (MINJ0: Mem.inject j0 g m01 m02)
+        (ALLOC1: Mem.alloc m01 0 fsz = (m1, b1))
+        (ALLOC2: Mem.alloc m02 0 fsz = (m2, b2))
+        (MINJ: Mem.inject j g m1 m2)
+        (OLD: forall b : block, b <> b1 -> j b = j0 b)
+        (NEW: j b1 = Some (b2, 0))
+        m1'
+        (RSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt b1 fsz sz) = Some m1') 
+        (TTT: top_tframe_tc (Mem.stack m02))
+        (SZ: size_stack (tl (Mem.stack m02)) <= size_stack (tl (Mem.stack m01))),
+      exists m2' : mem,
+        Mem.record_stack_blocks m2 (make_singleton_frame_adt b2 fsz sz) = Some m2' /\
+        Mem.inject j g m1' m2'.
+  Proof.
+    intros m01 m02 m1 m2 j0 j g fsz b1 b2 sz MINJ0 ALLOC1 ALLOC2 MINJ OLD NEW m1' RSB TTT SZ.
+    eapply Mem.record_stack_blocks_inject_parallel. eauto. 7: eauto. all: eauto.
+    - red; simpl. constructor; auto.
+      simpl. rewrite NEW. inversion 1; subst. eauto.
+    - unfold in_frame; simpl.
+      erewrite alloc_stack_blocks by eauto.
+      intros b H. eapply Mem.in_frames_valid in H. red in H.
+      intros [A|[]]; subst.
+      eapply Mem.fresh_block_alloc; eauto.
+    - red; unfold in_frame; simpl. intros b [[]|[]].
+      eapply Mem.valid_new_block; eauto.
+    - simpl.
+      intros ? ? ? ? ? [A|[]]. inv A.
+      intro P; eapply Mem.perm_alloc_inv in P; eauto. destr_in P.
+      simpl. rewrite Z.max_r; omega.
+    - unfold in_frame; simpl.
+      intros b0 b3 delta JB.
+      split; intros [A|[]]; inv A; left. congruence.
+      destruct (peq b1 b0); auto.
+      rewrite OLD in JB by auto.
+      eapply Mem.valid_block_inject_2 in JB; eauto.
+      eapply Mem.fresh_block_alloc in JB. easy. eauto.
+    - erewrite alloc_stack_blocks by eauto. auto.
+    - erewrite (alloc_stack_blocks _ _ _ _ _ ALLOC1), (alloc_stack_blocks _ _ _ _ _ ALLOC2); auto.
+  Qed.
+
+    Lemma record_push_inject_flat_alloc
+    : forall m01 m02 m1 m2 j0 j fsz b1 b2 sz
+        (MINJ0: Mem.inject j0 (flat_frameinj (length (Mem.stack m01))) m01 m02)
+        (ALLOC1: Mem.alloc m01 0 fsz = (m1, b1))
+        (ALLOC2: Mem.alloc m02 0 fsz = (m2, b2))
+        (MINJ: Mem.inject j (flat_frameinj (length (Mem.stack m01))) m1 m2)
+        (OLD: forall b : block, b <> b1 -> j b = j0 b)
+        (NEW: j b1 = Some (b2, 0))
+        m1'
+        (RSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt b1 fsz sz) = Some m1') 
+        (TTT: top_tframe_tc (Mem.stack m02))
+        (SZ: size_stack (tl (Mem.stack m02)) <= size_stack (tl (Mem.stack m01))),
+      exists m2' : mem,
+         Mem.record_stack_blocks m2 (make_singleton_frame_adt b2 fsz sz) = Some m2' /\
+         Mem.inject j (flat_frameinj (length (Mem.stack m1'))) m1' m2'.
+  Proof.
+    intros m01 m02 m1 m2 j0 j fsz b1 b2 sz MINJ0 ALLOC1 ALLOC2 MINJ OLD NEW m1' RSB TTT SZ.
+    eapply record_push_inject_alloc. 7: eauto. 2: eauto. all: eauto.
+    erewrite record_stack_blocks_length_stack, alloc_stack_blocks; eauto.
+    erewrite record_stack_blocks_length_stack, alloc_stack_blocks; eauto.
+  Qed.
+
+  Lemma record_push_extends_flat_alloc
+    : forall m01 m02 m1 m2 fsz b sz
+        (ALLOC1: Mem.alloc m01 0 fsz = (m1, b))
+        (ALLOC2: Mem.alloc m02 0 fsz = (m2, b))
+        (MINJ: Mem.extends m1 m2)
+        m1'
+        (RSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt b fsz sz) = Some m1') 
+        (TTT: top_tframe_tc (Mem.stack m02))
+        (SZ: size_stack (tl (Mem.stack m02)) <= size_stack (tl (Mem.stack m01))),
+      exists m2' : mem,
+        Mem.record_stack_blocks m2 (make_singleton_frame_adt b fsz sz) = Some m2' /\
+        Mem.extends m1' m2'.
+  Proof.
+    intros m01 m02 m1 m2 fsz b sz ALLOC1 ALLOC2 MINJ m1' RSB TTT SZ.
+    eapply record_stack_blocks_extends; eauto.
+    + unfold in_frame. simpl. intros ? [?|[]]; subst.
+      intro IFF.
+      erewrite alloc_stack_blocks in IFF; eauto.
+      eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in ALLOC2. congruence.
+    + intros bb fi o k0 p [AA|[]] P; inv AA. simpl.
+      eapply perm_alloc_inv in P; eauto. destr_in P. rewrite Z.max_r; omega.
+    + erewrite alloc_stack_blocks; eauto.
+    + erewrite (alloc_stack_blocks _ _ _ _ _ ALLOC1), (alloc_stack_blocks _ _ _ _ _ ALLOC2); auto.
+  Qed.
+
+  Lemma record_init_sp_inject:
+    forall j g m1 m1' m2,
+      Mem.inject j g m1 m1' ->
+      size_stack (stack m1') <= size_stack (stack m1) ->
+      record_init_sp m1 = Some m2 ->
+      exists m2', record_init_sp m1' = Some m2' /\ inject (fun b => if peq b (nextblock (push_new_stage m1))
+                                                           then Some (nextblock (push_new_stage m1'), 0)
+                                                           else j b) (1%nat::g) m2 m2'.
+  Proof.
+    intros j g m1 m1' m2 INJ SZ RIS.
+    unfold record_init_sp in *; destr_in RIS.
+    exploit Mem.push_new_stage_inject. apply INJ. intro INJ0.
+    edestruct Mem.alloc_parallel_inject as (f' & m2' & b2 & ALLOC & INJ1 & INCR & JNEW & JOLD).
+    apply INJ0. eauto. reflexivity. reflexivity.
+    rewrite ALLOC.
+    edestruct record_push_inject_alloc as (m2'' & RSB & INJ'). 7: apply RIS.
+    2: apply Heqp. 2: apply ALLOC. all: eauto.
+    rewrite push_new_stage_stack. constructor; reflexivity.
+    rewrite ! push_new_stage_stack. simpl. auto.
+    eexists; split. eauto.
+    eapply inject_ext. eauto.
+    intros. erewrite <- ! alloc_result by eauto.
+    destr. eauto.
+  Qed.
+
+  Lemma record_init_sp_extends:
+    forall m1 m1' m2,
+      Mem.extends m1 m1' ->
+      size_stack (stack m1') <= size_stack (stack m1) ->
+      record_init_sp m1 = Some m2 ->
+      exists m2', record_init_sp m1' = Some m2' /\ extends m2 m2'.
+  Proof.
+    intros m1 m1' m2 INJ SZ RIS.
+    unfold record_init_sp in *; destr_in RIS.
+    apply extends_push in INJ.
+    edestruct alloc_extends as (m2' & ALLOC & INJ1).
+    apply INJ. eauto. reflexivity. reflexivity.
+    rewrite ALLOC.
+    edestruct record_push_extends_flat_alloc as (m2'' & RSB & INJ'). 4: apply RIS.
+    apply Heqp. apply ALLOC. all: eauto.
+    rewrite push_new_stage_stack. constructor; reflexivity.
+    rewrite ! push_new_stage_stack. simpl. auto.
+  Qed.
+
+  Lemma record_init_sp_flat_inject
+    : forall (m1 m1' m2 : mem),
+      Mem.inject (Mem.flat_inj (Mem.nextblock m1)) (flat_frameinj (length (Mem.stack m1))) m1 m1' ->
+      size_stack (Mem.stack m1') <= size_stack (Mem.stack m1) ->
+      Mem.record_init_sp m1 = Some m2 ->
+      Mem.nextblock m1 = Mem.nextblock m1' ->
+      exists m2' : mem,
+        Mem.record_init_sp m1' = Some m2' /\
+        Mem.inject
+          (Mem.flat_inj (Mem.nextblock m2))
+          (flat_frameinj (length (Mem.stack m2))) m2 m2'.
+  Proof.
+    intros m1 m1' m2 INJ SZ RIS EQNB.
+    edestruct record_init_sp_inject as (m2' & RIS' & INJ'); eauto.
+    eexists; split; eauto.
+    unfold record_init_sp in RIS; destr_in RIS.
+    erewrite (record_stack_block_nextblock _ _ _ RIS).
+    erewrite (nextblock_alloc _ _ _ _ _ Heqp).
+    rewrite push_new_stage_nextblock.
+    destruct (record_stack_blocks_stack_eq _ _ _ RIS) as (tf & r & EQ1 & EQ2).
+    rewrite EQ2. 
+    erewrite (alloc_stack_blocks _ _ _ _ _ Heqp) in EQ1.
+    rewrite push_new_stage_stack in EQ1. inv EQ1.
+    simpl. rewrite frameinj_push_flat.
+    eapply inject_ext; eauto.
+    simpl; intros. unfold flat_inj.
+    rewrite ! push_new_stage_nextblock. rewrite EQNB.
+    repeat (destr; subst); xomega.
+  Qed.
+
+  Lemma record_init_sp_nextblock:
+    forall m1 m2,
+      record_init_sp m1 = Some m2 ->
+      Ple (nextblock m1) (nextblock m2).
+  Proof.
+    intros m1 m2 RIS.
+    unfold record_init_sp in RIS. destr_in RIS.
+    erewrite (record_stack_block_nextblock _ _ _ RIS).
+    erewrite (nextblock_alloc _ _ _ _ _ Heqp).
+    rewrite push_new_stage_nextblock. xomega.
+  Qed.
+
+  Lemma record_init_sp_nextblock_eq:
+    forall m1 m2,
+      record_init_sp m1 = Some m2 ->
+      (nextblock m2) = Pos.succ (nextblock m1).
+  Proof.
+    intros m1 m2 RIS.
+    unfold record_init_sp in RIS. destr_in RIS.
+    erewrite (record_stack_block_nextblock _ _ _ RIS).
+    erewrite (nextblock_alloc _ _ _ _ _ Heqp).
+    rewrite push_new_stage_nextblock. reflexivity.
+  Qed.
+  
+  Lemma record_init_sp_stack:
+    forall m1 m2,
+      Mem.record_init_sp m1 = Some m2 ->
+      Mem.stack m2 = (Some (make_singleton_frame_adt (Mem.nextblock (Mem.push_new_stage m1)) 0 0),nil)::Mem.stack m1.
+  Proof.
+    unfold Mem.record_init_sp. intros m1 m2 RIS; destr_in RIS.
+    destruct (record_stack_blocks_stack_eq _ _ _ RIS) as (tf & r & EQ1 & EQ2).
+    rewrite EQ2. 
+    erewrite (alloc_stack_blocks _ _ _ _ _ Heqp) in EQ1.
+    rewrite push_new_stage_stack in EQ1. inv EQ1.
+    exploit Mem.alloc_result; eauto. intros; subst. reflexivity.
+  Qed.
+  
+  Lemma record_init_sp_perm:
+    forall m1 m2,
+      Mem.record_init_sp m1 = Some m2 ->
+      forall b o k p,
+        perm m2 b o k p <-> perm m1 b o k p.
+  Proof.
+    unfold Mem.record_init_sp. intros m1 m2 RIS; destr_in RIS.
+    intros.
+    split; intro P.
+    - eapply push_new_stage_perm.
+      eapply record_stack_block_perm in P. 2: eauto.
+      eapply perm_alloc_inv in P; eauto.
+      destr_in P. omega.
+    - eapply record_stack_block_perm'. eauto.
+      eapply perm_alloc_1. eauto.
+      eapply push_new_stage_perm. auto.
+  Qed.
 
 
 End WITHMEMORYMODEL.

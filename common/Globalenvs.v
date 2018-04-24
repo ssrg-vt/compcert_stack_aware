@@ -1501,10 +1501,10 @@ Proof.
 Qed.
 
 
-Lemma store_init_data_stack_adt:
+Lemma store_init_data_stack:
   forall l (ge: Genv.t F V) m m' b ofs,
     store_init_data ge m b ofs l = Some m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   destruct l; simpl; intros;
   try now (eapply Mem.store_stack_blocks; eauto).
@@ -1513,22 +1513,22 @@ Proof.
   eapply Mem.store_stack_blocks; eauto.
 Qed.
 
-Lemma store_init_data_list_stack_adt:
+Lemma store_init_data_list_stack:
   forall l (ge: Genv.t F V) m m' b ofs,
     store_init_data_list ge m b ofs l = Some m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   induction l; simpl; intros; eauto.
   inv H; auto.
   destruct store_init_data eqn:?; try discriminate.
   erewrite IHl. 2: eauto.
-  eapply store_init_data_stack_adt; eauto.
+  eapply store_init_data_stack; eauto.
 Qed.
 
-Lemma store_zeros_stack_adt:
+Lemma store_zeros_stack:
   forall m b lo hi m',
     store_zeros m b lo hi = Some m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   intros.
   revert H.
@@ -1538,48 +1538,48 @@ Proof.
   inv H. 
 Qed.
 
-Lemma alloc_global_stack_adt:
+Lemma alloc_global_stack:
   forall l (ge: Genv.t F V) m m',
     alloc_global ge m l = Some m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   destruct l; simpl; intros.
   destruct o. destruct g.
   destruct (Mem.alloc m 0 1) eqn:?; try discriminate.
-  erewrite Mem.drop_perm_stack_adt. 2: eauto.
+  erewrite Mem.drop_perm_stack. 2: eauto.
   eapply Mem.alloc_stack_blocks; eauto.
   destruct (Mem.alloc m 0 (init_data_list_size (gvar_init v))) eqn:?.
   destruct store_zeros eqn:?; try discriminate.
   destruct store_init_data_list eqn:?; try discriminate.
-  erewrite Mem.drop_perm_stack_adt. 2: eauto.
-  erewrite store_init_data_list_stack_adt. 2: eauto.
-  erewrite store_zeros_stack_adt. 2: eauto.
+  erewrite Mem.drop_perm_stack. 2: eauto.
+  erewrite store_init_data_list_stack. 2: eauto.
+  erewrite store_zeros_stack. 2: eauto.
   eapply Mem.alloc_stack_blocks; eauto.
   destruct Mem.alloc eqn:?.
   inv H.
   eapply Mem.alloc_stack_blocks; eauto.
 Qed.
 
-Lemma alloc_globals_stack_adt:
+Lemma alloc_globals_stack:
   forall l (ge: Genv.t F V) m m',
     alloc_globals ge m l = Some m' ->
-    Mem.stack_adt m' = Mem.stack_adt m.
+    Mem.stack m' = Mem.stack m.
 Proof.
   induction l; simpl; intros; eauto. congruence.
   destruct (alloc_global ge m a) eqn:?; try discriminate.
   erewrite IHl. 2: eauto. 
-  eapply alloc_global_stack_adt; eauto.
+  eapply alloc_global_stack; eauto.
 Qed.
 
-Lemma init_mem_stack_adt:
+Lemma init_mem_stack:
   forall (p: AST.program F V) m,
     init_mem p = Some m ->
-    Mem.stack_adt m = nil.
+    Mem.stack m = nil.
 Proof.
   unfold init_mem.
   intros.
-  erewrite alloc_globals_stack_adt; eauto.
-  eapply Mem.empty_stack_adt.
+  erewrite alloc_globals_stack; eauto.
+  eapply Mem.empty_stack.
 Qed.
 
 Theorem find_symbol_not_fresh:
@@ -1781,7 +1781,7 @@ End INITMEM_INJ.
 Theorem initmem_inject:
   forall p m,
   init_mem p = Some m ->
-  Mem.inject (Mem.flat_inj (Mem.nextblock m)) (flat_frameinj (length (Mem.stack_adt m))) m m.
+  Mem.inject (Mem.flat_inj (Mem.nextblock m)) (flat_frameinj (length (Mem.stack m))) m m.
 Proof.
   unfold init_mem; intros.
   apply Mem.neutral_inject.
@@ -1890,8 +1890,8 @@ Variable ge: t F V.
 Lemma store_zeros_exists:
   forall m b p n,
     Mem.range_perm m b p (p + n) Cur Writable ->
-    stack_access (Mem.stack_adt m) b p (p + n) ->
-    ~ is_stack_top (Mem.stack_adt m) b ->
+    stack_access (Mem.stack m) b p (p + n) ->
+    ~ is_stack_top (Mem.stack m) b ->
   exists m', store_zeros m b p n = Some m'.
 Proof.
   intros until n. functional induction (store_zeros m b p n); intros PERM NPSA NIST.
@@ -1913,7 +1913,7 @@ Qed.
 Lemma store_init_data_exists:
   forall m b p i,
     Mem.range_perm m b p (p + init_data_size i) Cur Writable ->
-    stack_access (Mem.stack_adt m) b p (p + init_data_size i)  ->
+    stack_access (Mem.stack m) b p (p + init_data_size i)  ->
     (init_data_alignment i | p) ->
     (forall id ofs, i = Init_addrof id ofs -> exists b, find_symbol ge id = Some b) ->
     exists m', store_init_data ge m b p i = Some m'.
@@ -1938,7 +1938,7 @@ Lemma store_init_data_stack_access:
   forall m b p i1 m1,
     store_init_data ge m b p i1 = Some m1 ->
     forall b' lo hi,
-      stack_access (Mem.stack_adt m1) b' lo hi <-> stack_access (Mem.stack_adt m) b' lo hi.
+      stack_access (Mem.stack m1) b' lo hi <-> stack_access (Mem.stack m) b' lo hi.
 Proof.
   unfold store_init_data.
   destruct i1; intros; try now (eapply Mem.store_stack_access ; eauto).
@@ -1951,7 +1951,7 @@ Lemma store_zeros_stack_access:
   forall m b lo hi m1,
     store_zeros m b lo hi = Some m1 ->
     forall b' lo hi,
-      stack_access (Mem.stack_adt m1) b' lo hi <-> stack_access (Mem.stack_adt m) b' lo hi.
+      stack_access (Mem.stack m1) b' lo hi <-> stack_access (Mem.stack m) b' lo hi.
 Proof.
   intros m b lo hi; functional induction (store_zeros m b lo hi).
   - intros m1; inversion 1; subst. tauto.
@@ -1962,7 +1962,7 @@ Qed.
 Lemma store_init_data_list_exists:
   forall b il m p,
   Mem.range_perm m b p (p + init_data_list_size il) Cur Writable ->
-  stack_access (Mem.stack_adt m) b p (p + init_data_list_size il) ->
+  stack_access (Mem.stack m) b p (p + init_data_list_size il) ->
   init_data_list_aligned p il ->
   (forall id ofs, In (Init_addrof id ofs) il -> exists b, find_symbol ge id = Some b) ->
   exists m', store_init_data_list ge m b p il = Some m'.
@@ -2001,7 +2001,7 @@ Proof.
 - destruct H as [P Q].
   set (sz := init_data_list_size (gvar_init v)).
   destruct (Mem.alloc m 0 sz) as [m1 b] eqn:ALLOC.
-  assert (NIST: ~ is_stack_top (Mem.stack_adt m1) b).
+  assert (NIST: ~ is_stack_top (Mem.stack m1) b).
   {
     erewrite Mem.alloc_is_stack_top; eauto.
     intro IST.

@@ -745,7 +745,7 @@ Proof.
   rewrite (match_program_main TRANSF).
   rewrite symbols_preserved. eauto.
   rewrite <- H3. apply sig_preserved. auto.
-  inv TRANSF. destruct H8 as (MAIN & PUB); rewrite MAIN; constructor. constructor. auto.
+  destruct TRANSF as (_ & MAIN & PUB); rewrite MAIN; constructor. constructor. auto.
 Qed.
 
 Lemma transf_final_states:

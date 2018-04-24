@@ -58,6 +58,7 @@ Extraction Inline Wfsimpl.Fix Wfsimpl.Fixm.
 
 (* Memory - work around an extraction bug. *)
 Extraction NoInline Memimpl.Mem.valid_pointer.
+Extract Constant Memtype.Mem.stack_limit' => "(Camlcoq.Z.of_uint 4096)".
 
 (* Errors *)
 Extraction Inline Errors.bind Errors.bind2.

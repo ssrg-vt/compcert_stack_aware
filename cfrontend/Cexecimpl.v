@@ -74,7 +74,7 @@ Proof.
 Qed.
 
 Local Existing Instance Events.symbols_inject_instance.
-Existing Instance Memory.inject_perm_all.
+Existing Instance StackADT.inject_perm_all.
 
 Axiom external_functions_properties:
   forall id sg, Events.extcall_properties (external_functions_sem id sg) sg.

@@ -582,7 +582,6 @@ Inductive volatile_store (ge: Senv.t):
   | volatile_store_nonvol: forall chunk m b ofs v m',
       Senv.block_is_volatile ge b = Some false ->
       Mem.store chunk m b (Ptrofs.unsigned ofs) v = Some m' ->
-      public_stack_access (Mem.stack_adt m) b (Ptrofs.unsigned ofs) (Ptrofs.unsigned ofs + size_chunk chunk) ->
       volatile_store ge chunk m b ofs v E0 m'.
 
 End WITHMEMORYMODELOPS.
@@ -744,17 +743,17 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
     /\ inject_incr f f'
     /\ inject_separated f f' m1 m1';
 
-  ec_unchanged_on:
-    forall ge m1 m2
-      (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2)
-      (SH: same_head (Mem.stack_adt m1) (Mem.stack_adt m2))
-      (NB: Mem.nextblock m1 = Mem.nextblock m2)
-      args res t m1'
-      (SEM1: sem ge args m1 res t m1'),
-    exists m2',
-      sem ge args m2 res t m2'
-      /\ Mem.unchanged_on (fun _ _ => True) m1' m2'
-      /\ Mem.nextblock m1' = Mem.nextblock m2';
+  (* ec_unchanged_on: *)
+  (*   forall ge m1 m2 *)
+  (*     (UNCH: Mem.unchanged_on (fun _ _ => True) m1 m2) *)
+  (*     (SH: same_head (Mem.perm m1) (Mem.stack m1) (Mem.stack m2)) *)
+  (*     (NB: Mem.nextblock m1 = Mem.nextblock m2) *)
+  (*     args res t m1' *)
+  (*     (SEM1: sem ge args m1 res t m1'), *)
+  (*   exists m2', *)
+  (*     sem ge args m2 res t m2' *)
+  (*     /\ Mem.unchanged_on (fun _ _ => True) m1' m2' *)
+  (*     /\ Mem.nextblock m1' = Mem.nextblock m2'; *)
 
   
 (** External calls produce at most one event. *)
@@ -778,14 +777,14 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
     forall ge vargs m1 t vres m2,
       sem ge vargs m1 t vres m2 ->
       Mem.unchanged_on
-        (fun b o => ~ public_stack_access (Mem.stack_adt m1) b o (o+1))
+        (fun b o => ~ stack_access (Mem.stack m1) b o (o+1))
         m1 m2;
 
   ec_perm_frames:
     forall ge args m1 t res m2,
       sem ge args m1 t res m2 ->
       forall b o k p,
-        in_stack (Mem.stack_adt m1) b ->
+        in_stack (Mem.stack m1) b ->
         Mem.perm m2 b o k p <-> Mem.perm m1 b o k p;
 
   ec_perm_unchanged:
@@ -799,7 +798,7 @@ Record extcall_properties (sem: extcall_sem) (sg: signature) : Prop :=
   ec_stack_blocks:
     forall ge vargs m1 t vres m2,
       sem ge vargs m1 t vres m2 ->
-      Mem.stack_adt m1 = Mem.stack_adt m2;
+      Mem.stack m1 = Mem.stack m2;
 }.
 
 
@@ -897,10 +896,6 @@ Proof.
   exploit volatile_load_inject; eauto. intros [v' [A B]].
   exists f; exists v'; exists m1'; intuition. constructor; auto.
   red; intros. congruence.
-- inv SEM1. inv H.
-  + eexists; split; econstructor. constructor; auto. auto. auto.
-  + eexists; split; econstructor. constructor; auto.
-    eapply Mem.load_unchanged_on; eauto. simpl; auto. auto. auto.
 (* trace length *)
 - inv H; inv H0; simpl; omega.
 (* receptive *)
@@ -953,11 +948,9 @@ Proof.
   apply Mem.unchanged_on_refl.
   eapply Mem.store_unchanged_on; eauto.
   exploit Mem.store_valid_access_3; eauto. intros [P Q].
-  intros. unfold loc_not_writable. red; intros. elim H3.
+  intros. unfold loc_not_writable. red; intros. elim H2.
   apply Mem.perm_cur_max. apply P. auto.
 Qed.
-
-
 
 Lemma volatile_store_extends {perminj: InjectPerm}:
   forall ge chunk m1 b ofs v t m2 m1' v',
@@ -976,9 +969,6 @@ Proof.
   - exploit Mem.store_within_extends; eauto. intros [m2' [A B]].
     exists m2'; repeat (split; auto).
     + econstructor; eauto.
-      eapply Mem.public_stack_access_extends; eauto.
-      eapply Mem.store_valid_access_3; eauto.
-      apply inject_perm_condition_writable; constructor.
     + eapply Mem.store_unchanged_on; eauto.
       unfold loc_out_of_bounds; intros.
       assert (Mem.perm m1 b i Max Nonempty).
@@ -1015,14 +1005,6 @@ Proof.
   exploit Mem.storev_mapped_inject; eauto. intros [m2' [A B]].
   exists m2'; repeat (split; auto).
   + constructor; auto. erewrite S; eauto.
-    assert (EQ: Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta)) = Ptrofs.unsigned ofs + delta)
-      by (eapply Mem.address_inject; eauto with mem).
-    rewrite EQ.
-    replace (Ptrofs.unsigned ofs + delta + size_chunk chunk)
-    with ((Ptrofs.unsigned ofs  + size_chunk chunk) + delta) by omega.
-    eapply Mem.public_stack_access_inject; eauto.
-    eapply Mem.store_valid_access_3; eauto.
-    apply inject_perm_condition_writable; constructor.
   + eapply Mem.store_unchanged_on; eauto.
     unfold loc_unmapped; intros. inv AI; congruence.
   + eapply Mem.store_unchanged_on; eauto.
@@ -1030,7 +1012,7 @@ Proof.
     assert (EQ: Ptrofs.unsigned (Ptrofs.add ofs (Ptrofs.repr delta)) = Ptrofs.unsigned ofs + delta)
       by (eapply Mem.address_inject; eauto with mem).
     rewrite EQ in *.
-    eelim H4; eauto.
+    eelim H3; eauto.
     exploit Mem.store_valid_access_3. eexact H0. intros [X Y].
     apply Mem.perm_cur_max. apply Mem.perm_implies with Writable; auto with mem.
     apply X. omega.
@@ -1068,16 +1050,6 @@ Proof.
   inv H0. inv H2. inv H7. inv H8. inversion H5; subst.
   exploit volatile_store_inject; eauto. intros [m2' [A [B [C D]]]].
   exists f; exists Vundef; exists m2'; intuition. constructor; auto. red; intros; congruence.
-- inv SEM1. inv H.
-  eexists; split. econstructor. constructor; eauto. split; auto.
-  edestruct (Mem.store_unchanged_on_1 _ chunk _ _ _ _ _ _ UNCH (or_introl SH) (fun _ _ => I) H1)
-            as (m2' & STORE2 & UNCH').
-  eexists; split. econstructor. constructor; eauto.
-  red. destr. red in H2.
-  erewrite same_head_get_frame_info in H2; eauto.
-  intros. eapply Mem.stack_norepet. split; auto.
-  apply Mem.nextblock_store in STORE2.
-  apply Mem.nextblock_store in H1. congruence.
 (* trace length *)
 - inv H; inv H0; simpl; omega.
 (* receptive *)
@@ -1091,8 +1063,9 @@ Proof.
   split. constructor. intuition congruence.
 - inv H. inv H0. apply Mem.unchanged_on_refl.
   eapply Mem.store_unchanged_on. eauto.
-  intros. intro A; apply A. 
-  eapply public_stack_access_inside; eauto; omega.
+  intros. intro A; apply A; clear A.
+  apply Mem.store_valid_access_3 in H1. destruct H1 as (A & B & C).
+  eapply stack_access_inside. apply C. constructor. omega. omega.
 - inv H.  inv H1. tauto.
   split; intros. eapply Mem.perm_store_2; eauto. eapply Mem.perm_store_1; eauto.
 - inv H. inv H2. tauto.
@@ -1170,19 +1143,6 @@ Proof.
   red; intros. destruct (eq_block b1 b).
   subst b1. rewrite C in H2. inv H2. eauto with mem.
   rewrite D in H2 by auto. congruence.
-- inv SEM1.
-  destruct (Mem.alloc m2 (- size_chunk Mptr) (Ptrofs.unsigned sz)) as (m2' & b') eqn:ALLOC'.
-  assert (b = b').
-  {
-    apply Mem.alloc_result in H. apply Mem.alloc_result in ALLOC'. congruence.
-  } subst.
-  exploit Mem.unchanged_on_alloc. apply UNCH. exact H. exact ALLOC'. intro UNCHALLOC.
-  edestruct (fun sh => Mem.store_unchanged_on_1 _ Mptr _ _ _ _ _ _ UNCHALLOC sh (fun _ _ => I) H0)
-    as (m3' & STORE2 & UNCH').
-  left. rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H), (Mem.alloc_stack_blocks _ _ _ _ _ ALLOC'). auto.
-  eexists; split. econstructor; eauto. split; auto.
-  apply Mem.nextblock_alloc in H. apply Mem.nextblock_store in H0.
-  apply Mem.nextblock_alloc in ALLOC'. apply Mem.nextblock_store in STORE2. congruence.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1202,9 +1162,7 @@ Proof.
   eapply Mem.store_unchanged_on. eauto. intros.
   intro A; apply A.
   exploit Mem.invalid_block_stack_access. eapply Mem.fresh_block_alloc; eauto.
-  unfold stack_access.
-  intros [B|B]. eapply Mem.stack_top_valid in B. eapply Mem.fresh_block_alloc in B; eauto. easy.
-  eassumption.
+  eauto.
 - inv H.  
   assert (b <> b0).
   intro; subst.
@@ -1235,7 +1193,7 @@ Inductive extcall_free_sem (ge: Senv.t):
       Mem.load Mptr m b (Ptrofs.unsigned lo - size_chunk Mptr) = Some (Vptrofs sz) ->
       Ptrofs.unsigned sz > 0 ->
       Mem.free m b (Ptrofs.unsigned lo - size_chunk Mptr) (Ptrofs.unsigned lo + Ptrofs.unsigned sz) = Some m' ->
-      ~ in_stack (Mem.stack_adt m) b ->
+      (* ~ in_stack (Mem.stack m) b -> *)
       extcall_free_sem ge (Vptr b lo :: nil) m E0 Vundef m'.
 
 (* Lemma extcall_free_ok: *)
@@ -1253,16 +1211,18 @@ Inductive extcall_free_sem (ge: Senv.t):
 (* - inv H. eapply Mem.perm_free_3; eauto. *)
 (* (* readonly *) *)
 (* - inv H. eapply Mem.free_unchanged_on; eauto. *)
-(*   intros. red; intros. elim H4. *)
+(*   intros. red; intros. elim H3. *)
 (*   apply Mem.perm_cur_max. apply Mem.perm_implies with Freeable; auto with mem. *)
 (*   eapply Mem.free_range_perm; eauto. *)
 (* (* mem extends *) *)
-(* - inv H. inv H1. inv H9. inv H7. *)
+(* - inv H. inv H1. inv H8. inv H6. *)
 (*   exploit Mem.load_extends; eauto. intros [v' [A B]]. *)
 (*   assert (v' = Vptrofs sz). *)
 (*   { unfold Vptrofs in *; destruct Archi.ptr64; inv B; auto. } *)
 (*   subst v'. *)
-(*   exploit Mem.free_parallel_extends; eauto. intros [m2' [C D]]. *)
+(*   exploit Mem.free_parallel_extends; eauto. *)
+(*   admit. *)
+(*   intros [m2' [C D]]. *)
 (*   exists Vundef; exists m2'. *)
 (*   repeat *)
 (*     match goal with *)
@@ -1270,7 +1230,7 @@ Inductive extcall_free_sem (ge: Senv.t):
 (*         split; try now auto *)
 (*     end. *)
 (*   econstructor; eauto. *)
-(*   eapply Mem.not_in_frames_extends; eauto. *)
+(*   (* eapply Mem.not_in_frames_extends; eauto. *) *)
 (*   eapply Mem.free_unchanged_on; eauto. *)
 (*   unfold loc_out_of_bounds; intros. *)
 (*   assert (Mem.perm m1 b i Max Nonempty). *)
@@ -1278,7 +1238,7 @@ Inductive extcall_free_sem (ge: Senv.t):
 (*     eapply Mem.free_range_perm. eexact H4. eauto. } *)
 (*   tauto. *)
 (* (* mem inject *) *)
-(* - inv H0. inv H2. inv H8. inv H10. *)
+(* - inv H0. inv H2. inv H7. inv H9. *)
 (*   exploit Mem.load_inject; eauto. intros [v' [A B]]. *)
 (*   assert (v' = Vptrofs sz). *)
 (*   { unfold Vptrofs in *; destruct Archi.ptr64; inv B; auto. } *)
@@ -1287,16 +1247,15 @@ Inductive extcall_free_sem (ge: Senv.t):
 (*     eapply Mem.free_range_perm; eauto. *)
 (*   exploit Mem.address_inject; eauto. *)
 (*     apply Mem.perm_implies with Freeable; auto with mem. *)
-(*     apply P. instantiate (1 := lo).  *)
+(*     apply P. instantiate (1 := lo). *)
 (*     generalize (size_chunk_pos Mptr); omega. *)
 (*   intro EQ. *)
-(*   exploit Mem.free_parallel_inject; eauto. intros (m2' & C & D). *)
+(*   exploit Mem.free_parallel_inject; eauto. admit. intros (m2' & C & D). *)
 (*   exists f, Vundef, m2'; split. *)
 (*   apply extcall_free_sem_intro with (sz := sz) (m' := m2'). *)
 (*     rewrite EQ. rewrite <- A. f_equal. omega. *)
-(*     auto.  *)
+(*     auto. *)
 (*     rewrite ! EQ. rewrite <- C. f_equal; omega. *)
-(*     eapply Mem.not_in_frames_inject; eauto. *)
 (*   split. auto. *)
 (*   split. auto. *)
 (*   split. eapply Mem.free_unchanged_on; eauto. unfold loc_unmapped. intros; congruence. *)
@@ -1306,6 +1265,12 @@ Inductive extcall_free_sem (ge: Senv.t):
 (*     apply P. omega. *)
 (*   split. auto. *)
 (*   red; intros. congruence. *)
+(* - inv SEM1. *)
+(*   exploit Mem.load_unchanged_on. apply UNCH. 2: apply H. simpl; auto. intro LOAD2. *)
+(*   edestruct (Mem.unchanged_on_free _ _ UNCH _ _ _ _ H1) as (m2' & FREE' & UNCH'). *)
+(*   eexists; repeat apply conj; eauto. *)
+(*   econstructor; eauto. *)
+(*   apply Mem.nextblock_free in H1. apply Mem.nextblock_free in FREE'. congruence. *)
 (* (* trace length *) *)
 (* - inv H; simpl; omega. *)
 (* (* receptive *) *)
@@ -1322,7 +1287,7 @@ Inductive extcall_free_sem (ge: Senv.t):
 (*   subst sz0. *)
 (*   split. constructor. intuition congruence. *)
 (* -  inv H. eapply Mem.free_unchanged_on. eauto. *)
-(*    intros. intro A; apply A. *)
+(*    intros. intro A; apply A; clear A. *)
 (*    red. *)
 (*    rewrite Mem.not_in_frames_no_frame_info; auto. *)
 (* - inv H. *)
@@ -1342,7 +1307,6 @@ Inductive extcall_memcpy_sem (sz al: Z) (ge: Senv.t):
                    \/ Ptrofs.unsigned odst + sz <= Ptrofs.unsigned osrc ->
       Mem.loadbytes m bsrc (Ptrofs.unsigned osrc) sz = Some bytes ->
       Mem.storebytes m bdst (Ptrofs.unsigned odst) bytes = Some m' ->
-      public_stack_access (Mem.stack_adt m) bdst (Ptrofs.unsigned odst) (Ptrofs.unsigned odst + Z.of_nat (length bytes)) ->
       extcall_memcpy_sem sz al ge (Vptr bdst odst :: Vptr bsrc osrc :: nil) m E0 Vundef m'.
 
 
@@ -1362,21 +1326,16 @@ Proof.
   intros. inv H. eapply Mem.perm_storebytes_2; eauto.
 - (* readonly *)
   intros. inv H. eapply Mem.storebytes_unchanged_on; eauto.
-  intros; red; intros. elim H9.
+  intros; red; intros. elim H8.
   apply Mem.perm_cur_max. eapply Mem.storebytes_range_perm; eauto.
 - (* extensions *)
   intros. inv H.
-  inv H1. inv H12. inv H14. inv H11. inv H13.
+  inv H1. inv H11. inv H13. inv H10. inv H12.
   exploit Mem.loadbytes_length; eauto. intros LEN.
   exploit Mem.loadbytes_extends; eauto. intros [bytes2 [A B]].
   exploit Mem.storebytes_within_extends; eauto. intros [m2' [C D]].
   exists Vundef; exists m2'.
   split. econstructor; eauto.
-  erewrite <- list_forall2_length.
-  eapply Mem.public_stack_access_extends; eauto.
-  eapply Mem.storebytes_range_perm; eauto.
-  apply inject_perm_condition_writable; constructor.
-  eauto.
   split. constructor.
   split. auto.
   eapply Mem.storebytes_unchanged_on; eauto. unfold loc_out_of_bounds; intros.
@@ -1388,7 +1347,7 @@ Proof.
 - (* injections *)
   intros until 1.
   apply symbols_inject'_symbols_inject in H.
-  intros. inv H0. inv H2. inv H13. inv H15. inv H13. inv H16.
+  intros. inv H0. inv H2. inv H12. inv H14. inv H12. inv H15.
   destruct (zeq sz 0).
 + (* special case sz = 0 *)
   assert (bytes = nil).
@@ -1404,7 +1363,6 @@ Proof.
   intros; omegaContradiction.
   right; omega.
   apply Mem.loadbytes_empty. omega.
-  eapply lo_ge_hi_public_stack_access. simpl; omega.
   split. constructor.
   split. eapply Mem.storebytes_empty_inject; eauto.
   split. eapply Mem.storebytes_unchanged_on; eauto. unfold loc_unmapped; intros.
@@ -1436,12 +1394,6 @@ Proof.
   eapply Mem.disjoint_or_equal_inject with (m := m1); eauto.
   apply Mem.range_perm_max with Cur; auto.
   apply Mem.range_perm_max with Cur; auto. omega.
-  eapply public_stack_access_inside.
-  eapply Mem.public_stack_access_inject. 5: eauto. all: eauto.
-  rewrite LEN. rewrite nat_of_Z_eq. eauto. omega.
-  apply inject_perm_condition_writable; constructor.
-  omega.
-  rewrite (list_forall2_length B); omega.
   split. constructor.
   split. auto.
   split. eapply Mem.storebytes_unchanged_on; eauto. unfold loc_unmapped; intros.
@@ -1454,15 +1406,6 @@ Proof.
   omega.
   split. apply inject_incr_refl.
   red; intros; congruence.
-- intros.
-  inv SEM1.
-  exploit Mem.loadbytes_unchanged_on; eauto. simpl; auto. intros LB.
-  exploit Mem.storebytes_unchanged_on_1; eauto. simpl; auto. intros (m2' & SB & UNCH').
-  exists m2'; split; eauto. econstructor; eauto.
-  eapply public_stack_access_same_head; eauto.
-  eapply Mem.stack_norepet. split; auto.
-  apply Mem.nextblock_storebytes in SB.
-  apply Mem.nextblock_storebytes in H6. congruence.
 - (* trace length *)
   intros; inv H. simpl; omega.
 - (* receptive *)
@@ -1473,8 +1416,8 @@ Proof.
   intros; inv H; inv H0. split. constructor. intros; split; congruence.
 - intros. inv H.
   eapply Mem.storebytes_unchanged_on; eauto.
-  simpl; intros. intro A; apply A.
-  eapply public_stack_access_inside; eauto. omega. omega.
+  simpl; intros. intro A; apply A; clear A.
+  eapply stack_access_inside; eauto. eapply Mem.storebytes_stack_access. eauto. omega. omega.
 - intros. inv H.
   split; first [ now (eapply Mem.perm_storebytes_1; eauto) | now (eapply Mem.perm_storebytes_2; eauto)].
 - intros. inv H.
@@ -1520,7 +1463,6 @@ Proof.
   econstructor; eauto.
   eapply eventval_list_match_inject; eauto.
   red; intros; congruence.
-- inv SEM1. eexists; split. econstructor; eauto. auto.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1571,7 +1513,6 @@ Proof.
   econstructor; eauto.
   eapply eventval_match_inject; eauto.
   red; intros; congruence.
-- inv SEM1; inv H; eexists; repeat econstructor; eauto.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1618,7 +1559,6 @@ Proof.
   exists f; exists Vundef; exists m1'; intuition.
   econstructor; eauto.
   red; intros; congruence.
-- inv SEM1. eexists; repeat econstructor; eauto.
 (* trace length *)
 - inv H; simpl; omega.
 (* receptive *)
@@ -1766,7 +1706,7 @@ Definition external_call_stack_blocks ef := ec_stack_blocks (external_call_spec 
 Definition ec_get_frame_info (sem: extcall_sem) :=
   forall ge vargs m1 t vres m2,
     sem ge vargs m1 t vres m2 ->
-    forall b, get_frame_info (Mem.stack_adt m1) b = get_frame_info (Mem.stack_adt m2) b.
+    forall b, get_frame_info (Mem.stack m1) b = get_frame_info (Mem.stack m2) b.
 Lemma external_call_get_frame_info ef : ec_get_frame_info (external_call ef).
 Proof.
   red; intros.
@@ -2255,7 +2195,7 @@ Qed.
     forall ef ge args m1 t res m2,
       external_call ef ge args m1 t res m2 ->
       forall b o k p,
-        in_stack (Mem.stack_adt m1) b ->
+        in_stack (Mem.stack m1) b ->
         Mem.perm m2 b o k p <-> Mem.perm m1 b o k p.
   Proof.
     intros.
@@ -2307,34 +2247,43 @@ Ltac rewrite_perms_fw :=
     apply (Mem.perm_store_1 _ _ _ _ _ _ H1)
   end.
 
-Arguments Genv.init_mem_stack_adt {mem memory_model_ops _ _ _ _}.
+Arguments Genv.init_mem_stack {mem memory_model_ops _ _ _ _}.
 
 Ltac rewrite_stack_blocks :=
   match goal with
-  | H:Mem.alloc _ _ _ = (?m, _) |- context [ Mem.stack_adt ?m ] => rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
-  | H:Mem.store _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
-  | H:Mem.storev _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.storev_stack_adt _ _ _ _ _ H)
-  | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack_adt ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
-  | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
-  | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
-  | H:Mem.drop_perm _ _ _ _ _ = Some ?m |- context [ Mem.stack_adt ?m ] => rewrite (Mem.drop_perm_stack_adt _ _ _ _ _ _ H)
-  | H: context[ Mem.stack_adt (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
-  | |- context[ Mem.stack_adt (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
-  | H: Genv.init_mem _ = Some ?m |- context [Mem.stack_adt ?m] => rewrite (Genv.init_mem_stack_adt _ _ H)
-  | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
+  | H:Mem.alloc _ _ _ = (?m, _) |- context [ Mem.stack ?m ] => rewrite (Mem.alloc_stack_blocks _ _ _ _ _ H)
+  | H:Mem.store _ _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.store_stack_blocks _ _ _ _ _ _ H)
+  | H:Mem.storebytes _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.storebytes_stack_blocks _ _ _ _ _ H)
+  | H:Mem.storev _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.storev_stack _ _ _ _ _ H)
+  | H:external_call _ _ _ _ _ _ ?m |- context [ Mem.stack ?m ] => rewrite <- (external_call_stack_blocks _ _ _ _ _ _ _ H)
+  | H:Mem.free_list _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.free_list_stack_blocks _ _ _ H)
+  | H:Mem.free _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.free_stack_blocks _ _ _ _ _ H)
+  | H:Mem.drop_perm _ _ _ _ _ = Some ?m |- context [ Mem.stack ?m ] => rewrite (Mem.drop_perm_stack _ _ _ _ _ _ H)
+  | H: context[ Mem.stack (Mem.push_new_stage ?m)] |- _ => rewrite Mem.push_new_stage_stack in H; inv H
+  | |- context[ Mem.stack (Mem.push_new_stage ?m)] => rewrite Mem.push_new_stage_stack
+  | H: Genv.init_mem _ = Some ?m |- context [Mem.stack ?m] => rewrite (Genv.init_mem_stack _ _ H)
+  | H:Mem.record_stack_blocks _ _ = Some ?m |- context [ Mem.stack ?m ] =>
     let f := fresh "f" in
     let r := fresh "r" in
     let EQ1 := fresh "EQ1" in
     let EQ2 := fresh "EQ2" in
-    destruct (Mem.record_stack_blocks_stack_eq _ _ _ H) as (f & r & EQ1 & EQ2); rewrite EQ2
+    destruct (Mem.record_stack_blocks_stack_eq _ _ _ H) as (f & r & EQ1 & EQ2); rewrite EQ2; revert EQ1
   | H:Mem.unrecord_stack_block ?m1 = Some ?m
-    |- context [ Mem.stack_adt ?m ] =>
+    |- context [ Mem.stack ?m ] =>
     let f := fresh "f" in
     let EQ := fresh "EQ" in
-    destruct (Mem.unrecord_stack_adt _ _ H) as (f, EQ); replace (Mem.stack_adt m) with (tl (Mem.stack_adt m1))
+    destruct (Mem.unrecord_stack _ _ H) as (f, EQ); replace (Mem.stack m) with (tl (Mem.stack m1))
       by (rewrite EQ; reflexivity)
-  | H: Mem.clear_stage _ = Some ?m |- context [ Mem.stack_adt ?m ] =>
-    rewrite (Mem.clear_stage_stack_adt _ _ H)
+  | H: Mem.tailcall_stage ?m1 = Some ?m2
+    |- context [Mem.stack ?m2] =>
+    let f := fresh "f" in
+    let r := fresh "r" in
+    let EQ1 := fresh "EQ1" in
+    let EQ2 := fresh "EQ2" in
+    destruct (Mem.tailcall_stage_stack _ _ H) as (f & r & EQ1 & EQ2); rewrite EQ2;
+    revert EQ1
+  | H: Mem.record_init_sp ?m1 = Some ?m2 |- context [ Mem.stack ?m2 ] =>
+    rewrite (Mem.record_init_sp_stack _ _ H)
   end.
 
 Ltac rewrite_perms_bw H :=
@@ -2371,8 +2320,6 @@ Ltac rewnb :=
       rewrite (Mem.record_stack_block_nextblock _ _ _ H)
     | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.nextblock ?m] =>
       rewrite (Mem.unrecord_stack_block_nextblock _ _ H)
-    | H: Mem.clear_stage _ = Some ?m |- context [Mem.nextblock ?m] =>
-      rewrite (Mem.clear_stage_nextblock _ _ H)
     | |- context [ Mem.nextblock (Mem.push_new_stage ?m) ] => rewrite Mem.push_new_stage_nextblock
     | H: external_call _ _ _ ?m1 _ _ ?m2 |- Plt _ (Mem.nextblock ?m2) =>
       eapply Plt_Ple_trans; [ | apply external_call_nextblock in H; exact H ]
@@ -2380,6 +2327,10 @@ Ltac rewnb :=
       eapply Ple_trans; [ | apply external_call_nextblock in H; exact H ]
     | H: Genv.init_mem _ = Some ?m |- context [Mem.nextblock ?m] =>
       rewrite <- (Genv.init_mem_genv_next _ _ H)
+    | H: Mem.tailcall_stage ?m1 = Some ?m2 |- context [ Mem.nextblock ?m2] =>
+      rewrite (Mem.tailcall_stage_nextblock _ _ H)
+    | H: Mem.record_init_sp ?m1 = Some ?m2 |- context [ Mem.nextblock ?m2] =>
+      rewrite (Mem.record_init_sp_nextblock_eq _ _ H)
     end.
 
 
@@ -2409,10 +2360,12 @@ Arguments extcall_perm {mem memory_model_ops external_calls_ops memory_model_prf
       rewrite (record_perm _ _ _ H)
     | H: Mem.unrecord_stack_block _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
       rewrite (unrecord_perm _ _ H)
-    | H: Mem.clear_stage _ = Some ?m |- context [Mem.perm ?m _ _ _ _] =>
-      rewrite (Mem.clear_stage_perm _ _ H)
     | |- context [Mem.perm (Mem.push_new_stage _) _ _ _ _] =>
       rewrite (Mem.push_new_stage_perm)
     | H: external_call _ ?ge ?args ?m1 ?t ?res ?m2 |- context [Mem.perm ?m2 ?b _ _ _] =>
       rewrite (extcall_perm _ _ _ _ _ _ _ H)
+    | H: Mem.tailcall_stage ?m1 = Some ?m2 |- context [ Mem.perm ?m2 _ _ _ _ ] =>
+      rewrite (Mem.tailcall_stage_perm _ _ H)
+    | H: Mem.record_init_sp ?m1 = Some ?m2 |- context [ Mem.perm ?m2 _ _ _ _ ] =>
+      rewrite (Mem.record_init_sp_perm _ _ H)
     end.

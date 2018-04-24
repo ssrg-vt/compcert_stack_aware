@@ -566,7 +566,7 @@ Proof.
   econstructor; eauto. eapply (Genv.init_mem_transf_partial TRANSF); eauto.
   rewrite (match_program_main TRANSF), symbols_preserved. auto.
   rewrite <- H3. apply sig_preserved. auto.
-  inv TRANSF.  destruct H8 as (MAIN & PUBLIC). rewrite MAIN. constructor. constructor. auto.
+  rewrite (match_program_main TRANSF). constructor. constructor. auto.
 Qed.
 
 Lemma transf_final_states:

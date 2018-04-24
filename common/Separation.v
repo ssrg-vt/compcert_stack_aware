@@ -56,7 +56,7 @@ Record massert : Type := {
   m_invar_weak: bool;
   m_invar_stack: bool;
   m_invar: forall m m', m_pred m -> (if m_invar_weak then Mem.strong_unchanged_on else Mem.unchanged_on) m_footprint m m' ->
-                   (m_invar_stack = true -> Mem.stack_adt m' = Mem.stack_adt m) ->
+                   (m_invar_stack = true -> Mem.stack m' = Mem.stack m) ->
                    m_pred m';
   m_valid: forall m b ofs, m_pred m -> m_footprint b ofs -> Mem.valid_block m b
 }.
@@ -498,7 +498,7 @@ Qed.
 Lemma store_rule:
   forall chunk m b ofs v (spec1 spec: val -> Prop) P,
     m |= contains chunk b ofs spec1 ** P ->
-    stack_access (Mem.stack_adt m) b ofs (ofs + size_chunk chunk) ->
+    stack_access (Mem.stack m) b ofs (ofs + size_chunk chunk) ->
   spec (Val.load_result chunk v) ->
   exists m',
   Mem.store chunk m b ofs v = Some m' /\ m' |= contains chunk b ofs spec ** P.
@@ -529,7 +529,7 @@ Qed.
 Lemma storev_rule:
   forall chunk m b ofs v (spec1 spec: val -> Prop) P,
     m |= contains chunk b ofs spec1 ** P ->
-    stack_access (Mem.stack_adt m) b ofs (ofs + size_chunk chunk) ->
+    stack_access (Mem.stack m) b ofs (ofs + size_chunk chunk) ->
   spec (Val.load_result chunk v) ->
   exists m',
   Mem.storev chunk m (Vptr b (Ptrofs.repr ofs)) v = Some m' /\ m' |= contains chunk b ofs spec ** P.
@@ -542,7 +542,7 @@ Lemma range_contains:
   forall chunk b ofs P m,
   m |= range b ofs (ofs + size_chunk chunk) ** P ->
   (align_chunk chunk | ofs) ->
-  stack_access (Mem.stack_adt m) b ofs (ofs + size_chunk chunk) ->
+  stack_access (Mem.stack m) b ofs (ofs + size_chunk chunk) ->
   m |= contains chunk b ofs (fun v => True) ** P.
 Proof.
   intros. destruct H as (A & B & C). destruct A as (D & E & F).
@@ -579,7 +579,7 @@ Definition hasvalue (chunk: memory_chunk) (b: block) (ofs: Z) (v: val) : massert
 Lemma store_rule':
   forall chunk m b ofs v (spec1: val -> Prop) P,
     m |= contains chunk b ofs spec1 ** P ->
-    stack_access (Mem.stack_adt m) b ofs (ofs + size_chunk chunk) ->
+    stack_access (Mem.stack m) b ofs (ofs + size_chunk chunk) ->
     exists m',
   Mem.store chunk m b ofs v = Some m' /\ m' |= hasvalue chunk b ofs (Val.load_result chunk v) ** P.
 Proof.
@@ -589,7 +589,7 @@ Qed.
 Lemma storev_rule':
   forall chunk m b ofs v (spec1: val -> Prop) P,
     m |= contains chunk b ofs spec1 ** P ->
-    stack_access (Mem.stack_adt m) b ofs (ofs + size_chunk chunk) ->
+    stack_access (Mem.stack m) b ofs (ofs + size_chunk chunk) ->
     exists m',
       Mem.storev chunk m (Vptr b (Ptrofs.repr ofs)) v = Some m' /\ m' |= hasvalue chunk b ofs (Val.load_result chunk v) ** P.
 Proof.
@@ -1026,7 +1026,7 @@ Qed.
 
 Lemma alloc_parallel_rule_2_flat:
   forall (F V: Type) (ge: Genv.t F V) m1 sz1 m1' b1 m2 sz2 m2' b2 P j lo hi delta,
-  m2 |= minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** globalenv_inject ge j ** P ->
+  m2 |= minjection j (flat_frameinj (length (Mem.stack m1))) m1 ** globalenv_inject ge j ** P ->
   Mem.alloc m1 0 sz1 = (m1', b1) ->
   Mem.alloc m2 0 sz2 = (m2', b2) ->
   (8 | delta) ->
@@ -1035,7 +1035,7 @@ Lemma alloc_parallel_rule_2_flat:
   0 <= sz2 <= Ptrofs.max_unsigned ->
   0 <= delta -> hi <= sz2 ->
   exists j',
-     m2' |= range b2 0 lo ** range b2 hi sz2 ** minjection j' (flat_frameinj (length (Mem.stack_adt m1'))) m1' ** globalenv_inject ge j' ** P
+     m2' |= range b2 0 lo ** range b2 hi sz2 ** minjection j' (flat_frameinj (length (Mem.stack m1'))) m1' ** globalenv_inject ge j' ** P
   /\ inject_incr j j'
   /\ j' b1 = Some(b2, delta)
   /\ inject_separated j j' m1 m2 .
@@ -1056,8 +1056,8 @@ Lemma record_stack_block_parallel_rule:
   forall m1 m1' m2 j P fi b b' delta n,
     j b = Some (b', delta) ->
     m_invar_stack P = false ->
-    m2 |= minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** P ->
-    forall (NIN: ~ in_stack (Mem.stack_adt m2) b') fa finone,
+    m2 |= minjection j (flat_frameinj (length (Mem.stack m1))) m1 ** P ->
+    forall (NIN: ~ in_stack (Mem.stack m2) b') fa finone,
       frame_adt_blocks fa = (b,finone)::nil ->
       frame_adt_size fa = Z.max 0 n ->
       Mem.record_stack_blocks m1 fa  = Some m1' ->
@@ -1075,16 +1075,16 @@ Lemma record_stack_block_parallel_rule:
                frame_adt_size_pos:= Z.le_max_l _ _
 
             |} ->
-      (top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2)) ->
-      stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
+      (top_tframe_tc (Mem.stack m2)) ->
+      stack_equiv (Mem.stack m1) (Mem.stack m2) ->
     exists m2',
       Mem.record_stack_blocks m2 fa' = Some m2' /\
-      m2' |= minjection j (flat_frameinj (length (Mem.stack_adt m1'))) m1' ** P.
+      m2' |= minjection j (flat_frameinj (length (Mem.stack m1'))) m1' ** P.
 Proof.
   intros m1 m1' m2 j P fi b b' delta n FB INVAR MINJ NIN fa finone (* PUB *) fablocks fasize
          RSB1 PERM0 PERM1 PERM2 UNIQ fa' fa'eq TTNP SEQ.
   destruct MINJ as (MINJ & PM & DISJ).
-  edestruct (Mem.record_push_inject_flat _ _ _ MINJ fa fa') with (tc:=true) as (m2' & RSB2 & MINJ'); simpl in *.
+  edestruct (Mem.record_push_inject_flat _ _ _ MINJ fa fa') as (m2' & RSB2 & MINJ'); simpl in *.
   - setoid_rewrite Forall_forall.  intros. destruct x.  simpl in *.
     rewrite fablocks in H. simpl in H. destruct H; try easy. inv H.
     simpl in *. rewrite FB in H0; inv H0.
@@ -1123,8 +1123,8 @@ Lemma record_stack_block_parallel_rule_2:
   forall m1 m1' m2 j P fi b b' delta n,
     j b = Some (b', delta) ->
     m_invar_stack P = false ->
-    m2 |= minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** P ->
-    forall (NIN: ~ in_stack (Mem.stack_adt m2) b') sz,
+    m2 |= minjection j (flat_frameinj (length (Mem.stack m1))) m1 ** P ->
+    forall (NIN: ~ in_stack (Mem.stack m2) b') sz,
       Mem.record_stack_blocks m1 (make_singleton_frame_adt b sz n) = Some m1' ->
       (forall o, 0 <= o < sz -> Mem.perm m1 b o Cur Writable) ->
       (forall (ofs : Z) (k : perm_kind) (p : permission),
@@ -1133,11 +1133,11 @@ Lemma record_stack_block_parallel_rule_2:
     (forall (ofs : Z) (k : perm_kind) (p : permission),
         Mem.perm m2 b' ofs k p -> 0 <= ofs < frame_size fi) ->
     (forall bb delta0, j bb = Some (b', delta0) -> bb = b) ->
-    (top_tframe_no_perm (Mem.perm m2) (Mem.stack_adt m2 )) ->
-    stack_equiv (fun fr1 fr2 => frame_adt_size fr1 = frame_adt_size fr2) (Mem.stack_adt m1) (Mem.stack_adt m2) ->
+    (top_tframe_tc (Mem.stack m2 )) ->
+    stack_equiv (Mem.stack m1) (Mem.stack m2) ->
     exists m2',
       Mem.record_stack_blocks m2 (make_singleton_frame_adt' b' fi n) = Some m2' /\
-      m2' |= minjection j (flat_frameinj (length (Mem.stack_adt m1'))) m1' ** P.
+      m2' |= minjection j (flat_frameinj (length (Mem.stack m1'))) m1' ** P.
 Proof.
   intros m1 m1' m2 j P fi b b' delta n H H0 H1 NIN sz H2 H3 H4 H5 H6 TTNP SEQ.
   edestruct record_stack_block_parallel_rule as (m2' & RSB & INJ); eauto.
@@ -1149,13 +1149,12 @@ Lemma push_rule:
   forall j g m1 m2 P,
     m2 |= minjection j g m1 ** P ->
     m_invar_stack P = false ->
-    Mem.push_new_stage m2 |= minjection j (up g) (Mem.push_new_stage m1) ** P.
+    Mem.push_new_stage m2 |= minjection j (1%nat :: g) (Mem.push_new_stage m1) ** P.
 Proof.
   intros j g m1 m2 P (INJ & RP & DISJ).
   split;[|split].
-  eapply Mem.mem_inject_ext. apply Mem.push_new_stage_inject.
+  apply Mem.push_new_stage_inject.
   apply INJ.
-  unfold up. auto. 
   eapply m_invar. eauto.
   generalize (Mem.push_new_stage_unchanged_on (m_footprint P) m2).
   destruct (m_invar_weak P); eauto using Mem.strong_unchanged_on_weak.
@@ -1172,7 +1171,7 @@ Lemma push_rule_2:
     m2 |= mconj (minjection j g m1) Q ** P ->
     m_invar_stack P = false ->
     m_invar_stack Q = false ->
-    Mem.push_new_stage m2 |= mconj (minjection j (up g) (Mem.push_new_stage m1)) Q ** P.
+    Mem.push_new_stage m2 |= mconj (minjection j (1%nat:: g) (Mem.push_new_stage m1)) Q ** P.
 Proof.
   intros j g m1 m2 P Q SEP FALSE1 FALSE2.
   eapply frame_mconj. apply SEP.
@@ -1190,15 +1189,13 @@ Qed.
 Lemma unrecord_stack_block_parallel_rule:
   forall m1 m1' m2 j g P,
     m_invar_stack P = false ->
-    m2 |= minjection j g m1 ** P ->
+    m2 |= minjection j (1%nat::g) m1 ** P ->
     Mem.unrecord_stack_block m1 = Some m1' ->
-    (forall i j, g i = Some j -> O < i -> O < j)%nat ->
-    g O = Some O ->
     exists m2', Mem.unrecord_stack_block m2 = Some m2' /\
-           m2' |= minjection j (fun n => option_map pred (g (S n))) m1' ** P.
+           m2' |= minjection j g m1' ** P.
 Proof.
-  intros m1 m1' m2 j g P (* fi b b' delta FB *) INVAR MINJ RSB Go G0.
-  exploit Mem.unrecord_stack_block_inject_parallel; eauto. apply MINJ. auto.
+  intros m1 m1' m2 j g P (* fi b b' delta FB *) INVAR MINJ RSB.
+  exploit Mem.unrecord_stack_block_inject_parallel; eauto. apply MINJ.
   intros (m2' & UNRECORD & INJ).
   eexists; split; eauto.
   destruct MINJ as (MINJ & PM & DISJ).
@@ -1217,19 +1214,17 @@ Qed.
 Lemma pop_frame_parallel_rule:
   forall (j : meminj) g (m1 : mem) (b1 : block) (sz1 sz2 : Z) (m1' m1'' m2 : mem) (b2 : block) (lo hi delta n : Z) (P : massert),
     m_invar_stack P = false ->
-    m2 |= range b2 0 lo ** range b2 hi sz2 ** minjection j g m1 ** P ->
+    m2 |= range b2 0 lo ** range b2 hi sz2 ** minjection j (1%nat::g) m1 ** P ->
     Mem.free m1 b1 0 sz1 = Some m1' ->
     Mem.unrecord_stack_block m1' = Some m1'' ->
     j b1 = Some (b2, delta) ->
     lo = delta -> hi = delta + Z.max 0 sz1 ->
-    (forall i j, g i = Some j -> O < i -> O < j)%nat ->
-    g O = Some O ->
     exists m2_ m2',
       Mem.free m2 b2 0 sz2 = Some m2_ /\
       Mem.unrecord_stack_block m2_ = Some m2'
-      /\ m2' |= minjection j (fun n => option_map pred (g (S n))) m1'' ** P.
+      /\ m2' |= minjection j g m1'' ** P.
 Proof.
-  intros j g m1 b1 sz1 sz2 m1' m1'' m2 b2 lo hi delta n P INVAR SEP FREE UNRECORD JB LOEQ HIEQ Gno0 G0.
+  intros j g m1 b1 sz1 sz2 m1' m1'' m2 b2 lo hi delta n P INVAR SEP FREE UNRECORD JB LOEQ HIEQ.
   exploit free_parallel_rule; eauto.
   simpl. auto.
   intros (m2' & FREE' & SEP').
@@ -1237,39 +1232,6 @@ Proof.
   repeat rewrite_stack_blocks. auto.
   intros (m2'0 & UNRECORD' & SEP'').
   eexists; eexists; eauto.
-Qed.
-
-Lemma pop_frame_parallel_rule_2:
-  forall (j : meminj) (m1 : mem) (b1 : block) (sz1 sz2 : Z) (m1' m1'' m2 : mem) (b2 : block) (lo hi delta n : Z) (P : massert),
-    m_invar_stack P = false ->
-    m2 |= range b2 0 lo ** range b2 hi sz2 ** minjection j (flat_frameinj (length (Mem.stack_adt m1))) m1 ** P ->
-    Mem.free m1 b1 0 sz1 = Some m1' ->
-    Mem.unrecord_stack_block m1' = Some m1'' ->
-    j b1 = Some (b2, delta) ->
-    lo = delta -> hi = delta + Z.max 0 sz1 ->
-    exists m2_ m2',
-      Mem.free m2 b2 0 sz2 = Some m2_ /\
-      Mem.unrecord_stack_block m2_ = Some m2'
-      /\ m2' |= minjection j (flat_frameinj (length (Mem.stack_adt m1''))) m1'' ** P.
-Proof.
-  intros j m1 b1 sz1 sz2 m1' m1'' m2 b2 lo hi delta n P INVAR SEP FREE UNRECORD JB LOEQ HIEQ.
-  exploit pop_frame_parallel_rule; eauto.
-  - unfold flat_frameinj; simpl; intros i j0 EQ; destr_in EQ.
-  - unfold flat_frameinj; rewrite pred_dec_true. auto.
-    edestruct Mem.unrecord_stack_adt; eauto. erewrite <- Mem.free_stack_blocks; eauto. rewrite H; simpl; omega.
-  - intros (m2_ & m2' & FREE' & USB & INJ).
-    exists m2_, m2'; split; auto. split; auto.
-    eapply sep_imp; eauto.
-    red; simpl; intros.
-    split; auto.
-    split; auto.
-    split; auto.
-    intros.
-    eapply Mem.mem_inject_ext; eauto.
-    unfold flat_frameinj; simpl; intros.
-    repeat rewrite_stack_blocks.
-    rewrite (Mem.free_stack_blocks _ _ _ _ _ FREE) in EQ. rewrite EQ. simpl.
-    repeat destr; try omega. 
 Qed.
 
 End WITHMEM.

@@ -96,22 +96,32 @@ End WITHGE.
       frame_perm := fun o => Public;
       frame_size_pos := proj1 Mem.stack_limit_range;
     |}.
+
   
-  Inductive initial_state (prog: Asm.program) (rs: regset) m: state -> Prop :=
-  | initial_state_intro:
+  Inductive initial_state_gen (prog: Asm.program) (rs: regset) m: state -> Prop :=
+  | initial_state_gen_intro:
       forall m1 bstack m2 m3
-        (MALLOC: Mem.alloc m 0 (Mem.stack_limit) = (m1,bstack))
+        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit) = (m1,bstack))
         (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
-        (MRSB: Mem.record_stack_blocks (Mem.push_new_stage m2) (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
+        (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
         let ge := Genv.globalenv prog in
         let rs0 :=
             rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero)
                #RA <- Vnullptr
                #RSP <- (Vptr bstack (Ptrofs.repr Mem.stack_limit)) in
-        initial_state prog rs m (State rs0 m3).
+        initial_state_gen prog rs m (State rs0 m3).
 
-  Definition semantics prog rs m :=
-    Semantics step (initial_state prog rs m) final_state (Genv.globalenv prog).
+  Inductive initial_state (prog: Asm.program) (rs: regset) (s: state): Prop :=
+  | initial_state_intro: forall m,
+      Genv.init_mem prog = Some m ->
+      initial_state_gen prog rs m s ->
+      initial_state prog rs s.
+
+  Definition semantics_gen prog rs m :=
+    Semantics step (initial_state_gen prog rs m) final_state (Genv.globalenv prog).
+
+  Definition semantics prog rs :=
+    Semantics step (initial_state prog rs) final_state (Genv.globalenv prog).
 
 End WITHMEMORYMODEL.
 
@@ -120,9 +130,9 @@ Section WITHMEMORYMODEL2.
   Existing Instance mem_accessors_default.
   Context `{external_calls_prf : ExternalCalls }.
 
-  Lemma semantics_determinate:
+  Lemma semantics_gen_determinate:
     forall p m rs,
-      determinate (semantics p rs m).
+      determinate (semantics_gen p rs m).
   Proof.
     Ltac Equalities :=
       match goal with
@@ -159,6 +169,42 @@ Section WITHMEMORYMODEL2.
     - (* final states *)
       inv H; inv H0. congruence.
   Qed.
+
+
+  Lemma semantics_determinate:
+    forall p rs,
+      determinate (semantics p rs).
+  Proof.
+    intros; constructor; simpl; intros.
+    - (* determ *)
+      inv H; inv H0; Equalities.
+      + split. constructor. auto.
+      + discriminate.
+      + discriminate.
+      + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0.
+        exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
+        split. auto. intros. destruct B; auto. subst. auto.
+      + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
+        exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
+        split. auto. intros. destruct B; auto. subst. auto.
+    - (* trace length *)
+      red; intros; inv H; simpl.
+      omega.
+      eapply Events.external_call_trace_length; eauto.
+      eapply Events.external_call_trace_length; eauto.
+    - (* initial states *)
+      inv H; inv H0. assert (m = m0) by congruence. subst. inv H2; inv H3.
+      assert (m1 = m4 /\ bstack = bstack0) by intuition congruence. destruct H0; subst.
+      assert (m2 = m5) by congruence. subst.
+      f_equal. congruence.
+    - (* final no step *)
+      assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
+      { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
+      inv H. red; intros; red; intros. inv H; rewrite H0 in *; eelim NOTNULL; eauto.
+    - (* final states *)
+      inv H; inv H0. congruence.
+  Qed.
+
   
 End WITHMEMORYMODEL2.
 
