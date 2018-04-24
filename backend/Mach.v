@@ -342,7 +342,8 @@ Inductive step: state -> trace -> state -> Prop :=
         E0 (State s f sp c rs' m')
   | exec_Mcall:
       forall s fb sp sig ros c rs m f f' ra,
-      find_function_ptr ge ros rs = Some f' ->
+        find_function_ptr ge ros rs = Some f' ->
+        (exists fd, Genv.find_funct_ptr ge f' = Some fd) ->
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       return_address_offset f c ra ->
       step (State s fb (Vptr sp Ptrofs.zero) (Mcall sig ros :: c) rs m)
@@ -350,7 +351,8 @@ Inductive step: state -> trace -> state -> Prop :=
                        f' rs (Mem.push_new_stage m))
   | exec_Mtailcall:
       forall s fb stk soff sig ros c rs m f f' m' m'',
-      find_function_ptr ge ros rs = Some f' ->
+        find_function_ptr ge ros rs = Some f' ->
+        (exists fd, Genv.find_funct_ptr ge f' = Some fd) ->
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       (* load_stack m (Vptr stk soff) Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
       load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra s) ->

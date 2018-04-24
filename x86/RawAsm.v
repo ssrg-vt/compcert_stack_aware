@@ -70,7 +70,6 @@ Section WITHGE.
         find_instr (Ptrofs.unsigned ofs) f.(fn_code) = Some (Pbuiltin ef args res) ->
         eval_builtin_args ge rs (rs RSP) m args vargs ->
         external_call ef ge vargs m t vres m' ->
-        ~ in_builtin_res res PC ->
         forall BUILTIN_ENABLED: builtin_enabled ef,
           rs' = nextinstr_nf
                   (set_res res vres
@@ -149,7 +148,7 @@ Section WITHMEMORYMODEL2.
       + discriminate.
       + discriminate.
       + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0.
-        exploit Events.external_call_determ. eexact H5. eexact H12. intros [A B].
+        exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
         split. auto. intros. destruct B; auto. subst. auto.
       + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
         exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
@@ -184,7 +183,7 @@ Section WITHMEMORYMODEL2.
       + discriminate.
       + discriminate.
       + assert (vargs0 = vargs) by (eapply Events.eval_builtin_args_determ; eauto). subst vargs0.
-        exploit Events.external_call_determ. eexact H5. eexact H12. intros [A B].
+        exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
         split. auto. intros. destruct B; auto. subst. auto.
       + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
         exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
