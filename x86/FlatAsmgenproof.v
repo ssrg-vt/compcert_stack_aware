@@ -124,7 +124,7 @@ Definition regset_inject (j:meminj) (rs rs' : regset) : Prop :=
   forall r, Val.inject j (rs r) (rs' r).
 
 (** Agreement between a memory injection from Asm to the flat memory and 
-    the mappings for sections, global id and labels *)    
+    the mappings for segments, global id and labels *)    
 Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :=
   mk_match_sminj {
 
@@ -2069,10 +2069,28 @@ Lemma transf_initial_states : forall st1 m0,
     RawAsm.initial_state prog (Pregmap.init Vundef) m0 st1  ->
     exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
 Proof.
-Admitted.
-  (* intros st1 m0 IMEM IST. *)
-  (* inversion IST. *)
+  (* intros st1 m0 IMEM IST. inv IST. *)
+  (* unfold match_prog in TRANSF. monadInv TRANSF. *)
+  (* set (rs0' :=  *)
+  (*       (Asm.Pregmap.init Vundef) *)
+  (*       # PC <- main *)
+  (*       # RA <- Vnullptr *)
+  (*       # RSP <- (init_rsp ge p) in *)
+  (*     initial_state p (State rs0 m2) *)
   
+
+  (* update_map prog = OK (gm, lm) -> *)
+  (* transl_prog_with_map gm lm prog = OK tprog -> *)
+  
+  (* forall (b b' : block) (f : Asm.function) (ofs : ptrofs) (ofs' : Z) (i : Asm.instr_with_info), *)
+  (*   Genv.find_funct_ptr ge b = Some (Internal f) -> *)
+  (*   find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i -> *)
+  (*   mj b = Some (b', ofs') -> *)
+  (*   exists (id : ident) (i' : instr_with_info) (ofs1 : Z), *)
+  (*     Genv.find_instr tge (Vptr b' (Ptrofs.add ofs (Ptrofs.repr ofs'))) = Some i' /\ *)
+  (*     Genv.find_symbol ge id = Some b /\ transl_instr gm lm ofs1 id i = OK i'; *)
+
+  Admitted.
 
 Lemma transf_final_states:
   forall st1 st2 r,
