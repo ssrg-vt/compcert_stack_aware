@@ -191,27 +191,29 @@ Definition extfun_entry_is_external (mj:meminj) :=
     Genv.genv_internal_codeblock tge b' = false.
 
 
-Definition def_frame_inj m := (fun n => if lt_dec n (length (Mem.stack_adt m)) then Some O else None).
+Definition def_frame_inj m := (flat_frameinj (length (Mem.stack (Mem.push_new_stage m)))).
 
 
 Lemma store_pres_def_frame_inj : forall chunk m1 b ofs v m1',
-    Mem.store chunk m1 b ofs v = Some m1' -> 
-    forall n, def_frame_inj m1 n = def_frame_inj m1' n.
+    Mem.store chunk m1 b ofs v = Some m1' ->
+    def_frame_inj m1 = def_frame_inj m1'.
 Proof.
   unfold def_frame_inj. intros.
+  repeat erewrite Mem.push_new_stage_stack. simpl.
   exploit Mem.store_stack_blocks; eauto. intros. rewrite H0.
   auto.
 Qed.
 
 Lemma storev_pres_def_frame_inj : forall chunk m1 v1 v2 m1',
-    Mem.storev chunk m1 v1 v2 = Some m1' -> 
-    forall n, def_frame_inj m1 n = def_frame_inj m1' n.
+    Mem.storev chunk m1 v1 v2 = Some m1' ->
+    def_frame_inj m1= def_frame_inj m1'.
 Proof.
   intros until m1'. unfold Mem.storev.
   destruct v1; try congruence.
   intros STORE.
   eapply store_pres_def_frame_inj; eauto.
 Qed.
+
 
 Lemma store_mapped_inject' : 
   forall (f : meminj) (chunk : memory_chunk) 
@@ -227,8 +229,8 @@ Lemma store_mapped_inject' :
 Proof.
   intros. exploit Mem.store_mapped_inject; eauto. 
   intros (n2 & STORE & MINJ).
-  exploit (Mem.mem_inject_ext f (def_frame_inj m1) (def_frame_inj n1)); eauto.
-  eapply store_pres_def_frame_inj; eauto.
+  eexists. split. eauto.
+  erewrite <- store_pres_def_frame_inj; eauto.
 Qed.
 
 Theorem storev_mapped_inject':
@@ -242,8 +244,8 @@ Theorem storev_mapped_inject':
 Proof.
   intros. exploit Mem.storev_mapped_inject; eauto. 
   intros (n2 & STORE & MINJ).
-  exploit (Mem.mem_inject_ext f (def_frame_inj m1) (def_frame_inj n1)); eauto.
-  eapply storev_pres_def_frame_inj; eauto.
+  eexists. split. eauto.
+  erewrite <- storev_pres_def_frame_inj; eauto.
 Qed.
 
 Definition match_find_funct (j:meminj) :=
@@ -958,8 +960,7 @@ Proof.
   eexists. eexists. split.
   - unfold exec_store. rewrite MSTOREV. auto.
   - inv H. eapply match_states_intro; eauto.
-    eapply Mem.mem_inject_ext; eauto.
-    eapply storev_pres_def_frame_inj; eauto.
+    erewrite <- storev_pres_def_frame_inj; eauto.
     apply nextinstr_pres_inject. repeat apply undef_regs_pres_inject. auto.
     eapply storev_pres_glob_block_valid; eauto.
 Qed.
@@ -2064,9 +2065,8 @@ Proof.
     * eapply extcall_pres_glob_block_valid; eauto.
 Qed.        
 
-Lemma transf_initial_states : forall st1 m0,
-    Genv.init_mem prog = Some m0 ->
-    RawAsm.initial_state prog (Pregmap.init Vundef) m0 st1  ->
+Lemma transf_initial_states : forall st1,
+    RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
     exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
 Proof.
   (* intros st1 m0 IMEM IST. inv IST. *)
@@ -2098,17 +2098,13 @@ Lemma transf_final_states:
 Proof.
 Admitted.
 
-Theorem transf_program_correct m:
-  (* asm_prog_no_rsp ge -> *)
-  Genv.init_mem prog = Some m ->
-  forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef) m) (FlatAsm.semantics tprog).
+Theorem transf_program_correct:
+  forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef)) (FlatAsm.semantics tprog).
 Proof.
-  intros IM.
   eapply forward_simulation_step with match_states.
   - simpl. admit.
   - simpl. intros s1 IS. 
     exploit transf_initial_states. eauto. eauto.
-    intros (s2 & IS' & MIS); eexists; split; eauto.
   - simpl. intros s1 s2 r MS FS. eapply transf_final_states; eauto.
   - simpl. intros s1 t s1' STEP s2 MS. 
     edestruct step_simulation as (STEP' & MS'); eauto.
