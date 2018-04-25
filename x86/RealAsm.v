@@ -92,7 +92,7 @@ Section WITHGE.
       forall b ef args res rs m t rs' m',
         rs PC = Vptr b Ptrofs.zero ->
         Genv.find_funct_ptr ge b = Some (External ef) ->
-        extcall_arguments rs m (ef_sig ef) args ->
+        extcall_arguments (rs # RSP <- (Val.offset_ptr (rs RSP) (Ptrofs.repr (size_chunk Mptr)))) m (ef_sig ef) args ->
         forall (SP_TYPE: Val.has_type (rs RSP) Tptr)
           (RA_TYPE: Val.has_type (rs RA) Tptr)
           (SP_NOT_VUNDEF: rs RSP <> Vundef)

@@ -77,15 +77,17 @@ Section WITHGE.
                   (Ptrofs.repr (Asm.instr_size (Pbuiltin ef args res))) ->
           step (State rs m) t (State rs' m')
   | exec_step_external:
-      forall b ef args res rs m t rs' m',
+      forall b ef args res rs m t rs' m2 m',
         rs PC = Vptr b Ptrofs.zero ->
         Genv.find_funct_ptr ge b = Some (External ef) ->
-        extcall_arguments rs m (ef_sig ef) args ->
         forall (SP_TYPE: Val.has_type (rs RSP) Tptr)
           (RA_TYPE: Val.has_type (rs RA) Tptr)
           (SP_NOT_VUNDEF: rs RSP <> Vundef)
-          (RA_NOT_VUNDEF: rs RA <> Vundef), 
-          external_call ef ge args m t res m' ->
+          (RA_NOT_VUNDEF: rs RA <> Vundef)
+          (SZRA: Mem.storev Mptr m (Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))
+                            (rs RA) = Some m2)
+          (ARGS: extcall_arguments rs m2 (ef_sig ef) args),
+          external_call ef ge args m2 t res m' ->
           rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
           step (State rs m) t (State rs' m').
 
@@ -151,7 +153,7 @@ Section WITHMEMORYMODEL2.
         exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
         split. auto. intros. destruct B; auto. subst. auto.
       + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
-        exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
+        exploit Events.external_call_determ. eexact H3. eexact H7. intros [A B].
         split. auto. intros. destruct B; auto. subst. auto.
     - (* trace length *)
       red; intros; inv H; simpl.
@@ -186,7 +188,7 @@ Section WITHMEMORYMODEL2.
         exploit Events.external_call_determ. eexact H5. eexact H11. intros [A B].
         split. auto. intros. destruct B; auto. subst. auto.
       + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
-        exploit Events.external_call_determ. eexact H4. eexact H9. intros [A B].
+        exploit Events.external_call_determ. eexact H3. eexact H7. intros [A B].
         split. auto. intros. destruct B; auto. subst. auto.
     - (* trace length *)
       red; intros; inv H; simpl.
