@@ -753,7 +753,66 @@ Proof.
   apply in_stack_dec.
 Qed.
 
-Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_store} {F V} (ge: Genv.t F V) (f: function) (i: instruction) (rs: regset) (m: mem): outcome :=
+Inductive is_call: instruction -> Prop :=
+| is_call_s:
+    forall symb sg,
+      is_call (Pcall_s symb sg)
+| is_call_r:
+    forall (r: ireg) sg,
+      is_call (Pcall_r r sg).
+
+Lemma is_call_dec:
+  forall i,
+    {is_call i} + {~ is_call i}.
+Proof.
+  destruct i; try now (right; intro A; inv A).
+  - left; econstructor; eauto.
+  - left; econstructor; eauto.
+Qed.
+
+Fixpoint offsets_after_call (c: code) (p: Z) : list Z :=
+  match c with
+    nil => nil
+  | i::c => let r := offsets_after_call c (p + instr_size i) in
+           if is_call_dec i then (p+instr_size i)::r
+           else r
+  end.
+
+Definition is_after_call (f: fundef) (o: Z) : Prop :=
+  match f with
+    Internal f => In o (offsets_after_call (fn_code f) 0)
+  | External ef => False
+  end.
+
+Definition check_is_after_call f o : {is_after_call f o} + {~ is_after_call f o}.
+Proof.
+  unfold is_after_call.
+  destruct f; auto.
+  apply In_dec. apply zeq.
+Qed.
+
+Definition ra_after_call (ge: Genv.t fundef unit) v:=
+  forall b o,
+    v = Vptr b o ->
+    forall f,
+      Genv.find_funct_ptr ge b = Some f ->
+      is_after_call f (Ptrofs.unsigned o).
+
+Definition check_ra_after_call (ge: Genv.t fundef unit) v:
+  {ra_after_call ge v} + { ~ ra_after_call ge v}.
+Proof.
+  unfold ra_after_call.
+  destruct v; try now (left; intros; congruence).
+  destruct (Genv.find_funct_ptr ge b) eqn:FFP.
+  2: left; intros b0 o A; inv A; rewrite FFP; congruence.
+  destruct (check_is_after_call f (Ptrofs.unsigned i)).
+  left;  intros b0 o A; inv A; rewrite FFP; congruence.
+  right; intro A; specialize (A _ _ eq_refl _ FFP). congruence.
+Qed.
+
+Definition exec_instr
+           {exec_load exec_store} `{!MemAccessors exec_load exec_store}
+           (ge: Genv.t fundef unit) (f: function) (i: instruction) (rs: regset) (m: mem): outcome :=
   let sz := Ptrofs.repr (instr_size i) in
   match i with
   (** Moves *)
@@ -1088,6 +1147,7 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
+    check (check_ra_after_call ge (rs#RA));
     check (Mem.check_top_tc m);
     do m' <- Mem.unrecord_stack_block m;
       Next (rs#PC <- (rs#RA) #RA <- Vundef) m'
@@ -1290,6 +1350,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
         external_call ef ge args m t res m' ->
         Mem.unrecord_stack_block m' = Some m'' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->
+        ra_after_call ge (rs#RA) ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
         step ge (State rs m) t (State rs' m'').
 
@@ -1369,7 +1430,7 @@ Ltac Equalities :=
   exploit external_call_determ. eexact H5. eexact H13. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto. congruence.
 + assert (args0 = args) by (eapply extcall_arguments_determ; eauto). subst args0.
-  exploit external_call_determ. eexact H4. eexact H11. intros [A B].
+  exploit external_call_determ. eexact H4. eexact H12. intros [A B].
   split. auto. intros. destruct B; auto. subst. congruence.
 - (* trace length *)
   red; intros; inv H; simpl.

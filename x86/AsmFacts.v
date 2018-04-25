@@ -42,7 +42,7 @@ Section WITHMEMORYMODEL.
 
   Definition asm_instr_no_rsp (i : Asm.instruction) : Prop :=
     stack_invar i = true ->
-    forall {F V} (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
+    forall (ge: Genv.t Asm.fundef unit) rs1 m1 rs2 m2 f init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       rs2 # RSP = rs1 # RSP.
 
@@ -181,7 +181,7 @@ Section WITHMEMORYMODEL.
     unfold loadind in EQ. unfold Asmgen.loadind in EQ.
     simpl in EQ.
     repeat destr_in EQ; apply asm_code_no_rsp_cons; auto; red; simpl;
-    intros _ F V ge rs1 m1 rs2 m2 ff init_stk EI; unfold exec_instr in EI; simpl in EI;
+    intros ge rs1 m1 rs2 m2 ff init_stk EI; unfold exec_instr in EI; simpl in EI;
       eapply exec_load_rsp; eauto; apply not_eq_sym; solve_rs.
   Qed.
 
@@ -194,7 +194,7 @@ Section WITHMEMORYMODEL.
     intros i t m x0 x1 r IH EQ.
     unfold storeind in EQ. unfold Asmgen.storeind in EQ.
     repeat destr_in EQ; apply asm_code_no_rsp_cons; auto; red; simpl;
-      intros _ F V ge rs1 m1 rs2 m2 ff init_stk EI; unfold exec_instr in EI; simpl in EI;
+      intros ge rs1 m1 rs2 m2 ff init_stk EI; unfold exec_instr in EI; simpl in EI;
       eapply exec_store_rsp; eauto; simpl; intuition subst; congruence.
   Qed.
 
@@ -233,8 +233,8 @@ Section WITHMEMORYMODEL.
       match goal with
         |- asm_instr_no_rsp ?i =>
         let invar := fresh "invar" in
-        let F := fresh "F" in
-        let V := fresh "V" in
+        (* let F := fresh "F" in *)
+        (* let V := fresh "V" in *)
         let ge := fresh "ge" in
         let rs1 := fresh "rs1" in
         let m1 := fresh "m1" in
@@ -242,7 +242,7 @@ Section WITHMEMORYMODEL.
         let m2 := fresh "m2" in
         let init_stk := fresh "init_stk" in
         let EI := fresh "EI" in
-        intros invar F V ge rs1 m1 rs2 m2 f init_stk EI;
+        intros invar ge rs1 m1 rs2 m2 f init_stk EI;
         unfold Asm.exec_instr in EI; simpl in EI; solve_rs
       end.
     unfold mk_setcc in B. unfold Asmgen.mk_setcc in B.
@@ -268,12 +268,12 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Lemma goto_label_rsp:
-    forall F V (ge: _ F V) rs1 rs2 f l m1 m2,
+    forall (ge: Genv.t Asm.fundef unit) rs1 rs2 f l m1 m2,
       goto_label ge f l rs1 m1 = Next rs2 m2 ->
       rs2 RSP = rs1 RSP.
   Proof.
     unfold goto_label.
-    intros F V ge rs1 rs2 f l m1 m2 A.
+    intros ge rs1 rs2 f l m1 m2 A.
     repeat destr_in A. solve_rs.
   Qed.
 
@@ -380,16 +380,16 @@ Section WITHMEMORYMODEL.
 
   Definition asm_instr_no_stack (i : Asm.instruction) : Prop :=
     stack_invar i = true ->
-    forall F V (ge: _ F V) rs1 m1 rs2 m2 f init_stk,
+    forall (ge: Genv.t Asm.fundef unit) rs1 m1 rs2 m2 f init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
 
   Lemma exec_store_stack:
-    forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2 sz,
+    forall (ge: Genv.t Asm.fundef unit) k m1 a rs1 rs l rs2 m2 sz,
       exec_store ge k m1 a rs1 rs l sz = Next rs2 m2 ->
       Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
   Proof.
-    intros F V ge k m1 a rs1 rs l rs2 m2 sz STORE.
+    intros ge k m1 a rs1 rs l rs2 m2 sz STORE.
     unfold exec_store in STORE; repeat destr_in STORE. 
     unfold Mem.storev in Heqo; destr_in Heqo; inv Heqo.
     erewrite Mem.store_stack_blocks. 2: eauto.
@@ -400,27 +400,27 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Lemma exec_load_stack:
-    forall F V (ge: _ F V) k m1 a rs1 rs rs2 m2 sz,
+    forall (ge: Genv.t Asm.fundef unit) k m1 a rs1 rs rs2 m2 sz,
       exec_load ge k m1 a rs1 rs sz = Next rs2 m2 ->
       Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
   Proof.
-    intros F V ge k m1 a rs1 rs rs2 m2 sz LOAD.
+    intros ge k m1 a rs1 rs rs2 m2 sz LOAD.
     unfold exec_load in LOAD; destr_in LOAD.
   Qed.
 
   Lemma goto_label_stack:
-    forall F V (ge: _ F V) f l m1 rs1 rs2 m2,
+    forall (ge: Genv.t Asm.fundef unit) f l m1 rs1 rs2 m2,
       goto_label ge f l rs1 m1 = Next rs2 m2 ->
       Mem.stack m2 = Mem.stack m1 /\ (forall b o k p, Mem.perm m2 b o k p <-> Mem.perm m1 b o k p).
   Proof.
-    intros F V ge f l m1 rs1 rs2 m2 GOTO.
+    intros ge f l m1 rs1 rs2 m2 GOTO.
     unfold goto_label in GOTO; repeat destr_in GOTO.
   Qed.
 
   Lemma asmgen_no_change_stack i:
     asm_instr_no_stack i.
   Proof.
-    red; intros IU F V ge0 rs1 m1 rs2 m2 f init_stk EI.
+    red; intros IU ge0 rs1 m1 rs2 m2 f init_stk EI.
       destruct i; simpl in IU; try discriminate;
         unfold exec_instr in EI; simpl in EI; repeat destr_in EI;
           first [ split;[reflexivity|tauto]
@@ -429,11 +429,11 @@ Section WITHMEMORYMODEL.
                 | now ( eapply goto_label_stack; eauto)
                 | idtac ].
     Unshelve. all: auto.
-    apply @Genv.empty_genv. exact nil. exact Mint32. exact PC. exact Ptrofs.zero.
+    exact Mint32. exact PC. exact Ptrofs.zero.
   Qed.
 
   Definition asm_instr_nb_fw i:=
-    forall F V (ge: _ F V) f rs1 m1 rs2 m2 init_stk,
+    forall (ge: Genv.t Asm.fundef unit) f rs1 m1 rs2 m2 init_stk,
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       Ple (Mem.nextblock m1) (Mem.nextblock m2).
 
@@ -442,22 +442,22 @@ Section WITHMEMORYMODEL.
 
 
     Lemma exec_store_nb:
-      forall F V (ge: _ F V) k m1 a rs1 rs l rs2 m2 sz,
+      forall (ge: Genv.t Asm.fundef unit) k m1 a rs1 rs l rs2 m2 sz,
         exec_store ge k m1 a rs1 rs l sz = Next rs2 m2 ->
         Ple (Mem.nextblock m1) (Mem.nextblock m2).
     Proof.
-      intros F V ge k m1 a rs1 rs l rs2 m2 sz STORE.
+      intros ge k m1 a rs1 rs l rs2 m2 sz STORE.
       unfold exec_store in STORE; repeat destr_in STORE. 
       unfold Mem.storev in Heqo; destr_in Heqo; inv Heqo.
       rewnb. xomega.
     Qed.
 
     Lemma exec_load_nb:
-      forall F V (ge: _ F V) k m1 a rs1 rs rs2 m2 sz,
+      forall (ge: Genv.t Asm.fundef unit) k m1 a rs1 rs rs2 m2 sz,
         exec_load ge k m1 a rs1 rs sz = Next rs2 m2 ->
         Ple (Mem.nextblock m1) (Mem.nextblock m2).
     Proof.
-      intros F V ge k m1 a rs1 rs rs2 m2 sz LOAD.
+      intros ge k m1 a rs1 rs rs2 m2 sz LOAD.
       unfold exec_load in LOAD; destr_in LOAD. inv LOAD.
       apply Ple_refl.
     Qed.
@@ -470,7 +470,7 @@ Section WITHMEMORYMODEL.
   Lemma asmgen_nextblock_forward i:
     asm_instr_nb_fw i.
   Proof.
-    red. intros F V ge f rs1 m1 rs2 m2 init_stk EI.
+    red. intros ge f rs1 m1 rs2 m2 init_stk EI.
     unfold exec_instr in EI.
     destruct i; simpl in EI; inv EI; try (apply Ple_refl);
       first [now eapply exec_load_nb; eauto
@@ -525,11 +525,11 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Lemma exec_load_unchanged_stack:
-    forall F V (ge: _ F V) chunk m1 a rs1 rd sz rs2 m2 P,
+    forall (ge: Genv.t Asm.fundef unit) chunk m1 a rs1 rd sz rs2 m2 P,
       exec_load ge chunk m1 a rs1 rd sz = Next rs2 m2 ->
       Mem.unchanged_on P m1 m2.
   Proof.
-    intros F V ge chunk m1 a rs1 rd sz rs2 m2 P EL.
+    intros ge chunk m1 a rs1 rd sz rs2 m2 P EL.
     assert (m1 = m2).
     - unfold exec_load in EL. destr_in EL.
     - subst; apply Mem.unchanged_on_refl.
@@ -578,12 +578,12 @@ Section WITHMEMORYMODEL.
   Qed.
   
   Lemma exec_store_unchanged_stack:
-    forall F V (ge: _ F V) chunk m1 a rs1 rd rds sz rs2 m2 init_stk l,
+    forall (ge: Genv.t Asm.fundef unit) chunk m1 a rs1 rd rds sz rs2 m2 init_stk l,
       Mem.stack m1 = l ++ init_stk ->
       exec_store ge chunk m1 a rs1 rd rds sz = Next rs2 m2 ->
       Mem.unchanged_on (fun (b : block) (o : Z) => ~ stack_access init_stk b o (o + 1)) m1 m2.
   Proof.
-    intros F V ge chunk m1 a rs1 rd rds sz rs2 m2 init_stk l STK ES.
+    intros ge chunk m1 a rs1 rd rds sz rs2 m2 init_stk l STK ES.
     unfold exec_store in ES. destr_in ES. inv ES.
     unfold Mem.storev in Heqo.
     destr_in Heqo.
@@ -598,17 +598,17 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Lemma goto_label_unchanged_stack:
-    forall F V (ge: _ F V) m1 rs1 f lbl rs2 m2 P,
+    forall (ge: Genv.t Asm.fundef unit) m1 rs1 f lbl rs2 m2 P,
       goto_label ge f lbl rs1 m1 = Next rs2 m2 ->
       Mem.unchanged_on P m1 m2.
   Proof.
-    intros F V ge m1 rs1 f lbl rs2 m2 P GL.
+    intros ge m1 rs1 f lbl rs2 m2 P GL.
     unfold goto_label in GL. repeat destr_in GL.
     apply Mem.unchanged_on_refl.
   Qed.
   
   Lemma exec_instr_unchanged_stack:
-    forall F V (ge: _ F V) f i rs1 m1 rs2 m2 init_stk l,
+    forall (ge: Genv.t Asm.fundef unit) f i rs1 m1 rs2 m2 init_stk l,
       Mem.stack m1 = l ++ init_stk ->
       Asm.exec_instr init_stk ge f i rs1 m1 = Next rs2 m2 ->
       Mem.unchanged_on
@@ -616,7 +616,7 @@ Section WITHMEMORYMODEL.
         m1 m2 /\
       (is_ptr (init_sp init_stk) <> None -> exists l', Mem.stack m2 = l' ++ init_stk).
   Proof.
-    intros F V ge f i rs1 m1 rs2 m2 init_stk l STK EI.
+    intros ge f i rs1 m1 rs2 m2 init_stk l STK EI.
     split.
     {
       unfold exec_instr in EI.
@@ -660,7 +660,7 @@ Section WITHMEMORYMODEL.
     {
       intro ISPTR.
       destruct (stack_invar (i)) eqn:INVAR.
-      - generalize (asmgen_no_change_stack (i) INVAR _ _ ge _ _ _ _ _ _ EI).
+      - generalize (asmgen_no_change_stack (i) INVAR ge _ _ _ _ _ _ EI).
         intros (STKEQ & _); rewrite STKEQ; eauto.
       - unfold stack_invar in INVAR. unfold exec_instr in EI.
         set (AA := i).

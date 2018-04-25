@@ -439,8 +439,9 @@ Inductive callstack_function_defined : list stackframe -> Prop :=
     forall fb sp' ra c' cs' trf
       (FINDF: Genv.find_funct_ptr ge fb = Some (Internal trf))
       (CFD: callstack_function_defined cs')
-      (RAU: ra <> Vundef),
-      callstack_function_defined (Stackframe fb sp' ra c' :: cs').
+      (RAU: return_address_offset trf c' ra)
+      (TAIL: exists l sg ros, fn_code trf = l ++ (Mcall sg ros :: c')),
+      callstack_function_defined (Stackframe fb sp' (Vptr fb ra) c' :: cs').
 
 Variable init_sg: signature.
 Variable init_stk: stack.
@@ -480,24 +481,90 @@ Definition stack_blocks_of_callstack (l : list stackframe) : list (option (block
            end
          end) l.
 
+Inductive has_code: state -> Prop :=
+| has_code_intro fb f cs sp c rs m
+                 (FIND: Genv.find_funct_ptr ge fb = Some (Internal f))
+                 (CODE: exists l, fn_code f = l ++ c)
+                 (CFD: callstack_function_defined cs):
+    has_code (State cs fb sp c rs m)
+| has_code_call:
+    forall cs fb rs m
+      (CFD: callstack_function_defined cs),
+      has_code (Callstate cs fb rs m)
+| has_code_ret:
+    forall cs rs m
+      (CFD: callstack_function_defined cs),
+      has_code (Returnstate cs rs m).
+
+Lemma find_label_ex:
+  forall lbl c c', find_label lbl c = Some c' -> exists l, c = l ++ c'.
+Proof.
+  induction c; simpl; intros. discriminate.
+  destruct (is_label lbl a). inv H.
+  exists (a::nil); simpl. auto.
+  apply IHc in H. destruct H as (l & CODE); rewrite CODE.
+  exists (a::l); simpl. reflexivity.
+Qed.
+
+
+Lemma has_code_step:
+  forall s1 t s2,
+    step s1 t s2 ->
+    has_code s1 ->
+    has_code s2.
+Proof.
+  destruct 1; simpl; intros HC; inv HC; try now (econstructor; eauto).
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+    eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE).
+    repeat econstructor; eauto. congruence.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE).
+    rewrite H in FIND; inv FIND.
+    econstructor; eauto. eapply find_label_ex. eauto. 
+  - destruct CODE as (l & CODE).
+    rewrite H0 in FIND; inv FIND.
+    econstructor; eauto. eapply find_label_ex. eauto.
+  - destruct CODE as (l & CODE); econstructor; eauto; rewrite CODE;
+      eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+  - destruct CODE as (l & CODE).
+    rewrite H1 in FIND; inv FIND.
+    econstructor; eauto. eapply find_label_ex. eauto.
+  - econstructor; eauto. exists nil; simpl; auto.
+  - inv CFD. econstructor; eauto.
+    destruct TAIL as (l & sg & ros & EQ); rewrite EQ.
+    eexists (l ++ _ :: nil); simpl; rewrite app_ass; reflexivity.
+Qed.
+
 Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_intro:
     forall c cs' fb sp' rs m' tf
       (FIND: Genv.find_funct_ptr ge fb = Some (Internal tf))
       (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack cs') (Mem.stack m'))
-      (CFD: callstack_function_defined cs'),
+    ,
       call_stack_consistency (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
 | call_stack_consistency_call:
     forall cs' fb rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack m')))
-      (TTNP: top_tframe_tc (Mem.stack m'))
-      (CFD: callstack_function_defined cs'),
+      (TTNP: top_tframe_tc (Mem.stack m')),
       call_stack_consistency (Callstate cs' fb rs m')
 | call_stack_consistency_return:
     forall cs' rs m'
       (CallStackConsistency: list_prefix (stack_blocks_of_callstack cs') (tl (Mem.stack m')))
-      (TTNP: Mem.top_frame_no_perm m')
-      (CFD: callstack_function_defined cs'),
+      (TTNP: Mem.top_frame_no_perm m'),
       call_stack_consistency (Returnstate cs' rs m').
 
 Lemma store_stack_no_abstract:
@@ -521,24 +588,32 @@ Hypothesis invalidate_frame_top_no_perm:
     Mem.top_frame_no_perm m1 ->
     Mem.top_frame_no_perm m2.
 
+
+Ltac same_hyps :=
+  repeat match goal with
+           H1: ?a = _, H2: ?a = _ |- _ => rewrite H1 in H2; inv H2
+         end.
+
 Lemma csc_step:
   forall s1 t s2,
     step s1 t s2 ->
     (forall fb f, Genv.find_funct_ptr ge fb = Some (Internal f) ->
              frame_size (fn_frame f) = fn_stacksize f) ->
+    has_code s1 ->
     call_stack_consistency s1 ->
     call_stack_consistency s2.
 Proof.
-  destruct 1; simpl; intros SIZECORRECT CSC; inv CSC; try now (econstructor; eauto).
+  destruct 1; simpl; intros SIZECORRECT HC CSC; inv HC; inv CSC;
+    same_hyps;
+    try now (econstructor; eauto).
   - econstructor; eauto. erewrite store_stack_no_abstract; eauto.
   - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
   - econstructor. rewrite_stack_blocks. simpl. 
-    rewrite FIND. auto.
+    rewrite H1. auto.
     red. rewrite_stack_blocks. constructor. reflexivity.
-    econstructor; eauto. congruence.
   - econstructor. repeat rewrite_stack_blocks. simpl. intro EQ; rewrite EQ in CallStackConsistency.
     inv CallStackConsistency; simpl; auto.
-    red. rewrite_stack_blocks. intros; constructor. easy. auto.
+    red. rewrite_stack_blocks. intros; constructor. easy.
   - econstructor; eauto. repeat rewrite_stack_blocks; simpl; eauto.
   - econstructor; eauto.
     erewrite invalidate_frame_tl_stack; eauto. repeat rewrite_stack_blocks; simpl; eauto.
@@ -546,7 +621,6 @@ Proof.
     eapply invalidate_frame_top_no_perm; eauto.
     inv CallStackConsistency.
     eapply Mem.free_top_tframe_no_perm; eauto.
-    rewrite H in FIND; inv FIND.
     erewrite <- SIZECORRECT; eauto. rewrite Ptrofs.unsigned_zero.
     simpl. rewrite Z.max_r. auto. apply frame_size_pos.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.

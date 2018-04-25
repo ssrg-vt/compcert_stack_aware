@@ -1253,8 +1253,11 @@ Transparent destroyed_by_jumptable.
     eapply find_instr_tail. unfold instr_size_in_ptrofs. 
     destruct (frame_size_correct fb tf0 FIND). eauto.
     unfold exec_instr; simpl. rewrite USB'. 
-    rewrite pred_dec_true. eauto.
+    rewrite pred_dec_true. rewrite pred_dec_true. eauto.
     red. repeat rewrite_stack_blocks. constructor; auto. 
+    rewrite nextinstr_inv by congruence. rewrite Pregmap.gss.
+    red.
+
     traceEq.
   +
     econstructor. auto. eauto. auto.

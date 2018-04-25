@@ -39,7 +39,7 @@ Section WITHGE.
       Next (nextinstr (rs#rd <- sp) sz) m
     | Pcall_s id sg =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))) in
-      match Mem.storev Mptr m sp (Val.offset_ptr rs#PC sz) with
+      match maybe_storev Mptr m sp (Val.offset_ptr rs#PC sz) with
       | None => Stuck
       | Some m2 =>
         Next (rs#RA <- (Val.offset_ptr rs#PC sz)
@@ -48,7 +48,7 @@ Section WITHGE.
       end
     | Pcall_r r sg =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))) in
-      match Mem.storev Mptr m sp (Val.offset_ptr rs#PC sz) with
+      match maybe_storev Mptr m sp (Val.offset_ptr rs#PC sz) with
       | None => Stuck
       | Some m2 =>
         Next (rs#RA <- (Val.offset_ptr rs#PC sz)
@@ -94,14 +94,14 @@ Section WITHGE.
         Genv.find_funct_ptr ge b = Some (External ef) ->
         extcall_arguments (rs # RSP <- (Val.offset_ptr (rs RSP) (Ptrofs.repr (size_chunk Mptr)))) m (ef_sig ef) args ->
         forall (SP_TYPE: Val.has_type (rs RSP) Tptr)
-          (RA_TYPE: Val.has_type (rs RA) Tptr)
+          ra (LOADRA: Mem.loadv Mptr m (rs RSP) = Some ra)
           (SP_NOT_VUNDEF: rs RSP <> Vundef)
-          (RA_NOT_VUNDEF: rs RA <> Vundef), 
+          (RA_NOT_VUNDEF: ra <> Vundef), 
           external_call ef ge args m t res m' ->
           rs' = (set_pair (loc_external_result (ef_sig ef)) res
                           (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil)
                                       (undef_regs (map preg_of destroyed_at_call) rs)))
-                  #PC <- (rs RA)
+                  #PC <- ra
                   #RA <- Vundef
                   #RSP <- (Val.offset_ptr (rs RSP) (Ptrofs.repr (size_chunk Mptr))) ->
           step (State rs m) t (State rs' m').
@@ -114,7 +114,7 @@ End WITHGE.
         (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit) = (m1,bstack))
         (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
         (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3)
-        (STORE_RETADDR: Mem.storev Mptr m3 (Vptr bstack (Ptrofs.repr (Mem.stack_limit - size_chunk Mptr))) Vnullptr = Some m4),
+        (STORE_RETADDR: maybe_storev Mptr m3 (Vptr bstack (Ptrofs.repr (Mem.stack_limit - size_chunk Mptr))) Vnullptr = Some m4),
         let ge := Genv.globalenv prog in
         let rs0 :=
             rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero)
