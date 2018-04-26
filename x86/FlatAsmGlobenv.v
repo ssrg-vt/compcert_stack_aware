@@ -88,6 +88,11 @@ Definition label_to_ptr (smap: segid_type -> block) (l:seglabel) : val :=
 Definition symbol_address ge l ofs := 
   label_to_ptr (genv_segblocks ge) (offset_seglabel l ofs).
 
+Definition label_to_block_offset (smap: segid_type -> block) (l:seglabel) : (block * Z) :=
+  (smap (fst l), Ptrofs.unsigned (snd l)).
+
+Definition symbol_block_offset ge l := 
+  label_to_block_offset (genv_segblocks ge) l.
 
 Lemma symbol_address_offset : forall ge ofs1 b s ofs,
     symbol_address ge s Ptrofs.zero = Vptr b ofs ->

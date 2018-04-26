@@ -897,25 +897,49 @@ Definition gen_internal_codeblock (smap:segid_type -> block) (p:program) : block
   let code_seg_id := segid (fst (p.(code_seg))) in
   fun b => eq_block b (smap code_seg_id).
 
-Definition acc_segblock (nextblock: block) (id: segid_type) (map: segid_type -> block) 
-  : (block * (segid_type -> block)) :=
-  ((Pos.succ nextblock),
-   fun id' => if ident_eq id id' then nextblock else map id').
-
-Fixpoint acc_segblocks (nextblock: block) (ids: list segid_type) (map: segid_type -> block)
-  : (segid_type -> block) :=
+Fixpoint gen_block_segid_pairs (nextblock: block) (ids: list segid_type) : list (block * segid_type) :=
   match ids with
-  | nil => map
-  | id :: ids' =>
-    let (nextblock', map') := acc_segblock nextblock id map in
-    acc_segblocks nextblock' ids' map'
+  | nil => nil
+  | id::ids' => ((nextblock, id) :: (gen_block_segid_pairs (Psucc nextblock) ids'))
   end.
 
+Fixpoint genfun_from_bs_pairs1 (initf: segid_type -> block) (pairs: list (block * segid_type)) 
+  : segid_type -> block :=
+  match pairs with 
+  | nil => initf 
+  | (b,s)::pairs' =>
+    fun id => if ident_eq id s then b else (genfun_from_bs_pairs1 initf pairs' id)
+  end.
+
+(* Fixpoint genfun_from_bs_pairs2 (pairs: list (block * segid_type))  *)
+(*   : block -> option segid_type := *)
+(*   match pairs with  *)
+(*   | nil => fun b' => None  *)
+(*   | (b,s)::pairs' => *)
+(*     fun b' => if eq_block b b' then Some s else (genfun_from_bs_pairs2 pairs' b') *)
+(*   end. *)
+  
+Fixpoint acc_segblocks (nextblock: block) (ids: list segid_type) (map: segid_type -> block)
+  : (segid_type -> block) :=
+  let pairs := gen_block_segid_pairs nextblock ids in
+  genfun_from_bs_pairs1 map pairs.
+
+Definition list_of_segments (p:program) : list segment  := 
+  (p.(stack_seg) :: p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: nil).
+
+(** The assignments of blocks are as follows: 
+    Block 1: reserved for undefined segments
+    Block 2: stack block
+    Block 3: starting block of the rest blocks (data, code, dynamically allocated, etc)
+ *)
+Definition undef_seg_block := 1%positive.
+Definition stack_block := 2%positive.
+Definition init_block := 3%positive.
+
 Definition gen_segblocks (p:program) : segid_type -> block :=
-  let initblock := 2%positive in (** *r block 1 is reserved for undefined segments *)
-  let initmap := fun id => 1%positive in
-  let ids := List.map segid (p.(stack_seg) :: p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: nil) in
-  acc_segblocks initblock ids initmap.
+  let initmap := fun id => undef_seg_block in
+  let ids := List.map segid (list_of_segments p) in
+  acc_segblocks init_block ids initmap.
 
 Definition empty_genv (p:program): genv :=
   Genv.mkgenv (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p).
@@ -1020,10 +1044,10 @@ Fixpoint get_main_block (main:ident) (l: list (ident * option gdef * segblock)) 
     else get_main_block main l'
   end.
 
-Definition get_main_fun_ptr (ge:genv) (p:program) : option val :=
+Definition get_main_fun_ptr (ge:genv) (p:program) : val :=
   match get_main_block (prog_main p) (prog_defs p) with
-  | None => None
-  | Some sb => Some (Genv.symbol_address ge (segblock_to_label sb) Ptrofs.zero)
+  | None => Vundef
+  | Some sb => (Genv.symbol_address ge (segblock_to_label sb) Ptrofs.zero)
   end.
 
 Definition init_rsp (ge:genv) (p:program) : val :=
@@ -1032,16 +1056,15 @@ Definition init_rsp (ge:genv) (p:program) : val :=
 
 Inductive initial_state (p: program): state -> Prop :=
   | initial_state_intro: 
-      let bstack := 2%positive in
-      forall m0 m1 m2 main
+      let bstack := stack_block in
+      forall m0 m1 m2 
       (INITMEM: init_mem p = Some m0)
       (MDROP: Mem.drop_perm m0 bstack 0 (Mem.stack_limit) Writable = Some m1)
-      (MRSB: Mem.record_stack_blocks (Mem.push_new_stage m1) (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m2),
+      (MRSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m2),
       let ge := (globalenv p) in
-      get_main_fun_ptr ge p = Some main ->
       let rs0 :=
         (Asm.Pregmap.init Vundef)
-        # PC <- main
+        # PC <- (get_main_fun_ptr ge p)
         # RA <- Vnullptr
         # RSP <- (init_rsp ge p) in
       initial_state p (State rs0 m2).
@@ -1107,7 +1130,7 @@ Ltac Equalities :=
   eapply external_call_trace_length; eauto.
   eapply external_call_trace_length; eauto.
 - (* initial states *)
-  inv H; inv H0. subst ge ge0. assert (main = main0) by congruence. subst.
+  inv H; inv H0. subst ge ge0. 
   f_equal. 
   assert (m0 = m3) by congruence. subst. subst bstack bstack0.
   assert (m1 = m4) by congruence. subst.

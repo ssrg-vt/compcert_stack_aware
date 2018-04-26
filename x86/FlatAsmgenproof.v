@@ -156,6 +156,7 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :
 Definition gid_map_for_undef_syms (gm: GID_MAP_TYPE) :=
   forall id, Genv.find_symbol ge id = None -> gm id = None.
 
+
 (* Definition globs_inj_into_flatmem (mj:meminj) := True. *)
   (* forall b g b' ofs', *)
   (*   Genv.find_def ge b = Some g ->  *)
@@ -270,6 +271,56 @@ Inductive match_states: state -> state -> Prop :=
                         (GBVALID: glob_block_valid m)
                         (GMUNDEF: gid_map_for_undef_syms gm),
     match_states (State rs m) (State rs' m').
+
+
+(* Definition seglabel_to_ptr (slbl: seglabel) (stob : segid_type -> block) : (block * Z) := *)
+(*   let (sid, ofs) := slbl in *)
+(*   (stob sid, Ptrofs.unsigned ofs). *)
+
+Definition init_meminj (gmap: GID_MAP_TYPE) : meminj :=
+  let ge := Genv.globalenv prog in
+  let tge := globalenv tprog in
+  fun b => 
+    (* (genv_next ge) is the stack block of the source program *)
+    if eq_block b (Genv.genv_next ge) 
+    then Some (FlatAsm.stack_block, 0)
+    else
+      match (Genv.invert_symbol ge b) with
+      | None => None
+      | Some id => 
+        match (gmap id) with
+        | None => None
+        | Some slbl => Some (Genv.symbol_block_offset tge slbl)
+        end
+      end.
+
+
+Lemma init_mem_pres : forall m, 
+    Genv.init_mem prog = Some m -> exists m', init_mem tprog = Some m'. 
+Proof. 
+  Admitted.
+
+Lemma transf_initial_states : forall st1,
+    RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
+    exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
+Proof.
+  intros st1 INIT.
+  generalize TRANSF. intros TRANSF'. 
+  unfold match_prog in TRANSF'. monadInv TRANSF'.
+  rename x into gmap. rename x0 into lmap.
+  inv INIT. inv H0.
+  set (rs0' :=
+        (Asm.Pregmap.init Vundef)
+        # PC <- (get_main_fun_ptr tge tprog)
+        # RA <- Vnullptr
+        # RSP <- (init_rsp tge tprog)).
+  exploit init_mem_pres; eauto. intros (m' & INITM').
+  eexists. split. 
+  - econstructor; eauto. 
+    + admit.
+    + admit.
+  - 
+  Admitted.
 
 
 Context `{external_calls_ops : !ExternalCallsOps mem }.
@@ -2064,33 +2115,6 @@ Proof.
         apply regset_inject_expand; auto.
     * eapply extcall_pres_glob_block_valid; eauto.
 Qed.        
-
-Lemma transf_initial_states : forall st1,
-    RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
-    exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
-Proof.
-  (* intros st1 m0 IMEM IST. inv IST. *)
-  (* unfold match_prog in TRANSF. monadInv TRANSF. *)
-  (* set (rs0' :=  *)
-  (*       (Asm.Pregmap.init Vundef) *)
-  (*       # PC <- main *)
-  (*       # RA <- Vnullptr *)
-  (*       # RSP <- (init_rsp ge p) in *)
-  (*     initial_state p (State rs0 m2) *)
-  
-
-  (* update_map prog = OK (gm, lm) -> *)
-  (* transl_prog_with_map gm lm prog = OK tprog -> *)
-  
-  (* forall (b b' : block) (f : Asm.function) (ofs : ptrofs) (ofs' : Z) (i : Asm.instr_with_info), *)
-  (*   Genv.find_funct_ptr ge b = Some (Internal f) -> *)
-  (*   find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i -> *)
-  (*   mj b = Some (b', ofs') -> *)
-  (*   exists (id : ident) (i' : instr_with_info) (ofs1 : Z), *)
-  (*     Genv.find_instr tge (Vptr b' (Ptrofs.add ofs (Ptrofs.repr ofs'))) = Some i' /\ *)
-  (*     Genv.find_symbol ge id = Some b /\ transl_instr gm lm ofs1 id i = OK i'; *)
-
-  Admitted.
 
 Lemma transf_final_states:
   forall st1 st2 r,
