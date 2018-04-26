@@ -233,22 +233,30 @@ Qed.
 Hypothesis init_ra_not_undef: init_ra <> Vundef.
 Lemma parent_ra_not_undef:
   forall ge s,
-    callstack_function_defined ge s ->
+    callstack_function_defined return_address_offset ge s ->
     parent_ra init_ra s <> Vundef.
 Proof.
-  inversion 1; simpl; auto.
+  inversion 1; simpl; auto. congruence.
 Qed.
 
+Ltac same_hyps :=
+  repeat match goal with
+         | H1: ?a = _, H2: ?a = _ |- _ => rewrite H1 in H2; inv H2
+         | H1: ?a, H2: ?a |- _ => clear H1
+         end.
 
       Lemma step_correct:
     forall S1 t S2 (STEP: Mach.step init_ra return_address_offset invalidate_frame1 ge S1 t S2)
-           S1' (MS: match_states S1 S1')
-           (CSC1: call_stack_consistency ge init_sg init_stk S1)
-           (CSC: call_stack_consistency ge init_sg init_stk S1'),
+      S1' (MS: match_states S1 S1')
+      (HC1: has_code return_address_offset ge S1)
+      (CSC1: call_stack_consistency ge init_sg init_stk S1)
+      (HC1': has_code return_address_offset ge S1')
+      (CSC1': call_stack_consistency ge init_sg init_stk S1'),
     exists S2',
       Mach.step init_ra return_address_offset invalidate_frame2 ge S1' t S2' /\ match_states S2 S2'.
   Proof.
-    destruct 1; intros S1' MS CSC1 CSC; inv MS; inv CSC1; inv CSC; unfold store_stack, load_stack in *.
+    destruct 1; intros S1' MS HC1 CSC1 HC1' CSC1'; inv MS; inv HC1; inv CSC1; inv HC1'; inv CSC1';
+      unfold store_stack, load_stack in *; same_hyps.
     - eexists; split. econstructor; eauto. constructor; auto.
     - edestruct Mem.loadv_extends as (v' & LOADV' & LD); eauto.
       eexists; split. econstructor; eauto. constructor; auto.
@@ -257,8 +265,7 @@ Qed.
       eexists; split. econstructor; eauto. constructor; auto.
       eapply lessdef_undef_regs; eauto.
       repeat rewrite_stack_blocks; eauto.
-    - assert (tf = tf0) by congruence. subst.
-      edestruct Mem.loadv_extends as (v' & LOADV' & LD); eauto.
+    - edestruct Mem.loadv_extends as (v' & LOADV' & LD); eauto.
       eexists; split. econstructor; eauto.
       erewrite parent_sp_same; eauto.
       constructor; auto.
@@ -280,15 +287,12 @@ Qed.
       eexists; split. econstructor; eauto. constructor; eauto.
       eapply lessdef_undef_regs; auto.
       repeat rewrite_stack_blocks; eauto.
-    - assert (tf0 = tf) by congruence. subst.
-      assert (f = tf) by congruence. subst.
-      eexists; split. econstructor; eauto.
+    - eexists; split. econstructor; eauto.
       eapply find_function_ptr_lessdef; eauto. eauto.
       constructor; auto.
       apply Mem.extends_push; auto.
       repeat rewrite_stack_blocks; eauto. constructor; auto.
-    - assert (A: f = tf /\ tf = tf0) by (split; congruence); destruct A; subst.
-      edestruct Mem.free_parallel_extends as (m2' & FREE' & EXT); eauto. constructor.
+    - edestruct Mem.free_parallel_extends as (m2' & FREE' & EXT); eauto. constructor.
       edestruct Mem.loadv_extends as (ra2 & LOADV' & LD). apply MLD. eauto.
       auto.
       edestruct Mem.tailcall_stage_extends as (m3' & TC' & EXT'); eauto.
@@ -311,20 +315,15 @@ Qed.
       apply lessdef_set_res; auto.
       apply lessdef_undef_regs; auto.
       repeat rewrite_stack_blocks; eauto.
-    - assert (f = tf) by congruence. assert (tf = tf0) by congruence. subst.
+    - eexists; split. econstructor; eauto. constructor; eauto.
+    - exploit eval_condition_lessdef. apply lessdef_args. eauto. eauto. eauto. intro COND.
       eexists; split. econstructor; eauto. constructor; eauto.
-    - assert (f = tf) by congruence. assert (tf = tf0) by congruence. subst.
-      exploit eval_condition_lessdef. apply lessdef_args. eauto. eauto. eauto. intro COND.
-      eexists; split. econstructor; eauto. constructor; eauto.
-    - assert (tf = tf0) by congruence. subst.
-      exploit eval_condition_lessdef. apply lessdef_args. eauto. eauto. eauto. intro COND.
+    - exploit eval_condition_lessdef. apply lessdef_args. eauto. eauto. eauto. intro COND.
       eexists; split. eapply exec_Mcond_false; eauto. constructor; eauto.      
-    - assert (f = tf) by congruence. assert (tf = tf0) by congruence. subst.
-      generalize (RLD arg); rewrite H; inversion 1; subst.
+    - generalize (RLD arg); rewrite H; inversion 1; subst.
       eexists; split. econstructor; eauto. constructor; eauto.
       apply lessdef_undef_regs; auto.
-    - assert (f = tf) by congruence. assert (tf = tf0) by congruence. subst.
-      edestruct Mem.free_parallel_extends as (m2' & FREE' & EXT); eauto. constructor.
+    - edestruct Mem.free_parallel_extends as (m2' & FREE' & EXT); eauto. constructor.
       edestruct Mem.loadv_extends as (ra2 & LOADV' & LD). apply MLD. eauto. auto.
       inv H2.
       edestruct Mem.tailcall_stage_right_extends as (m3' & TC & EXT2). apply EXT.
@@ -409,18 +408,18 @@ End WITHINITSP.
   Proof.
     intros rao p SIZE.
     set (ge := Genv.globalenv p).
+    set (init_stk := ((Some (make_singleton_frame_adt (Genv.genv_next ge) 0 0), nil)::nil) : stack).
     eapply forward_simulation_step with (match_states :=
                                            fun s1 s2 =>
                                              match_states s1 s2 /\
-                                                 Mach.call_stack_consistency
-                                               ge signature_main
-                                               ((Some (make_singleton_frame_adt (Genv.genv_next ge) 0 0), nil)::nil) s1 /\
-                                                 call_stack_consistency
-                                               ge signature_main
-                                               ((Some (make_singleton_frame_adt (Genv.genv_next ge) 0 0), nil)::nil) s2).
+                                             has_code rao ge s1 /\
+                                             call_stack_consistency ge signature_main init_stk s1 /\
+                                             has_code rao ge s2 /\
+                                             call_stack_consistency ge signature_main init_stk s2).
     - reflexivity.
     - simpl; intros s1 IS. eexists; split; eauto. split. eapply initial_transf; eauto.
-      inv IS. split; constructor.
+      inv IS. repeat apply conj; constructor.
+      + constructor.
       + simpl. constructor. repeat rewrite_stack_blocks. simpl.
         rewnb. fold ge. reflexivity.
         repeat rewrite_stack_blocks. simpl.
@@ -436,13 +435,14 @@ End WITHINITSP.
         change (size_arguments signature_main) with 0. intros; simpl.
         unfold Stacklayout.fe_ofs_arg in H2. omega.
       + repeat rewrite_stack_blocks. constructor. reflexivity.
-      + constructor.
     - simpl. intros s1 s2 r (MS & CSC). eapply final_transf; eauto.
-    - simpl; intros s1 t s1' STEP s2 (MS & CSC1  & CSC2).
+    - simpl; intros s1 t s1' STEP s2 (MS & HC1 & CSC1 & HC2 & CSC2).
       edestruct step_correct as (s2' & STEP' & MS'); eauto.
       unfold Vnullptr. destr.
-      eexists; split; eauto. split; auto. split.
+      eexists; split; eauto. repeat apply conj; auto.
+      eapply has_code_step; eauto.
       eapply csc_step; eauto. apply invalidate_frame1_tl_stack. apply invalidate_frame1_top_no_perm.
+      eapply has_code_step; eauto.
       eapply csc_step; eauto. apply invalidate_frame2_tl_stack. apply invalidate_frame2_top_no_perm.
   Qed.
 

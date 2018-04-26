@@ -650,9 +650,415 @@ Qed.
       + intro; subst. contradict H; simpl; congruence.
   Qed.
 
+
+  Lemma list_prefix_is_prefix:
+  forall isg istk cs stk,
+    list_prefix isg istk cs stk ->
+    exists l, stk = l ++ istk.
+Proof.
+  induction 1; simpl; intros; eauto.
+  subst. exists nil; reflexivity.
+  destruct IHlist_prefix as (l & EQ); subst.
+  exists ((Some f,r)::l); reflexivity.
+Qed.
+
+Lemma list_prefix_spec_istk:
+  forall isg istk cs stk,
+    list_prefix isg istk cs stk ->
+    init_sp_stackinfo isg istk.
+Proof.
+  induction 1; simpl; intros; eauto. subst; auto.
+Qed.
+
+Lemma in_stack'_app:
+  forall s1 s2 b,
+    in_stack' (s1 ++ s2) b <-> in_stack' s1 b \/ in_stack' s2 b.
+Proof.
+  induction s1; simpl; intros; eauto.
+  tauto.
+  rewrite IHs1. tauto.
+Qed.
+
+Lemma init_sp_csc:
+  forall b o
+    (ISP: init_sp init_stk = Vptr b o)
+    s stk
+    (LP: list_prefix init_sg init_stk s stk),
+  exists fi, in_stack' stk (b, fi).
+Proof.
+  intros b o ISP.
+  unfold init_sp, current_sp, current_frame_sp in ISP. repeat destr_in ISP.
+  intros.
+  edestruct list_prefix_is_prefix as (l & EQ); eauto.
+  apply list_prefix_spec_istk in LP.
+  destruct stk. simpl in *. apply app_cons_not_nil in EQ. easy.
+  simpl in *. subst.
+  inv LP.
+  exists f0.
+  simpl in Heqo0. inv Heqo0.
+  destruct l; simpl in EQ; inv EQ.
+  left. red. simpl. red. rewrite Heql. left; reflexivity.
+  right. rewrite in_stack'_app. right. left. red. simpl. red. rewrite Heql. left; reflexivity.
+Qed.
+
+Lemma init_sp_csc':
+  forall 
+    s stk
+    (LP: list_prefix init_sg init_stk s stk),
+  exists b,
+    current_sp stk = Vptr b Ptrofs.zero.
+Proof.
+  intros.
+  edestruct list_prefix_is_prefix as (l & EQ); eauto.
+  exploit list_prefix_spec_istk; eauto. intro ISS. inv ISS.
+  destruct l.
+  - simpl. unfold current_frame_sp. simpl.
+    inv PRIV. eauto.
+  - simpl in *. unfold current_frame_sp. inv LP. inv STKEQ. simpl. inv INIT. 
+    apply (f_equal (@length _)) in H1. rewrite app_length in H1.  simpl in H1. omega.
+    simpl. rewrite BLOCKS. eauto.
+Qed.
+
+Lemma mk_setcc_app:
+  forall cond x c,
+    mk_setcc cond x c = mk_setcc cond x nil ++ c.
+Proof.
+  unfold mk_setcc, mk_setcc_base.
+  intros. repeat destr.
+Qed.
+
+Lemma transl_cond_app:
+  forall a b cond lr tc,
+    transl_cond cond lr (a ++ b) = OK tc ->
+    exists tc', transl_cond cond lr a = OK tc' /\ tc = tc' ++ b.
+Proof.
+  intros a b cond lr tc TC.
+  unfold transl_cond in *.
+  repeat destr_in TC; monadInv H0; rewrite EQ, ? EQ1; simpl; eauto.
+Qed.
+
+Lemma transl_op_eq:
+  forall op lr r c tc,
+    transl_op op lr r c = OK tc ->
+    exists ti,
+      transl_op op lr r nil = OK ti /\ tc = ti ++ c.
+Proof.
+  intros op lr r c tc TO.
+  destruct op; simpl in *; repeat destr_in TO; eauto; try (monadInv H0; rewrite EQ; simpl; now eauto).
+  - unfold mk_mov in *. repeat destr_in H0; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl.
+    unfold mk_intconv in *. repeat destr_in EQ2; eauto.
+  - unfold mk_shrximm.  eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - unfold mk_shrxlimm. destr. eauto. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. repeat destr; eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ, EQ1. simpl. eauto.
+  - monadInv H0. rewrite EQ.
+    rewrite mk_setcc_app in EQ0.
+    edestruct transl_cond_app as (tc' & TC & APP); eauto.
+Qed.
+
+Lemma transl_cond_app':
+  forall a b cond lr tc,
+    transl_cond cond lr a = OK tc ->
+    transl_cond cond lr (a ++ b) = OK (tc ++ b).
+Proof.
+  intros a b cond lr tc TC.
+  unfold transl_cond in *.
+  repeat destr_in TC; monadInv H0; rewrite EQ, ? EQ1; simpl; eauto.
+Qed.
+
+Lemma mk_setcc_app':
+  forall cond x c c',
+    mk_setcc cond x (c ++ c') = mk_setcc cond x c ++ c'.
+Proof.
+  unfold mk_setcc, mk_setcc_base.
+  intros. repeat destr.
+Qed.
+
+Lemma transl_op_eq':
+  forall op lr r c c' tc,
+    transl_op op lr r c = OK tc ->
+    transl_op op lr r (c ++ c') = OK (tc ++ c').
+Proof.
+  intros op lr r c c' tc TO;
+    destruct op; simpl in *;
+      repeat match goal with
+             | H: bind _ _ = _ |- _ => monadInv H
+             | H: ?a = OK ?b |- context [bind ?a _] => rewrite H; simpl; eauto
+             | H: mk_mov _ _ _ = _ |- _ => unfold mk_mov in H; repeat destr_in H
+             | H: mk_intconv _ _ _ _ = _ |- _ => unfold mk_intconv in H; inv H; eauto
+             | H: context [match ?a with _ => _ end] |- _ => repeat destr_in H
+             | H: OK _ = OK _ |- _ => inv H
+             | H: Error _ = OK _ |- _ => inv H
+             | |- _ => simpl in *; eauto
+             end.
+  unfold mk_shrxlimm. destr; eauto.
+  repeat destr; eauto.
+  rewrite mk_setcc_app'.
+  eapply transl_cond_app'; eauto.
+Qed.    
+
+Lemma transl_load_eq:
+  forall m a l m0 c tc
+    (TI : transl_load m a l m0 c = OK tc),
+  exists ti, transl_load m a l m0 nil = OK ti /\ tc = ti ++ c.
+Proof.
+  intros.
+  unfold transl_load. monadInv TI. monadInv EQ. repeat destr_in EQ1; rewrite EQ0; simpl; rewrite H0; simpl; eauto.
+Qed.
+
+Lemma mk_storebyte_eq:
+  forall x x0 c tc
+    (EQ1 : mk_storebyte x x0 c = OK tc),
+  exists ti, mk_storebyte x x0 nil = OK ti /\ tc = ti ++ c.
+Proof.
+  unfold mk_storebyte.
+  intros. inv EQ1. eauto.
+Qed.
+
+
+Lemma transl_store_eq:
+  forall m a l m0 c tc
+    (TI : transl_store m a l m0 c = OK tc),
+  exists ti, transl_store m a l m0 nil = OK ti /\ tc = ti ++ c.
+Proof.
+  intros.
+  unfold transl_store. monadInv TI. rewrite EQ; simpl.
+  repeat destr_in EQ0; monadInv H0; rewrite EQ0; simpl; eauto using mk_storebyte_eq.
+Qed.
+
+
+Lemma transl_load_eq':
+  forall m a l m0 c c' tc
+    (TI : transl_load m a l m0 c = OK tc),
+    transl_load m a l m0 (c ++ c') = OK (tc ++ c').
+Proof.
+  intros.
+  unfold transl_load. monadInv TI. monadInv EQ. rewrite EQ0. simpl.
+  repeat destr_in EQ1; simpl; rewrite H0; simpl; eauto.
+Qed.
+
+Lemma mk_storebyte_eq':
+  forall x x0 c c' tc
+    (EQ1 : mk_storebyte x x0 c = OK tc),
+    mk_storebyte x x0 (c ++ c') = OK (tc ++ c').
+Proof.
+  unfold mk_storebyte.
+  intros. inv EQ1. eauto.
+Qed.
+
+Lemma transl_store_eq':
+  forall m a l m0 c c' tc
+    (TI : transl_store m a l m0 c = OK tc),
+    transl_store m a l m0 (c ++ c') = OK (tc ++ c').
+Proof.
+  intros.
+  unfold transl_store. monadInv TI. rewrite EQ; simpl.
+  repeat destr_in EQ0; monadInv H0; rewrite EQ0; simpl; eauto using mk_storebyte_eq'.
+Qed.
+
+
+Lemma mk_jcc_app:
+  forall cond x c,
+    mk_jcc cond x c = mk_jcc cond x nil ++ c.
+Proof.
+  unfold mk_jcc.
+  intros. repeat destr.
+Qed.
+
+Lemma transl_instr_eq:
+  forall f i ax c tc,
+    transl_instr f i ax c = OK tc ->
+    exists ti,
+      transl_instr f i ax nil = OK ti /\ tc = ti ++ c.
+Proof.
+  intros f i ax c tc TI.
+  destruct i; simpl in *.
+  - Transparent loadind.
+    monadInv TI. unfold loadind. repeat destr_in EQ; simpl; eauto.
+  - monadInv TI. unfold storeind. repeat destr_in EQ; simpl; eauto.
+  - destr.
+    monadInv TI. unfold loadind. repeat destr_in EQ; simpl; eauto.
+    monadInv TI. monadInv EQ. unfold loadind. repeat destr_in EQ0; simpl; eauto.
+  - edestruct transl_op_eq as (ti & TOP & EQ); eauto.
+  - eauto using transl_load_eq.
+  - eauto using transl_store_eq.
+  - destr_in TI; monadInv TI; rewrite ? EQ; simpl; eauto.
+  - destr_in TI; monadInv TI; rewrite ? EQ; simpl; eauto.
+  - inv TI; eauto.
+  - inv TI; eauto.
+  - inv TI; eauto.
+  - eapply transl_cond_app; eauto. erewrite <- mk_jcc_app. auto.
+  - monadInv TI; rewrite EQ; simpl; eauto.
+  - inv TI. eauto.
+Qed.
+
+Lemma mk_jcc_app':
+  forall cond x c c',
+    mk_jcc cond x (c ++ c') = mk_jcc cond x c ++ c'.
+Proof.
+  unfold mk_jcc.
+  intros. repeat destr.
+Qed.
+
+Lemma transl_instr_eq':
+  forall f i ax c c' tc,
+    transl_instr f i ax c = OK tc ->
+    transl_instr f i ax (c ++ c') = OK (tc ++ c').
+Proof.
+  intros f i ax c c' tc TI.
+  destruct i; simpl in *; repeat destr_in TI;
+    repeat match goal with
+           | H: loadind _ _ _ _ _ = _ |- _ => unfold loadind in *; monadInv H
+           | H: storeind _ _ _ _ _ = _ |- _ => unfold storeind in *; monadInv H
+           | H: bind _ _ = _ |- _ => monadInv H
+           | H: ?a = OK ?b |- context [bind ?a _] => rewrite H; simpl; eauto
+           | H: context [match ?a with _ => _ end] |- _ => repeat destr_in H
+           | H: OK _ = OK _ |- _ => inv H
+           | |- _ => simpl in *; eauto
+           end.
+  eapply transl_op_eq'; eauto.
+  eapply transl_load_eq'; eauto.
+  eapply transl_store_eq'; eauto.
+  rewrite mk_jcc_app'. eapply transl_cond_app'; eauto.
+Qed.
+
+Lemma transl_code_app:
+  forall f l1 l2 ep1 x,
+    transl_code f (l1 ++ l2) ep1 = OK x ->
+    exists ep2 y, transl_code f l1 ep1 = OK y /\ bind (transl_code f l2 ep2) (fun k => OK (y ++ k)) = OK x.
+Proof.
+  induction l1; simpl; intros; eauto.
+  exists ep1, nil; split; auto. rewrite H. simpl. auto.
+  monadInv H. 
+  edestruct IHl1 as (ep2 & y & TC1 & TC2). apply EQ.
+  rewrite TC1. simpl.
+  edestruct transl_instr_eq as (ti & TI & EQti). eauto. subst.
+  generalize (transl_instr_eq' _ _ _ _ y _ TI). simpl. intro TI2.
+  rewrite TI2.
+  monadInv TC2.
+  eexists _, _; split. eauto.
+  rewrite EQ1. simpl. rewrite app_ass. reflexivity.        
+Qed.
+
+Lemma code_tail_code_size:
+  forall a b sz,
+    code_tail sz (a ++ b) b ->
+    sz = code_size a.
+Proof.
+  intros a b sz.
+  remember (a++b).
+  intro CT; revert sz l b CT a Heql.
+  induction 1; simpl; intros; eauto.
+  apply (f_equal (@length _)) in Heql. rewrite app_length in Heql.
+  destruct a; simpl in *; try omega.
+  destruct a. simpl in *. subst. apply code_tail_no_bigger in CT. simpl in CT. omega. simpl in Heql.
+  inv Heql.
+  specialize (IHCT _ eq_refl). subst. simpl. omega.
+Qed.
+
+Lemma offsets_after_call_app:
+  forall y z pos,
+    offsets_after_call (y ++ z) pos =  offsets_after_call y pos ++ offsets_after_call z (pos + code_size y).
+Proof.
+  induction y; simpl; intros; eauto. rewrite Z.add_0_r. auto.
+  rewrite ! IHy. destr. simpl. rewrite Z.add_assoc. reflexivity.
+  simpl. rewrite Z.add_assoc. reflexivity.
+Qed.
+
+Lemma code_size_app:
+  forall c1 c2,
+    code_size (c1 ++ c2) = code_size c1 + code_size c2.
+Proof.
+  induction c1; simpl; intros; rewrite ? IHc1; omega.
+Qed.
+
+Lemma has_code_parent_ra_after_call:
+  forall (init_ra_after_call: ra_after_call tge init_ra)
+    s
+    (HC: callstack_function_defined return_address_offset ge s),
+    ra_after_call tge (parent_ra init_ra s).
+Proof.
+  intros init_ra_after_call s HC.
+  destruct s; simpl. auto.
+  destruct s; simpl.
+  inv HC.
+  red. intros b o EQ; inv EQ.
+  edestruct functions_translated as (tf & FFP' & TF); eauto.
+  rewrite FFP'. intros f EQ; inv EQ.
+  red. simpl in TF. monadInv TF.
+  red in RAU.
+  specialize (fun tc => RAU _ tc EQ).
+  monadInv EQ. repeat destr_in EQ1.
+  monadInv EQ0. simpl in *. rewrite pred_dec_false. 2: inversion 1.
+  destruct TAIL as (l & sg & ros & CODE). rewrite CODE in EQ.
+  rewrite transl_code'_transl_code in EQ.
+  edestruct transl_code_app as (ep2 & y & TC1 & TC2); eauto.
+  monadInv TC2.
+  simpl in EQ0. monadInv EQ0.
+  specialize (RAU _ EQ1).
+  assert (exists icall, x = icall :: x0 /\ is_call icall).
+  {
+    destr_in EQ2; monadInv EQ2; eexists; split; eauto; constructor.
+  }
+  destruct H as (icall & ICALL & ISCALL). subst.
+  generalize (code_tail_code_size (Pallocframe (Mach.fn_frame trf) (fn_retaddr_ofs trf) :: y ++ icall :: nil) x0).
+  simpl. rewrite app_ass. simpl. intro EQSZ; specialize (EQSZ _ RAU).
+  rewrite offsets_after_call_app.
+  apply in_app. right. simpl. rewrite pred_dec_true.
+  left. rewrite EQSZ.
+  rewrite code_size_app. simpl. omega. auto.
+Qed.
+
+Hypothesis init_ra_after_call: ra_after_call tge init_ra.
+
 Theorem step_simulation:
   forall S1 t S2, Mach.step init_ra return_address_offset invalidate_frame2 ge S1 t S2 ->
-  forall S1' (MS: match_states S1 S1') (CSC: call_stack_consistency ge init_sg init_stk S1),
+             forall S1' (MS: match_states S1 S1')
+               (HC: has_code return_address_offset ge S1)
+               (CSC: call_stack_consistency ge init_sg init_stk S1),
   (exists S2', plus (step init_stk) tge S1' t S2' /\ match_states S2 S2')
   \/ (measure S2 < measure S1 /\ t = E0 /\ match_states S2 S1')%nat.
 Proof.
@@ -861,73 +1267,6 @@ Opaque loadind.
     simpl. symmetry. rewrite H6 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
   }
 
-  Lemma list_prefix_is_prefix:
-  forall isg istk cs stk,
-    list_prefix isg istk cs stk ->
-    exists l, stk = l ++ istk.
-Proof.
-  induction 1; simpl; intros; eauto.
-  subst. exists nil; reflexivity.
-  destruct IHlist_prefix as (l & EQ); subst.
-  exists ((Some f,r)::l); reflexivity.
-Qed.
-
-Lemma list_prefix_spec_istk:
-  forall isg istk cs stk,
-    list_prefix isg istk cs stk ->
-    init_sp_stackinfo isg istk.
-Proof.
-  induction 1; simpl; intros; eauto. subst; auto.
-Qed.
-
-Lemma in_stack'_app:
-  forall s1 s2 b,
-    in_stack' (s1 ++ s2) b <-> in_stack' s1 b \/ in_stack' s2 b.
-Proof.
-  induction s1; simpl; intros; eauto.
-  tauto.
-  rewrite IHs1. tauto.
-Qed.
-
-Lemma init_sp_csc:
-  forall b o
-    (ISP: init_sp init_stk = Vptr b o)
-    s stk
-    (LP: list_prefix init_sg init_stk s stk),
-  exists fi, in_stack' stk (b, fi).
-Proof.
-  intros b o ISP.
-  unfold init_sp, current_sp, current_frame_sp in ISP. repeat destr_in ISP.
-  intros.
-  edestruct list_prefix_is_prefix as (l & EQ); eauto.
-  apply list_prefix_spec_istk in LP.
-  destruct stk. simpl in *. apply app_cons_not_nil in EQ. easy.
-  simpl in *. subst.
-  inv LP.
-  exists f0.
-  simpl in Heqo0. inv Heqo0.
-  destruct l; simpl in EQ; inv EQ.
-  left. red. simpl. red. rewrite Heql. left; reflexivity.
-  right. rewrite in_stack'_app. right. left. red. simpl. red. rewrite Heql. left; reflexivity.
-Qed.
-
-Lemma init_sp_csc':
-  forall 
-    s stk
-    (LP: list_prefix init_sg init_stk s stk),
-  exists b,
-    current_sp stk = Vptr b Ptrofs.zero.
-Proof.
-  intros.
-  edestruct list_prefix_is_prefix as (l & EQ); eauto.
-  exploit list_prefix_spec_istk; eauto. intro ISS. inv ISS.
-  destruct l.
-  - simpl. unfold current_frame_sp. simpl.
-    inv PRIV. eauto.
-  - simpl in *. unfold current_frame_sp. inv LP. inv STKEQ. simpl. inv INIT. 
-    apply (f_equal (@length _)) in H1. rewrite app_length in H1.  simpl in H1. omega.
-    simpl. rewrite BLOCKS. eauto.
-Qed.
 inv CallStackConsistency. simpl.
 edestruct init_sp_csc' as (bsp & EQsp). eauto.
 
@@ -1214,7 +1553,6 @@ Transparent destroyed_by_jumptable.
   edestruct (Mem.unrecord_stack_block_succeeds m'') as (m''' & USB & STKEQ). eauto.
   edestruct Mem.unrecord_stack_block_extends as (m4' & USB' & EXT''). 2: apply USB. eauto.
   rewrite FIND in FIND0; inv FIND0.
-
   edestruct init_sp_csc' as (bsp & EQsp). eauto.
 
   assert (CISIS: check_init_sp_in_stack init_stk m3').
@@ -1256,8 +1594,8 @@ Transparent destroyed_by_jumptable.
     rewrite pred_dec_true. rewrite pred_dec_true. eauto.
     red. repeat rewrite_stack_blocks. constructor; auto. 
     rewrite nextinstr_inv by congruence. rewrite Pregmap.gss.
-    red.
-
+    eapply has_code_parent_ra_after_call; eauto.
+    inv HC; eauto.
     traceEq.
   +
     econstructor. auto. eauto. auto.
@@ -1358,8 +1696,9 @@ apply agree_undef_regs with rs0; eauto.
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   unfold loc_external_result.
   clear. destruct (loc_result (ef_sig ef)); simpl; try split;
-  apply preg_of_not_SP.
-  auto. subst.
+           apply preg_of_not_SP.
+  rewrite ATLR. eapply has_code_parent_ra_after_call; eauto. inv HC; auto.
+  subst.
   econstructor; eauto.
   unfold loc_external_result.
   apply agree_set_other; auto.
@@ -1389,6 +1728,7 @@ End WITHINITSPRA.
 Lemma transf_initial_states:
   forall st1, Mach.initial_state prog st1 ->
          exists st2, Asm.initial_state tprog st2 /\ match_states Vnullptr st1 st2
+                /\ has_code return_address_offset ge st1 
                 /\ call_stack_consistency
                     ge signature_main
                     ((Some (make_singleton_frame_adt (Genv.genv_next ge) 0 0),nil) :: nil)
@@ -1411,7 +1751,8 @@ Proof.
         -- repeat rewrite_stack_blocks. simpl. unfold Tptr. destruct Archi.ptr64; auto.
         -- intros. rewrite Regmap.gi. auto.
       * tauto.
-      * constructor.
+      * split; constructor.
+        -- constructor.
         -- repeat rewrite_stack_blocks. simpl. constructor.
            rewnb. fold ge. reflexivity.
            constructor. simpl. constructor; auto. 
@@ -1419,7 +1760,6 @@ Proof.
            replace (Stacklayout.fe_ofs_arg) with 0. intros; omega. reflexivity.
            reflexivity.
         -- red. rewrite_stack_blocks. constructor; auto.
-        -- constructor.
     + unfold Genv.symbol_address.
       rewrite (match_program_main TRANSF).
       rewrite symbols_preserved.
@@ -1451,23 +1791,28 @@ Proof.
   with (measure := measure)
          (match_states := fun s1 s2 =>
                             match_states Vnullptr s1 s2 /\
+                            has_code return_address_offset ge s1 /\
                             call_stack_consistency
                               ge signature_main
                               ((Some (make_singleton_frame_adt (Genv.genv_next ge) 0 0), nil) :: nil) s1).
   - apply senv_preserved.
   - eexact transf_initial_states.
-  - simpl; intros s1 s2 r (MS & CSC) FS.
+  - simpl; intros s1 s2 r (MS & HC & CSC) FS.
     eapply transf_final_states; eauto.
-  - simpl; intros s1 t s1' STEP s2 (MS & CSC).
-    exploit step_simulation. 4: eexact STEP. all: eauto.
+  - simpl; intros s1 t s1' STEP s2 (MS & HC & CSC).
+    exploit step_simulation. 5: eexact STEP. all: eauto.
     + inversion 1.
     + apply Val.Vnullptr_has_type.
+    + red; inversion 1.
     + intros [(S2' & PLUS & MS')|(MES & TR & MS')].
       * left; eexists; split; eauto. split; auto.
+        split.
+        eapply has_code_step; eauto.
         eapply csc_step; eauto.
         apply invalidate_frame2_tl_stack.
         apply invalidate_frame2_top_no_perm.
       * right; repeat split; eauto.
+        eapply has_code_step; eauto.
         eapply csc_step; eauto.
         apply invalidate_frame2_tl_stack.
         apply invalidate_frame2_top_no_perm.

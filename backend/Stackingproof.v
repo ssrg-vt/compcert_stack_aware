@@ -3941,6 +3941,7 @@ Inductive match_states_inv (s : Linear.state) (s': Mach.state): Prop :=
 | msi_intro
     (MS: match_states s s')
     (LIN: nextblock_properties_linear init_m s)
+    (HC: has_code return_address_offset tge s')
     (CSC: call_stack_consistency tge init_sg init_stk s'):
     match_states_inv s s'.
 
@@ -3956,14 +3957,17 @@ Proof.
   exploit transf_step_correct; eauto.
   intros (s2' & PLUS & MS).
   eexists; split; eauto.
-  assert ((fun s2' => call_stack_consistency tge init_sg init_stk s2') s2').
+  assert (has_code return_address_offset tge s2' /\ call_stack_consistency tge init_sg init_stk s2').
   {
-    pattern s2'. eapply inv_plus in CSC. apply CSC. 
-    intros s0 tt s3 STEP. eapply csc_step; eauto.
+    eapply inv_plus with (P:= fun s => has_code return_address_offset tge s /\ call_stack_consistency tge init_sg init_stk s).
+    2: apply PLUS.
+    intros s0 t0 s3 STEP (HC' & CSC'); split.
+    eapply has_code_step; eauto.
+    eapply csc_step. eauto.
     apply invalidate_frame1_tl_stack.
-    apply invalidate_frame1_top_no_perm.
-    apply PLUS.
-  }
+    apply invalidate_frame1_top_no_perm. eauto.
+    eauto. eauto. eauto. split; auto.
+  } destruct H0.
   constructor; auto.
   eapply np_linear_step; eauto.
 Qed.
@@ -4052,6 +4056,7 @@ Proof.
     + red; simpl; tauto.
   - repeat rewrite_stack_blocks. repeat constructor; auto.
   - constructor. simpl. rewnb. xomega. constructor.
+  - repeat constructor.
   - constructor. constructor.
     repeat rewrite_stack_blocks. simpl.
     rewnb. reflexivity.
@@ -4059,7 +4064,6 @@ Proof.
     change (size_arguments signature_main) with 0.
     simpl. constructor. intros. unfold fe_ofs_arg in H. omega.
     repeat rewrite_stack_blocks. constructor. reflexivity.
-    constructor.
 Qed.
 
 Lemma transf_final_states:

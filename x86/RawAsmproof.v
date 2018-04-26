@@ -425,6 +425,31 @@ Section WITHMEMORYMODEL.
     2: apply align_le; try omega.
     apply frame_size_pos.
   Qed.
+
+  Lemma maybe_storev_inject:
+    forall j g m1 m1' m2 chunk addr addr' v,
+      Mem.inject j g m1 m1' ->
+      maybe_storev chunk m1 addr v = Some m2 ->
+      Val.inject j addr addr' ->
+      v <> Vundef ->
+      Val.inject j v v ->
+      exists m2', maybe_storev chunk m1' addr' v = Some m2' /\ Mem.inject j g m2 m2'.
+  Proof.
+    unfold maybe_storev. intros j g m1 m1' m2 chunk addr addr' v MINJ MS ADDRinj NU Vinj.
+    destr_in MS.
+    edestruct Mem.loadv_inject as (v2 & LOADV & Vinj2); eauto. rewrite LOADV.
+    repeat destr_in MS.
+    - rewrite pred_dec_true. eexists; split; eauto.
+      inv Vinj; inv Vinj2; auto. rewrite H2 in H1; inv H1. rewrite <- H3. auto. congruence.
+    - destr. subst.
+      2: eapply Mem.storev_mapped_inject; eauto.
+      eexists; split; eauto.
+      intro; subst.
+      inv Vinj; inv Vinj2; auto. rewrite H2 in H1; inv H1. rewrite <- H3. auto. congruence.
+    - 
+
+
+  Qed.
   
  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4 sz,
@@ -817,14 +842,14 @@ Section WITHMEMORYMODEL.
                         EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2 |-
              context [Mem.stack ?m2] =>
              let AINS_stack := fresh "AINS_stack" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack;
+             edestruct (AINS UNC _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack;
              clear AINS_stack
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
                         EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2,
                             H: context [Mem.stack ?m2] |- _ =>
              let AINS_stack := fresh "AINS_stack" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack in H;
+             edestruct (AINS UNC _ _ _ _ _ _ _ EI) as (AINS_stack & _); rewrite ! AINS_stack in H;
              clear AINS_stack
 
            | AINS: asm_instr_no_stack ?i,
@@ -832,25 +857,25 @@ Section WITHMEMORYMODEL.
                         EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2 |-
              context [Mem.perm ?m2 _ _ _ _] =>
              let AINS_perm := fresh "AINS_perm" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm;
+             edestruct (AINS UNC _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm;
              clear AINS_perm
            | AINS: asm_instr_no_stack ?i,
                    UNC: stack_invar ?i = true,
                         EI: Asm.exec_instr ?init_stk _ _ ?i _ ?m1 = Next _ ?m2,
                             H : context [Mem.perm ?m2 _ _ _ _] |- _ =>
              let AINS_perm := fresh "AINS_perm" in
-             edestruct (AINS UNC _ _ _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm in H;
+             edestruct (AINS UNC _ _ _ _ _ _ _ EI) as (_ & AINS_perm); rewrite ! AINS_perm in H;
              clear AINS_perm
            | AINR: asm_instr_no_rsp ?i,
                    UNC: stack_invar ?i = true,
                         EI: Asm.exec_instr ?init_stk _ _ ?i ?rs1 _ = Next ?rs2 _ |-
              context [?rs2 (IR RSP)] =>
-             rewrite (AINR UNC _ _ _ _ _ _ _ _ _ EI)
+             rewrite (AINR UNC _ _ _ _ _ _ _ EI)
            | AINR: asm_instr_no_rsp ?i,
                    UNC: stack_invar ?i = true,
                         EI: Asm.exec_instr ?init_stk _ _ ?i ?rs1 _ = Next ?rs2 _,
                             H: context [?rs2 (IR RSP)] |- _ =>
-             rewrite (AINR UNC _ _ _ _ _ _ _ _ _ EI) in H
+             rewrite (AINR UNC _ _ _ _ _ _ _ EI) in H
                                                           
            end.
 
