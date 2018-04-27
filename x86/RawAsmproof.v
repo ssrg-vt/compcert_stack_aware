@@ -426,6 +426,14 @@ Section WITHMEMORYMODEL.
     apply frame_size_pos.
   Qed.
 
+  Lemma size_active_stack_app:
+    forall l1 l2,
+      size_active_stack (l1 ++ l2) = size_active_stack l1 + size_active_stack l2.
+  Proof.
+    induction l1; simpl; intros; eauto.
+    rewrite IHl1. omega.
+  Qed.
+
  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4 sz,
       match_states j (Ptrofs.unsigned ostack) (State rs1 m1) (State rs1' m1') ->
@@ -693,14 +701,6 @@ Section WITHMEMORYMODEL.
           eapply in_stack_inj_below in INSTK; eauto.
           destruct INSTK as (l1 & l2 & EQADT & JB0). rewrite FB0 in JB0. inv JB0.
           rewrite STK1. simpl. rewrite EQADT.
-
-          Lemma size_active_stack_app:
-            forall l1 l2,
-              size_active_stack (l1 ++ l2) = size_active_stack l1 + size_active_stack l2.
-          Proof.
-            induction l1; simpl; intros; eauto.
-            rewrite IHl1. omega.
-          Qed.
           rewrite size_active_stack_app.
           generalize (size_active_stack_pos l1).
           cut (frame_size fi <= align (frame_size fi) 8). omega.
@@ -1741,21 +1741,98 @@ Section WITHMEMORYMODEL.
       + etransitivity. apply GlobLeT. fold Ple. rewnb. xomega.
       + repeat rewrite_stack_blocks. simpl; eauto.
     - (* external step *)
+      edestruct (Mem.valid_access_store m'0 Mptr bstack (Ptrofs.unsigned (Ptrofs.add ostack0 (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr)))))) as (m'2 & STORERA).
+      {
+        red. repeat apply conj.
+        red; intros. apply PBSL.
+        split. generalize (Ptrofs.unsigned_range (Ptrofs.add ostack0 (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))); omega.
+        eapply Z.lt_le_trans. apply H6.
+        rewrite <- Ptrofs.sub_add_opp. unfold Ptrofs.sub.
+        rewrite (Ptrofs.unsigned_repr (size_chunk Mptr)).
+        2: vm_compute; intuition congruence.
+        rewrite Ptrofs.unsigned_repr.
+        erewrite AGSP by eauto.
+        generalize (size_active_stack_pos (Mem.stack m)).
+        generalize (size_chunk_pos Mptr).
+        omega.
+        erewrite AGSP by eauto.
+        generalize (size_active_stack_pos (Mem.stack m)).
+        generalize (size_chunk_pos Mptr).
+        generalize (Mem.stack_limit_range).
+        generalize (size_active_stack_below m).
+        intros. split. 2: omega.
+        generalize (size_active_smaller (Mem.stack m)). omega.
+        unfold Ptrofs.add. rewrite Ptrofs.unsigned_repr_eq.
+        erewrite AGSP; eauto.
+        apply mod_divides. vm_compute. congruence. rewrite Ptrofs.modulus_power.
+        transitivity 8.
+        unfold Mptr; unfold align_chunk. destruct ptr64; simpl.
+        exists 1; omega. exists 2; omega.
+        exists (two_p (Ptrofs.zwordsize - 3)). change 8 with (two_p 3). rewrite <- two_p_is_exp. f_equal.
+        vm_compute. congruence. omega.
+        apply Z.divide_add_r.
+        apply Z.divide_sub_r.
+        transitivity 8.
+        unfold Mptr; unfold align_chunk. destruct ptr64; simpl.
+        exists 1; omega. exists 2; omega.
+        apply Mem.stack_limit_aligned.
+        transitivity 8.
+        unfold Mptr; unfold align_chunk. destruct ptr64; simpl.
+        exists 1; omega. exists 2; omega.
+        apply size_active_stack_divides.
+        unfold Ptrofs.neg. rewrite (Ptrofs.unsigned_repr (size_chunk Mptr)) by (vm_compute; intuition congruence).
+        rewrite Ptrofs.unsigned_repr_eq.
+        apply mod_divides. vm_compute; congruence.
+        rewrite Ptrofs.modulus_power.
+        transitivity 8.
+        unfold Mptr; unfold align_chunk. destruct ptr64; simpl.
+        exists 1; omega. exists 2; omega.
+        exists (two_p (Ptrofs.zwordsize - 3)). change 8 with (two_p 3). rewrite <- two_p_is_exp. f_equal.
+        vm_compute. congruence. omega.
+        rewrite Z.divide_opp_r.
+        apply align_size_chunk_divides.
+        red.
+        destruct NS as (fr & fi & r & STK' & BLK & ZERO & PUB).
+        rewrite STK'. left. red. simpl. unfold get_frames_blocks. simpl.
+        unfold get_frame_blocks. rewrite <- BLK. left. reflexivity.
+      }
+      exploit Mem.store_outside_inject. apply MINJ. 2: apply STORERA.
+      {
+        intros b' delta ofs' JB' PERM RNG.
+        red in NIB.
+        generalize (NIB _ _ _ _ _ JB' PERM). intros (A & B).
+        destruct RNG as (RNG1 & RNG2).
+        revert RNG2.
+        rewrite <- Ptrofs.sub_add_opp. unfold Ptrofs.sub.
+        rewrite (Ptrofs.unsigned_repr (size_chunk Mptr)).
+        2: vm_compute; intuition congruence.
+        rewrite Ptrofs.unsigned_repr.
+        intros; omega.
+        erewrite AGSP by eauto.
+        generalize (size_active_stack_pos (Mem.stack m)).
+        generalize (size_chunk_pos Mptr).
+        generalize (Mem.stack_limit_range).
+        generalize (size_active_stack_below m).
+        intros. split. 2: omega.
+        generalize (size_active_smaller (Mem.stack m)). omega.
+      }
+      intro StoreInj.
       edestruct (extcall_arguments_inject) as (vargs' & Hargs & Hargsinj).
       eauto.
-      eauto. eauto. 
+      eauto. apply StoreInj.
       edestruct (external_call_mem_inject_gen ef ge ge)
         as (j' & vres' & m2' & EC & RESinj & MemInj & Unch1 & Unch2 & INCR & SEP).
       apply meminj_preserves_globals'_symbols_inject. eauto.
       eauto.
-      eauto.
+      apply StoreInj.
       eauto. 
-      generalize (RINJ PC); rewrite H. inversion 1; subst.
+      generalize (RINJ PC); rewrite H.
+      intro VINJ; inv VINJ. rename H9 into JB2. rename H8 into EQ.
       assert (j b = Some (b,0)) as JB.
       {
         eapply GLOBFUN_INJ. eauto.
       }
-      rewrite JB in H9; inv H9.
+      rewrite JB in JB2; inv JB2.
       exploit (Mem.unrecord_stack_block_inject_left _ _ _ _ _ _ MemInj H3).
       inv TIN. rewrite STK in H6.
       destruct lprog; simpl in *. 2: omega.
@@ -1775,7 +1852,15 @@ Section WITHMEMORYMODEL.
       destruct Tptr; try easy.
       generalize (RINJ RSP). destruct (rs RSP); simpl in *; inversion 1; subst; try congruence.
       generalize (RINJ RA). destruct (rs RA); simpl in *; inversion 1; subst; try congruence.
-      eauto.
+      rewrite RSPEQ. simpl. eauto.
+      eauto. eauto.
+      move H5 at bottom.
+      red. intros.
+      generalize (RINJ RA). rewrite H6. intro RAINJ. inv RAINJ; try congruence.
+      assert ( b1 = b ) by admit. (* inject_sep globals *) subst.
+      erewrite GLOBFUN_INJ in H11; eauto. inv H11.
+      specialize (H5 _ _ (eq_sym H8) _ H7).
+      rewrite Ptrofs.add_zero. auto.
       reflexivity.
 
       econstructor; eauto.

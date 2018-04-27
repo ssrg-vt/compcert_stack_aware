@@ -105,7 +105,7 @@ End WITHGE.
   Inductive initial_state_gen (prog: Asm.program) (rs: regset) m: state -> Prop :=
   | initial_state_gen_intro:
       forall m1 bstack m2 m3
-        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit) = (m1,bstack))
+        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 Mem.stack_limit = (m1,bstack))
         (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
         (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
         let ge := Genv.globalenv prog in

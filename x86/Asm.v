@@ -1346,7 +1346,8 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} (ge:
         (RA_TYPE: Val.has_type (rs RA) Tptr)
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
         (RA_NOT_VUNDEF: rs RA <> Vundef)
-        (TIN: top_tframe_tc (Mem.stack m)),
+        (TIN: top_tframe_tc (Mem.stack m))
+        (SIZERA: size_stack (Mem.stack m) <= Mem.stack_limit - size_chunk Mptr),
         external_call ef ge args m t res m' ->
         Mem.unrecord_stack_block m' = Some m'' ->
         no_rsp_pair (loc_external_result (ef_sig ef)) ->
