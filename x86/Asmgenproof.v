@@ -1025,7 +1025,8 @@ Proof.
   destruct s; simpl. auto.
   destruct s; simpl.
   inv HC.
-  red. intros b o EQ; inv EQ.
+  split. congruence.
+  intros b o EQ; inv EQ.
   edestruct functions_translated as (tf & FFP' & TF); eauto.
   rewrite FFP'. intros f EQ; inv EQ.
   red. simpl in TF. monadInv TF.
@@ -1693,6 +1694,7 @@ apply agree_undef_regs with rs0; eauto.
     eapply parent_ra_def; eauto.
   }
   red. rewrite <- SAMEADT, <- H2. constructor; auto.
+  admit.                        (* needs to be propagated to other semantics. *)
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   unfold loc_external_result.
   clear. destruct (loc_result (ef_sig ef)); simpl; try split;
@@ -1721,7 +1723,7 @@ apply agree_undef_regs with rs0; eauto.
   rewrite_stack_blocks.
   intros. repeat rewrite_perms. apply SAMEPERM.
   eapply in_stack_tl; eauto.
-Qed.
+Admitted.
 
 End WITHINITSPRA.
 
@@ -1803,7 +1805,7 @@ Proof.
     exploit step_simulation. 5: eexact STEP. all: eauto.
     + inversion 1.
     + apply Val.Vnullptr_has_type.
-    + red; inversion 1.
+    + split; inversion 1.
     + intros [(S2' & PLUS & MS')|(MES & TR & MS')].
       * left; eexists; split; eauto. split; auto.
         split.

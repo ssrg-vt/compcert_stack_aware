@@ -35,7 +35,7 @@ Section WITHGE.
         Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) isz) m2
       end
     | Pfreeframe sz ofs_ra =>
-      match Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
+      match loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
       | None => Stuck
       | Some ra =>
         let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 sz) 8)) in
@@ -51,7 +51,8 @@ Section WITHGE.
       | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (rs r)) m
       | _ => Stuck
       end
-    | Pret => Next (rs#PC <- (rs#RA) #RA <- Vundef) m
+    | Pret =>
+      if check_ra_after_call ge (rs#RA) then Next (rs#PC <- (rs#RA) #RA <- Vundef) m else Stuck
     | _ => Asm.exec_instr nil ge f i rs m
     end.
 

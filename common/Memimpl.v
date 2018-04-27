@@ -3942,6 +3942,58 @@ Proof.
   simpl. rewrite ZMap.gi. rewrite decode_val_undef. inversion 1.
 Qed.
 
+
+Lemma getN_undef_not_inj_bytes:
+  forall n o l,
+    (n > 0)%nat ->
+    getN n o (ZMap.init Undef) <> inj_bytes l.
+Proof.
+  intros. destruct n; simpl. omega.
+  rewrite ZMap.gi. destruct l; simpl; inversion 1.
+Qed.
+
+Lemma getN_undef_not_inj_value:
+  forall n o q v,
+    (n > 0)%nat ->
+    getN n o (ZMap.init Undef) <> inj_value q v.
+Proof.
+  intros. destruct n; simpl. omega.
+  rewrite ZMap.gi. destruct q, v; simpl; inversion 1.
+Qed.
+
+Lemma maybe_store_val:
+  forall m1 b o v m2,
+    v <> Vundef ->
+    Val.has_type v Tptr ->
+    loadbytes m1 b o (size_chunk Mptr) = Some (encode_val Mptr v) ->
+    store Mptr m1 b o v = Some m2 -> m1 = m2.
+Proof.
+  unfold loadbytes, store. intros m1 b o v m2 NU HT LOAD STORE. repeat destr_in STORE.
+  destruct m1. simpl. apply mkmem_ext; auto.
+  clear v0. destr_in LOAD. clear r.
+  assert (someinj: forall {A} (a b: A), Some a = Some b -> a = b) by (clear; intros A a b H; inv H; auto). apply someinj in LOAD.
+  Opaque getN.
+  simpl in LOAD.
+  rewrite <- LOAD.
+  unfold PMap.set. rewrite PTree.gsident. apply surjective_pairing.
+  revert LOAD. unfold PMap.get. destr.
+  - intros; f_equal. apply setN_getN_old.
+  - rewrite contents_default'0.
+    intro LOAD. exfalso.
+    assert (nat_of_Z (size_chunk Mptr) > 0)%nat.
+    {
+      unfold Mptr. destr. simpl. vm_compute. omega.
+      simpl. vm_compute. omega.
+    }
+    unfold Tptr in HT. unfold Mptr in *.
+    destruct v; simpl in *; try congruence; destruct Archi.ptr64 eqn:?; destr_in HT.
+    Transparent getN.
+    eapply getN_undef_not_inj_bytes; eauto.
+    eapply getN_undef_not_inj_bytes; eauto.
+    eapply getN_undef_not_inj_value; eauto.
+    eapply getN_undef_not_inj_value; eauto.
+Qed.
+
 (** Preservation of stores. *)
 
 
@@ -9026,7 +9078,7 @@ Proof.
   exact load_store_pointer_overlap.
   exact load_store_pointer_mismatch.
   exact load_pointer_store.
-  exact maybe_store.
+  exact maybe_store_val.
   exact loadbytes_store_same.
   exact loadbytes_store_other.
   exact store_signed_unsigned_8.

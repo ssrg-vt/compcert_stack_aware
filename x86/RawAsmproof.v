@@ -165,6 +165,7 @@ Section WITHMEMORYMODEL.
         (GLOBFUN_INJ: forall b f, Genv.find_funct_ptr ge b = Some f -> j b = Some (b,0))
         (GLOBDEF_INJ: forall b f, Genv.find_def ge b = Some f -> j b = Some (b,0))
         (GLOBSYMB_INJ: meminj_preserves_globals' ge j)
+        (GlobInjInv: forall b1 b2 delta, Plt b2 (Genv.genv_next ge) -> j b1 = Some (b2, delta) -> b1 = b2)
         (GlobLe: (Genv.genv_next ge <= Mem.nextblock m)%positive)
         (GlobLeT: (Genv.genv_next ge <= Mem.nextblock m')%positive)
         (SPinstack: in_stack' (Mem.stack m) (binit_sp, public_frame_info 0)),
@@ -730,6 +731,10 @@ Section WITHMEMORYMODEL.
         rewrite EQ2 in H2.
         eauto.
         auto.
+    - intros. destruct (j b1) eqn:JB1. destruct p.
+      exploit INCR. apply JB1. rewrite H0. intro A; inv A. eauto.
+      destruct (peq b b1). subst. rewrite EQ1 in H0; inv H0.
+      unfold bstack in H. xomega. rewrite EQ2 in H0; eauto.
     - erewrite Mem.record_stack_block_nextblock. 2: eauto.
       erewrite Mem.nextblock_store. 2 : eauto.
       erewrite Mem.nextblock_alloc. 2: eauto. xomega.
@@ -891,6 +896,26 @@ Section WITHMEMORYMODEL.
     apply Z.divide_sub_r. auto.
     apply Z.divide_mul_r. auto. auto.
   Qed.
+
+  Lemma ra_after_call_inj:
+    forall j ostack rs1 m1 rs2 m2,
+      match_states j ostack (State rs1 m1) (State rs2 m2) ->
+      ra_after_call ge (rs1 RA) ->
+      ra_after_call ge (rs2 RA).
+  Proof.
+    red. intros j ostack rs1 m1 rs2 m2 MS (RAU & IAC). inv MS.
+    generalize (RINJ RA). intro RAINJ.
+    split. inv RAINJ; try congruence.
+    intros b o RA2 f0 FFP.
+    rewrite RA2 in RAINJ. inv RAINJ; try congruence.
+    assert ( b1 = b ). eapply GlobInjInv in H2; eauto.
+    unfold Genv.find_funct_ptr in FFP; destr_in FFP.
+    eapply Genv.genv_defs_range. eauto.
+    subst.
+    erewrite GLOBFUN_INJ in H2; eauto. inv H2.
+    specialize (IAC _ _ (eq_sym H) _ FFP).
+    rewrite Ptrofs.add_zero. auto.
+  Qed.
   
   Lemma exec_instr_inject':
     forall j ostack m1 m2 rs1 rs2 f i rs1' m1'
@@ -972,6 +997,7 @@ Section WITHMEMORYMODEL.
       + (* ret *)
         unfold Asm.exec_instr in EI. simpl in EI.
         repeat destr_in EI.
+        rewrite pred_dec_true.
         eexists j,ostack, _, _; split; eauto. split; auto.
         inv MS.
         assert (exists f rprog, lprog = f :: rprog).
@@ -1011,7 +1037,8 @@ Section WITHMEMORYMODEL.
         * rewnb. auto.
         * rewrite_stack_blocks. revert EQ. inv t. inversion 1; subst. rewrite <- H in SPinstack. simpl.
           simpl in SPinstack. destruct SPinstack. red in H1. rewrite H0 in H1; easy. auto.
-
+        * eapply ra_after_call_inj; eauto.
+                    
      + (* allocframe *)
        clear ISUNCH.
        unfold Asm.exec_instr in EI; simpl in EI.
@@ -1737,6 +1764,12 @@ Section WITHMEMORYMODEL.
         auto.
         unfold Mem.valid_block in NV1. xomega.
         unfold Mem.valid_block in NV2. xomega.
+      + intros.
+        destruct (j b1) eqn:JB1.
+        destruct p.
+        exploit INCR; eauto. rewrite H8; intro X; inv X.
+        eauto.
+        exploit SEP; eauto. unfold Mem.valid_block; rewnb. xomega.
       + etransitivity. apply GlobLe. fold Ple. rewnb. xomega.
       + etransitivity. apply GlobLeT. fold Ple. rewnb. xomega.
       + repeat rewrite_stack_blocks. simpl; eauto.
@@ -1827,7 +1860,7 @@ Section WITHMEMORYMODEL.
       apply StoreInj.
       eauto. 
       generalize (RINJ PC); rewrite H.
-      intro VINJ; inv VINJ. rename H9 into JB2. rename H8 into EQ.
+      intro VINJ; inv VINJ. rename H9 into JB2. rename H8 into EQofs.
       assert (j b = Some (b,0)) as JB.
       {
         eapply GLOBFUN_INJ. eauto.
@@ -1854,13 +1887,7 @@ Section WITHMEMORYMODEL.
       generalize (RINJ RA). destruct (rs RA); simpl in *; inversion 1; subst; try congruence.
       rewrite RSPEQ. simpl. eauto.
       eauto. eauto.
-      move H5 at bottom.
-      red. intros.
-      generalize (RINJ RA). rewrite H6. intro RAINJ. inv RAINJ; try congruence.
-      assert ( b1 = b ) by admit. (* inject_sep globals *) subst.
-      erewrite GLOBFUN_INJ in H11; eauto. inv H11.
-      specialize (H5 _ _ (eq_sym H8) _ H7).
-      rewrite Ptrofs.add_zero. auto.
+      eapply ra_after_call_inj; eauto.
       reflexivity.
 
       econstructor; eauto.
@@ -1868,8 +1895,7 @@ Section WITHMEMORYMODEL.
         instantiate (1 := tl lprog).
         destruct lprog. inv TIN. exfalso.
         revert init_sp_ptr; unfold init_sp; simpl in STK; rewrite <- STK. rewrite <- H6.
-        simpl; unfold current_frame_sp; simpl. rewrite H7; 
-        inversion 1.
+        simpl; unfold current_frame_sp; simpl. rewrite H7. inversion 1.
         revert EQ; rewrite_stack_blocks. intro A; rewrite A. simpl.
         rewrite STK in A. simpl in A ; inv A. auto.
       + destruct lprog; simpl; try reflexivity.
@@ -1884,8 +1910,8 @@ Section WITHMEMORYMODEL.
         rewrite Asmgenproof0.undef_regs_other.
         eauto.
         intros ? INR; intro; subst. rewrite in_map_iff in INR.
-        destruct INR as (x & EQ & IN).
-        apply preg_of_not_rsp in EQ. congruence.
+        destruct INR as (x & EQ1 & IN).
+        apply preg_of_not_rsp in EQ1. congruence.
         intros; intro; subst. clear - H6; simpl in *; intuition congruence.
         auto.
       + intros; apply val_inject_set.
@@ -1925,16 +1951,16 @@ Section WITHMEMORYMODEL.
         eapply Mem.perm_max in H6.
         eapply external_call_max_perm in H6.
         2: eauto.
-        eauto. eauto.
+        revert H6. rewrite_perms. eauto.
+        red; rewnb. eauto.
       + red.
         intros.
         eapply ec_perm_unchanged. eapply external_call_spec. eauto.
-        eauto.
-        intros. eapply PBS in H7. destruct H7.  intro A; inv A; inv H9.
-        eauto.
+        red; rewnb; eauto.
+        intros. revert H7. rewrite_perms. intro. eapply PBS in H7. destruct H7.  intro A; inv A; inv H8.
+        rewrite_perms. eauto.
       + red.
-        erewrite <- external_call_stack_blocks. 2: eauto.
-        eauto.
+        repeat rewrite_stack_blocks. eauto.
       + repeat rewrite Pregmap.gso by (congruence). 
         rewrite set_pair_no_rsp.
         rewrite Asmgenproof0.undef_regs_other.
@@ -1955,7 +1981,7 @@ Section WITHMEMORYMODEL.
           eapply Mem.valid_block_inject_1; eauto.
           eapply Mem.unrecord_stack_block_perm; eauto. rewrite <- H6. rewrite in_stack_cons.
           unfold in_frames; rewrite H7. intuition.
-        * exploit SEP. eauto. eauto. intuition congruence.
+        * exploit SEP. eauto. eauto. unfold Mem.valid_block; rewnb. intuition congruence.
       + eapply inject_stack_incr; eauto.
         repeat rewrite_stack_blocks. inv IS. constructor. simpl.
         eapply perm_stack_inv. eauto.
@@ -1968,8 +1994,8 @@ Section WITHMEMORYMODEL.
       + red.
         repeat rewrite_stack_blocks.
         intros b fi delta INS J'B b' o delta' k p J'B' PERM.
-        exploit inj_incr_sep_same. eauto. eauto. apply J'B. auto.
-        exploit inj_incr_sep_same. eauto. eauto. apply J'B'. auto.
+        exploit inj_incr_sep_same. eauto. eauto. apply J'B. red; rewnb; auto.
+        exploit inj_incr_sep_same. eauto. eauto. apply J'B'. red; rewnb; auto.
         intros.
         eapply IP; eauto.
         revert INS. inv TIN. simpl. auto.
@@ -1983,15 +2009,21 @@ Section WITHMEMORYMODEL.
         intros.
         destruct (j b1) eqn:JB1.
         destruct p.
-        exploit INCR; eauto. rewrite H9; intro X; inv X.
+        exploit INCR; eauto. rewrite H8; intro X; inv X.
         eauto.
         exploit SEP; eauto. intros (NV1 & NV2).
         simpl; unfold Genv.block_is_volatile.
         rewrite ! find_var_info_none_ge.
         auto.
         unfold Mem.valid_block in NV1. xomega.
-        unfold Mem.valid_block in NV2.
-        xomega. 
+        unfold Mem.valid_block in NV2. revert NV2; rewnb.
+        intros. xomega. 
+      + intros.
+        destruct (j b1) eqn:JB1.
+        destruct p.
+        exploit INCR; eauto. rewrite H7; intro X; inv X.
+        eauto.
+        exploit SEP; eauto. unfold Mem.valid_block; rewnb. xomega.
       + etransitivity. apply GlobLe. fold Ple; rewnb; xomega.
       + etransitivity. apply GlobLeT. fold Ple; rewnb; xomega.
       + repeat rewrite_stack_blocks. revert SPinstack. inv TIN. simpl.
@@ -2174,6 +2206,9 @@ End PRESERVATION.
       rewrite F'B in FB; inv FB; auto.
       rewrite F'O in FB; auto.
       unfold Mem.flat_inj in FB; repeat destr_in FB; auto.
+    - intros b1 b2 delta PLT FB. rewrite F'O in FB. unfold Mem.flat_inj in FB. destr_in FB.
+      intro; subst.
+      rewrite F'B in FB. inv FB. unfold bstack in PLT. xomega.
     - rewnb. fold ge. xomega.
     - rewnb. fold ge. xomega.
     - repeat rewrite_stack_blocks. simpl. right; left; left. simpl. reflexivity.

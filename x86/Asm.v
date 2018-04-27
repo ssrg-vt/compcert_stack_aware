@@ -792,7 +792,7 @@ Proof.
 Qed.
 
 Definition ra_after_call (ge: Genv.t fundef unit) v:=
-  forall b o,
+  v <> Vundef /\ forall b o,
     v = Vptr b o ->
     forall f,
       Genv.find_funct_ptr ge b = Some f ->
@@ -802,13 +802,31 @@ Definition check_ra_after_call (ge: Genv.t fundef unit) v:
   {ra_after_call ge v} + { ~ ra_after_call ge v}.
 Proof.
   unfold ra_after_call.
-  destruct v; try now (left; intros; congruence).
+  destruct v; try now (left; split; intros; congruence).
+  right; intuition congruence.
   destruct (Genv.find_funct_ptr ge b) eqn:FFP.
-  2: left; intros b0 o A; inv A; rewrite FFP; congruence.
+  2: left; split; [congruence|]; intros b0 o A; inv A; rewrite FFP; congruence.
   destruct (check_is_after_call f (Ptrofs.unsigned i)).
-  left;  intros b0 o A; inv A; rewrite FFP; congruence.
-  right; intro A; specialize (A _ _ eq_refl _ FFP). congruence.
+  left. split. congruence. intros b0 o A; inv A; rewrite FFP; congruence.
+  right; intros (B & A); specialize (A _ _ eq_refl _ FFP). congruence.
 Qed.
+
+Definition encoded_ra (l: list memval) : option val :=
+  match proj_bytes l with
+  | Some bl => Some (Vptrofs (Ptrofs.repr (decode_int bl)))
+  | None => is_ptr (Val.load_result Mptr (proj_value (quantity_chunk Mptr) l))
+  end.
+
+Definition loadbytesv chunk m addr :=
+  match addr with
+    Vptr b o =>
+    match Mem.loadbytes m b (Ptrofs.unsigned o) (size_chunk chunk) with
+    | Some bytes => encoded_ra bytes
+    | None => None
+    end
+  | _ => None
+  end.
+
 
 Definition exec_instr
            {exec_load exec_store} `{!MemAccessors exec_load exec_store}
@@ -1171,7 +1189,7 @@ Definition exec_instr
       do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi (frame_size fi));
       Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- (Vptr b Ptrofs.zero)) sz) m3
   | Pfreeframe sz' ofs_ra =>
-      do ra <- Mem.loadv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
+      do ra <- loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
         match rs#RSP with
         | Vptr stk ofs =>
           check (check_top_frame m (Some stk) sz');
