@@ -616,6 +616,11 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   (v = Vptr v_b v_o /\ compat_pointer_chunks chunk chunk' /\ b' = b /\ ofs' = ofs)
   \/ (b' <> b \/ ofs' + size_chunk chunk' <= ofs \/ ofs + size_chunk chunk <= ofs');
 
+ store_same_ptr:
+   forall m1 b1 o1 b o m2,
+     load Mptr m1 b1 o1 = Some (Vptr b o) ->
+     store Mptr m1 b1 o1 (Vptr b o) = Some m2 -> m1 = m2;
+
 (** Load-store properties for [loadbytes]. *)
 
  loadbytes_store_same:
@@ -3109,6 +3114,14 @@ Qed.
       eapply push_new_stage_perm. auto.
   Qed.
 
+  Lemma storev_same_ptr:
+   forall m1 addr b o m2,
+     loadv Mptr m1 addr = Some (Vptr b o) ->
+     storev Mptr m1 addr (Vptr b o) = Some m2 -> m1 = m2.
+  Proof.
+    unfold loadv, storev. intros. repeat destr_in H.
+    eapply store_same_ptr; eauto.
+  Qed.
 
 End WITHMEMORYMODEL.
 

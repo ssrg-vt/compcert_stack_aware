@@ -101,7 +101,7 @@ Section WITHMEMORYMODEL.
       (rs1 rs2: regset) m1 m2
       (REQ: forall r : preg, r <> RSP -> r <> RA -> rs1 r = rs2 r)
       (RRSP: rs1 RSP = Val.offset_ptr (rs2 RSP) (Ptrofs.repr (size_chunk Mptr)))
-      (MEQ: maybe_storev Mptr m1 (rs2 RSP) (rs1 RA) = Some m2)
+      (MEQ: Mem.storev Mptr m1 (rs2 RSP) (rs1 RA) = Some m2)
       f ialloc
       (PC1: pc_at (State rs1 m1) = Some (inl (f,ialloc)))
       (ALLOC: is_alloc ialloc):
@@ -110,7 +110,7 @@ Section WITHMEMORYMODEL.
       (rs1 rs2: regset) m1 m2
       (REQ: forall r : preg, r <> RSP -> r <> RA -> rs1 r = rs2 r)
       (RRSP: rs1 RSP = Val.offset_ptr (rs2 RSP) (Ptrofs.repr (size_chunk Mptr)))
-      (MEQ: maybe_storev Mptr m1 (rs2 RSP) (rs1 RA) = Some m2)
+      (MEQ: Mem.storev Mptr m1 (rs2 RSP) (rs1 RA) = Some m2)
       ef
       (PC1: pc_at (State rs1 m1) = Some (inr ef)):
       match_states (State rs1 m1) (State rs2 m2)
@@ -359,7 +359,7 @@ Section WITHMEMORYMODEL.
       ef
       (PCAT: pc_at s = Some (inr ef)),
     exists m2,
-      maybe_storev Mptr (m_state s) (Val.offset_ptr (rs_state s RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))
+      Mem.storev Mptr (m_state s) (Val.offset_ptr (rs_state s RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))
                  (rs_state s RA) = Some m2.
   Proof.
     unfold pc_at; intros s t s'  STEP; inv STEP; rewrite H, H0; try now destr.
@@ -681,7 +681,7 @@ Section WITHMEMORYMODEL.
       eapply exec_step_internal.
       rewrite <- REQ by congruence. eauto. eauto. eauto.
       simpl. eauto.
-      unfold maybe_storev in MEQ. destr_in MEQ.
+      unfold Mem.storev in MEQ. destr_in MEQ.
       unfold Mem.loadv in Heqo2; destr_in Heqo2; eauto.
     - simpl in PC1. repeat destr_in PC1.
       inv STEP; rewrite_hyps.
@@ -690,15 +690,15 @@ Section WITHMEMORYMODEL.
       {
         rewrite RRSP in SZRA.
         rewrite offset_ptr_cancel in SZRA. congruence.
-        unfold maybe_storev in MEQ. destr_in MEQ.
+        unfold Mem.storev in MEQ. destr_in MEQ.
         unfold Mem.loadv in Heqo0; destr_in Heqo0; eauto.
       } subst.
       eapply extcall_progress; eauto.
       assert (exists b o, rs2 RSP = Vptr b o).
       {
-        unfold maybe_storev, Mem.loadv in MEQ. destruct (rs2 RSP); simpl in *; try congruence. eauto.
+        unfold Mem.storev, Mem.loadv in MEQ. destruct (rs2 RSP); simpl in *; try congruence. eauto.
       }
-      unfold maybe_storev in SZRA. destr_in SZRA.
+      unfold Mem.storev in SZRA. destr_in SZRA.
       rewrite RRSP in Heqo0. rewrite offset_ptr_cancel in Heqo0; eauto. destr_in SZRA.
       rewrite RRSP in SZRA. rewrite offset_ptr_cancel in SZRA; eauto.
       destruct H as (b & o & RSP2); rewrite RSP2 in *. simpl in *.
@@ -1175,7 +1175,7 @@ Section WITHMEMORYMODEL.
       simpl. force_rewrite_match MEQ. eauto. f_equal.
       rewrite RRSP.
       eapply wf_asm_wf_allocframe in Heqo0; eauto. inv Heqo0.
-      unfold maybe_storev, Mem.loadv in MEQ. destruct (rs2 RSP); simpl in *; try congruence.
+      unfold Mem.storev, Mem.loadv in MEQ. destruct (rs2 RSP); simpl in *; try congruence.
       f_equal. apply ptrofs_cancel.
       eapply match_states_normal.
       constructor. intros. apply nextinstr_eq.
@@ -1213,12 +1213,12 @@ Section WITHMEMORYMODEL.
       inv STEP; rewrite_hyps.
       assert (exists b o, rs2 RSP = Vptr b o).
       {
-        unfold maybe_storev, Mem.loadv in MEQ. destruct (rs2 RSP); simpl in *; try congruence. eauto.
+        unfold Mem.storev, Mem.loadv in MEQ. destruct (rs2 RSP); simpl in *; try congruence. eauto.
       }
       destruct H as (b & o & RSP2).
       assert (rs1 RA = ra /\ Val.has_type ra Tptr).
       {
-        unfold maybe_storev in MEQ. destr_in MEQ.
+        unfold Mem.storev in MEQ. destr_in MEQ.
         split. destr_in MEQ.
         rewrite RSP2 in *. simpl in *.
         erewrite Mem.load_store_same in LOADRA; eauto. inv LOADRA.
@@ -1285,13 +1285,13 @@ Section WITHMEMORYMODEL.
         * eapply match_states_call_alloc.
           intros. apply set_reg_eq; auto.
           simpl_regs. auto.
-          simpl_regs.  unfold maybe_storev. rewrite MEQ. destr.
+          simpl_regs.  unfold Mem.storev. rewrite MEQ. destr.
           simpl. rewrite FFP.
           erewrite wf_asm_alloc_at_beginning; eauto. constructor.
         * eapply match_states_call_external.
           intros. apply set_reg_eq; auto.
           simpl_regs. auto.
-          simpl_regs.  unfold maybe_storev. rewrite MEQ. destr.
+          simpl_regs.  unfold Mem.storev. rewrite MEQ. destr.
           simpl. rewrite FFP. eauto.
       + simpl in H6. destr_in H6. inv H6.
         eexists; split. eapply RawAsm.exec_step_internal. rewrite REQ by congruence; eauto. eauto. eauto.
@@ -1302,13 +1302,13 @@ Section WITHMEMORYMODEL.
         * eapply match_states_call_alloc.
           intros. apply set_reg_eq; auto.
           simpl_regs. auto.
-          simpl_regs.  unfold maybe_storev. rewrite MEQ. destr.
+          simpl_regs.  unfold Mem.storev. rewrite MEQ. destr.
           simpl. simpl_regs. rewrite H0.
           erewrite wf_asm_alloc_at_beginning; eauto. constructor.
         * eapply match_states_call_external.
           intros. apply set_reg_eq; auto.
           simpl_regs. auto.
-          simpl_regs.  unfold maybe_storev. rewrite MEQ. destr.
+          simpl_regs.  unfold Mem.storev. rewrite MEQ. destr.
           simpl. rewrite H0. eauto.
     - inv STEP; simpl in *; rewrite H, H0, ? H1 in PC1.
       + destruct (is_call_dec i).
@@ -1328,7 +1328,7 @@ Section WITHMEMORYMODEL.
             rewrite REQ; auto. congruence.
             simpl_regs. rewrite REQ by congruence.
             etransitivity. symmetry; apply offset_ptr_cancel.
-            unfold maybe_storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
+            unfold Mem.storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
             f_equal. apply Ptrofs.neg_involutive.
             simpl_regs.  rewrite REQ by congruence. auto.
             simpl. rewrite FFP.
@@ -1338,7 +1338,7 @@ Section WITHMEMORYMODEL.
             rewrite REQ; auto. congruence.
             simpl_regs. rewrite REQ by congruence.
             etransitivity. symmetry; apply offset_ptr_cancel.
-            unfold maybe_storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
+            unfold Mem.storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
             f_equal. apply Ptrofs.neg_involutive.
             simpl_regs.  rewrite REQ by congruence; auto.
             simpl. rewrite FFP. eauto.
@@ -1363,7 +1363,7 @@ Section WITHMEMORYMODEL.
             rewrite REQ by congruence; auto. rewrite <- REQ by congruence; auto.
             simpl_regs. rewrite REQ by congruence.
             etransitivity. symmetry; apply offset_ptr_cancel.
-            unfold maybe_storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
+            unfold Mem.storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
             f_equal. apply Ptrofs.neg_involutive.
             simpl_regs.  rewrite REQ by congruence; auto.
             simpl. rewrite H5.
@@ -1373,7 +1373,7 @@ Section WITHMEMORYMODEL.
             rewrite REQ by congruence; auto. rewrite <- REQ by congruence; auto.
             simpl_regs. rewrite REQ by congruence.
             etransitivity. symmetry; apply offset_ptr_cancel.
-            unfold maybe_storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
+            unfold Mem.storev, Mem.loadv in Heqo. destruct (rs0 RSP); simpl in *; try congruence; eauto.
             f_equal. apply Ptrofs.neg_involutive.
             simpl_regs. rewrite REQ by congruence; auto.
             simpl. rewrite H5. eauto.
@@ -1489,7 +1489,7 @@ Section WITHMEMORYMODEL.
       intros.
       red. rewrite_stack_blocks. intro. left. unfold is_stack_top. simpl. auto.
       eexists; econstructor. eauto. econstructor; eauto.
-      unfold maybe_storev.
+      unfold Mem.storev.
       simpl. erewrite Mem.load_unchanged_on. rewrite pred_dec_false. rewrite Ptrofs.unsigned_repr. eauto. 
       generalize stack_limit_range'. generalize (size_chunk_pos Mptr). omega.
       Focus 2. eapply Mem.strong_unchanged_on_weak, Mem.record_stack_block_unchanged_on. eauto.

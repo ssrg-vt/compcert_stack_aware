@@ -24,18 +24,12 @@ Section WITHMEMORYMODEL.
 Section WITHGE.
   Variable ge : Genv.t Asm.fundef unit.
 
-  Definition maybe_storev chunk m addr v : option mem :=
-    match Mem.loadv chunk m addr with
-    | Some v' => if Val.eq v v' then Some m else Mem.storev chunk m addr v
-    | None => None
-    end.
-  
   Definition exec_instr f i rs (m: mem) :=
     let isz := Ptrofs.repr (Asm.instr_size i) in
     match i with
     | Pallocframe fi ofs_ra =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (align (frame_size fi) 8))) in
-      match maybe_storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
+      match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
       | None => Stuck
       | Some m2 =>
         Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) isz) m2
@@ -90,7 +84,7 @@ Section WITHGE.
           (RA_TYPE: Val.has_type (rs RA) Tptr)
           (SP_NOT_VUNDEF: rs RSP <> Vundef)
           (RA_NOT_VUNDEF: rs RA <> Vundef)
-          (SZRA: maybe_storev Mptr m (Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))
+          (SZRA: Mem.storev Mptr m (Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))
                             (rs RA) = Some m2)
           (ARGS: extcall_arguments rs m2 (ef_sig ef) args),
           external_call ef ge args m2 t res m' ->

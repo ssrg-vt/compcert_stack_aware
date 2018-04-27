@@ -426,31 +426,6 @@ Section WITHMEMORYMODEL.
     apply frame_size_pos.
   Qed.
 
-  Lemma maybe_storev_inject:
-    forall j g m1 m1' m2 chunk addr addr' v,
-      Mem.inject j g m1 m1' ->
-      maybe_storev chunk m1 addr v = Some m2 ->
-      Val.inject j addr addr' ->
-      v <> Vundef ->
-      Val.inject j v v ->
-      exists m2', maybe_storev chunk m1' addr' v = Some m2' /\ Mem.inject j g m2 m2'.
-  Proof.
-    unfold maybe_storev. intros j g m1 m1' m2 chunk addr addr' v MINJ MS ADDRinj NU Vinj.
-    destr_in MS.
-    edestruct Mem.loadv_inject as (v2 & LOADV & Vinj2); eauto. rewrite LOADV.
-    repeat destr_in MS.
-    - rewrite pred_dec_true. eexists; split; eauto.
-      inv Vinj; inv Vinj2; auto. rewrite H2 in H1; inv H1. rewrite <- H3. auto. congruence.
-    - destr. subst.
-      2: eapply Mem.storev_mapped_inject; eauto.
-      eexists; split; eauto.
-      intro; subst.
-      inv Vinj; inv Vinj2; auto. rewrite H2 in H1; inv H1. rewrite <- H3. auto. congruence.
-    - 
-
-
-  Qed.
-  
  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4 sz,
       match_states j (Ptrofs.unsigned ostack) (State rs1 m1) (State rs1' m1') ->

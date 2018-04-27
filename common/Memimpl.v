@@ -142,6 +142,8 @@ Record mem' : Type := mkmem {
     forall b ofs k, ~(Plt b nextblock) -> mem_access#b ofs k = None;
   contents_default:
     forall b, fst mem_contents#b = Undef;
+  contents_default':
+    fst mem_contents = ZMap.init Undef;
   stack:
     StackADT.stack;
   mem_stack_inv:
@@ -156,10 +158,10 @@ Definition mem := mem'.
 
 Lemma mkmem_ext:
   forall cont1 cont2 acc1 acc2 next1 next2
-    a1 a2 b1 b2 c1 c2 adt1 adt2 sinv1 sinv2 bnd1 bnd2 bndpf1 bndpf2,
+    a1 a2 b1 b2 c1 c2 c1' c2' adt1 adt2 sinv1 sinv2 bnd1 bnd2 bndpf1 bndpf2,
   cont1=cont2 -> acc1=acc2 -> next1=next2 -> adt1 = adt2 -> bnd1 = bnd2 ->
-  mkmem cont1 acc1 next1 a1 b1 c1 adt1 sinv1 bnd1 bndpf1 =
-  mkmem cont2 acc2 next2 a2 b2 c2 adt2 sinv2 bnd2 bndpf2.
+  mkmem cont1 acc1 next1 a1 b1 c1 c1' adt1 sinv1 bnd1 bndpf1 =
+  mkmem cont2 acc2 next2 a2 b2 c2 c2' adt2 sinv2 bnd2 bndpf2.
 Proof.
   intros. subst. f_equal; apply proof_irr.
 Qed.
@@ -450,7 +452,7 @@ Hint Resolve stack_norepet stack_perm.
 Program Definition empty: mem :=
   mkmem (PMap.init (ZMap.init Undef))
         (PMap.init (fun ofs k => None))
-        1%positive _ _ _ nil _ (PMap.init (0,0)) _.
+        1%positive _ _ _ _ nil _ (PMap.init (0,0)) _.
 Next Obligation.
   repeat rewrite PMap.gi. red; auto.
 Qed.
@@ -532,7 +534,7 @@ Program Definition alloc (m: mem) (lo hi: Z) : (mem * block) :=
                    (fun ofs k => if zle lo ofs && zlt ofs hi then Some Freeable else None)
                    m.(mem_access))
          (Psucc m.(nextblock))
-         _ _ _ 
+         _ _ _ _
          (stack m) _ (PMap.set m.(nextblock) (lo,hi) m.(mem_bounds)) _,
    m.(nextblock)).
 Next Obligation.
@@ -548,6 +550,9 @@ Next Obligation.
 Qed.
 Next Obligation.
   rewrite PMap.gsspec. destruct (peq b (nextblock m)). auto. apply contents_default.
+Qed.
+Next Obligation.
+  apply contents_default'.
 Qed.
 Next Obligation.
   apply stack_inv_alloc.
@@ -588,7 +593,7 @@ Program Definition unchecked_free (m: mem) (b: block) (lo hi: Z): mem :=
         (PMap.set b
                 (fun ofs k => if zle lo ofs && zlt ofs hi then None else m.(mem_access)#b ofs k)
                 m.(mem_access))
-        m.(nextblock) _ _ _ (stack m) _ m.(mem_bounds) _.
+        m.(nextblock) _ _ _ _ (stack m) _ m.(mem_bounds) _.
 Next Obligation.
   repeat rewrite PMap.gsspec. destruct (peq b0 b).
   destruct (zle lo ofs && zlt ofs hi). red; auto. apply access_max.
@@ -601,6 +606,9 @@ Next Obligation.
 Qed.
 Next Obligation.
   apply contents_default.
+Qed.
+Next Obligation.
+  apply contents_default'.
 Qed.
 Next Obligation.
   apply stack_inv_free.
@@ -761,7 +769,7 @@ Program Definition store (chunk: memory_chunk) (m: mem) (b: block) (ofs: Z) (v: 
                           m.(mem_contents))
                 m.(mem_access)
                 m.(nextblock)
-                _ _ _ (stack m) _ m.(mem_bounds) _)
+                _ _ _ _ (stack m) _ m.(mem_bounds) _)
   else
     None.
 Next Obligation. apply access_max. Qed.
@@ -770,6 +778,9 @@ Next Obligation.
   rewrite PMap.gsspec. destruct (peq b0 b).
   rewrite setN_default. apply contents_default.
   apply contents_default.
+Qed.
+Next Obligation.
+  apply contents_default'.
 Qed.
 Next Obligation.
   destruct m; eauto.
@@ -798,7 +809,7 @@ Program Definition storebytes (m: mem) (b: block) (ofs: Z) (bytes: list memval) 
              (PMap.set b (setN bytes ofs (m.(mem_contents)#b)) m.(mem_contents))
              m.(mem_access)
              m.(nextblock)
-                 _ _ _ (stack m) _ m.(mem_bounds) _)
+                 _ _ _ _ (stack m) _ m.(mem_bounds) _)
     else None
   else
     None.
@@ -808,6 +819,9 @@ Next Obligation.
   rewrite PMap.gsspec. destruct (peq b0 b).
   rewrite setN_default. apply contents_default.
   apply contents_default.
+Qed.
+Next Obligation.
+  apply contents_default'.
 Qed.
 Next Obligation.
   destruct m; auto.
@@ -827,7 +841,7 @@ Program Definition drop_perm (m: mem) (b: block) (lo hi: Z) (p: permission): opt
                 (PMap.set b
                         (fun ofs k => if zle lo ofs && zlt ofs hi then Some p else m.(mem_access)#b ofs k)
                         m.(mem_access))
-                m.(nextblock) _ _ _ (stack m) _  m.(mem_bounds) _)
+                m.(nextblock) _ _ _ _ (stack m) _  m.(mem_bounds) _)
   else None.
 Next Obligation.
   repeat rewrite PMap.gsspec. destruct (peq b0 b). subst b0.
@@ -844,6 +858,9 @@ Next Obligation.
 Qed.
 Next Obligation.
   apply contents_default.
+Qed.
+Next Obligation.
+  apply contents_default'.
 Qed.
 Next Obligation.
   apply stack_inv_free; auto.
@@ -1323,6 +1340,7 @@ Program Definition record_stack_blocks (m: mem) (f: frame_adt) : option mem :=
                               (access_max m)
                               (nextblock_noaccess m)
                               (contents_default m)
+                              (contents_default' m)
                               s
                               (* (valid_frames_add _ _ _ (stack_valid m) _) *)
                               (* (nodup_add _ _ (stack_norepet m) _) *)
@@ -1354,6 +1372,7 @@ Program Definition push_new_stage (m: mem) : mem :=
          (access_max m)
          (nextblock_noaccess m)
          (contents_default m)
+         (contents_default' m)
          ((None,nil)::stack m)
          _
          (mem_bounds m)
@@ -1486,6 +1505,7 @@ Program Definition tailcall_stage (m: mem) : option mem :=
                           (access_max m)
                           (nextblock_noaccess m)
                           (contents_default m)
+                          (contents_default' m)
                           s'
                           _
                           (mem_bounds m)
@@ -1542,6 +1562,7 @@ Definition unrecord_stack_block (m: mem) : option mem :=
                         (access_max m)
                         (nextblock_noaccess m)
                         (contents_default m)
+                        (contents_default' m)
                         (tl (stack m))
                         (mem_stack_inv_tl _)
                         (mem_bounds m)
@@ -3856,22 +3877,94 @@ Proof.
   rewrite nat_of_Z_neg. simpl. red; intros; omegaContradiction. omega.
 Qed.
 
-Lemma maybe_store:
-  forall chunk m1 b1 o1 v m2,
+Lemma proj_value_is_inj_value:
+  forall q t v,
+    proj_value q t = v ->
     v <> Vundef ->
-    load chunk m1 b1 o1 = Some v ->
-    store chunk m1 b1 o1 v = Some m2 -> m1 = m2.
+    t = inj_value q v.
 Proof.
-  unfold load, store. intros. repeat destr_in H0.
-  repeat destr_in H1.
-  destruct m1. simpl. apply mkmem_ext; auto. simpl in *.
-  unfold PMap.set. rewrite PTree.gsident. apply surjective_pairing.
-  
-
+  unfold proj_value.
+  intros.  repeat destr_in H.
+  unfold inj_value.
+  destruct q; simpl in *;
+    repeat match goal with
+           | H: andb _ _ = true |- _ => rewrite andb_true_iff in H; destruct H
+           | H: proj_sumbool (quantity_eq ?q1 ?q2) = true |- _ =>
+             destruct (quantity_eq q1 q2); simpl in H; try congruence; subst
+           | H: proj_sumbool (Val.eq ?q1 ?q2) = true |- _ =>
+             destruct (Val.eq q1 q2); simpl in H; try congruence; subst
+           | H: context [match ?a with _ => _ end] |- _ => destruct a eqn:?; simpl in *; intuition try congruence
+           end.
 Qed.
 
 
+Lemma setN_getN_old:
+  forall l o t,
+    t = setN (getN l o t) o t.
+Proof.
+  induction l; simpl; intros. auto.
+  destr.
+Qed.
+
+Lemma maybe_store:
+  forall m1 b1 o1 b o m2,
+    load Mptr m1 b1 o1 = Some (Vptr b o) ->
+    store Mptr m1 b1 o1 (Vptr b o) = Some m2 -> m1 = m2.
+Proof.
+  unfold load, store. intros. repeat destr_in H.
+  repeat destr_in H0.
+  destruct m1. simpl. apply mkmem_ext; auto. simpl in *.
+  clear v v0.
+  unfold PMap.set. rewrite PTree.gsident. apply surjective_pairing.
+  revert H2. unfold PMap.get. destr.
+  intro DV.
+  assert (Val.load_result Mptr (proj_value (quantity_chunk Mptr) (getN (size_chunk_nat Mptr) o1 t)) = Vptr b o).
+  revert DV. unfold decode_val.
+  destr. repeat destr. clear DV. 
+  assert (proj_value (quantity_chunk Mptr) (getN (size_chunk_nat Mptr) o1 t) = Vptr b o).
+  {
+    unfold Val.load_result in H. 
+    destruct (proj_value (quantity_chunk Mptr) (getN (size_chunk_nat Mptr) o1 t)) eqn:PV;
+      simpl in H; repeat destr_in H. 
+  }
+  clear H.
+  assert (getN (size_chunk_nat Mptr) o1 t = inj_value (quantity_chunk Mptr) (Vptr b o)).
+  {
+    apply proj_value_is_inj_value; congruence.
+  }
+  f_equal.
+  unfold Mptr in *.
+  destruct Archi.ptr64 eqn:ARCHI; simpl quantity_chunk in H; rewrite <- H.
+  apply setN_getN_old.
+  apply setN_getN_old.
+  rewrite contents_default'0. 
+  destruct (size_chunk_nat Mptr). simpl. inversion 1.
+  simpl. rewrite ZMap.gi. rewrite decode_val_undef. inversion 1.
+Qed.
+
 (** Preservation of stores. *)
+
+
+Lemma val_inject_eq:
+  forall f v1 v2 v2',
+    Val.inject f v1 v2 ->
+    Val.inject f v1 v2' ->
+    v1 = Vundef \/ v2 = v2'.
+Proof.
+  intros f v1 v2 v2' VI1 VI2; inv VI1; inv VI2; auto.
+  rewrite H in H2; inv H2. right. auto.
+Qed.
+
+Lemma memval_inject_eq:
+  forall f m1 m2 m2',
+    memval_inject f m1 m2 ->
+    memval_inject f m1 m2' ->
+    m1 = Undef \/ (exists q n, m1 = Fragment Vundef q n) \/ m2 = m2'.
+Proof.
+  intros f m1 m2 m2' MI1 MI2; inv MI1; inv MI2; eauto.
+  exploit val_inject_eq. apply H. apply H4. 
+  intuition subst; eauto.
+Qed.
 
 Lemma setN_inj:
   forall (access: Z -> Prop) delta f vl1 vl2,
@@ -3885,11 +3978,18 @@ Proof.
   auto.
   replace (p + delta + 1) with ((p + 1) + delta) by omega.
   apply IHlist_forall2; auto.
-  intros. rewrite ZMap.gsspec at 1. destruct (ZIndexed.eq q0 p). subst q0.
+  intros.
+  destr. subst.
+  destr. eauto. rewrite ZMap.gsspec. destr. assert (q0 = p) by omega. subst.
+  auto. eauto.
+  destr. subst.
+  rewrite ZMap.gsspec at 1.
+  destruct (ZIndexed.eq q0 p). subst q0. auto. auto.
+  rewrite ZMap.gsspec at 1.
+  destruct (ZIndexed.eq q0 p). subst q0.
   rewrite ZMap.gss. auto.
   rewrite ZMap.gso. auto. unfold ZIndexed.t in *. omega.
 Qed.
-
 
 Lemma store_stack:
   forall chunk m1 b1 ofs v1 n1,
@@ -4935,7 +5035,15 @@ Proof.
   - apply H; auto. simpl. omega.
   - simpl length in H1; rewrite inj_S in H1.
     apply IHlist_forall2; auto.
-    intros. rewrite ! ZMap.gsspec. destruct (ZIndexed.eq i p). auto.
+    intros.
+    repeat destr; subst; eauto.
+    destruct (zeq i p). subst; eauto.
+    apply H1; auto. unfold ZIndexed.t in *; omega.
+    rewrite ! ZMap.gsspec. destruct (ZIndexed.eq i p). subst. auto.
+    apply H1; auto. unfold ZIndexed.t in *; omega.
+    rewrite ! ZMap.gsspec. destruct (ZIndexed.eq i p). subst. auto.
+    apply H1; auto. unfold ZIndexed.t in *; omega.
+    rewrite ! ZMap.gsspec. destruct (ZIndexed.eq i p). subst. auto.
     apply H1; auto. unfold ZIndexed.t in *; omega.
   }
   intros.
@@ -8918,6 +9026,7 @@ Proof.
   exact load_store_pointer_overlap.
   exact load_store_pointer_mismatch.
   exact load_pointer_store.
+  exact maybe_store.
   exact loadbytes_store_same.
   exact loadbytes_store_other.
   exact store_signed_unsigned_8.
