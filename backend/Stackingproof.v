@@ -2994,6 +2994,30 @@ Proof.
   destr; omega.
 Qed.
 
+Lemma tailcall_stage_rule:
+  forall m1 m1' m2 j g P,
+    m2 |= minjection j g m1 ** P ->
+    Mem.tailcall_stage m1 = Some m1' ->
+    Mem.top_frame_no_perm m2 ->
+    m_invar_stack P = false ->
+    exists m2', Mem.tailcall_stage m2 = Some m2' /\
+           m2' |= minjection j g m1' ** P.
+Proof.
+  intros m1 m1' m2 j g P SEP TC TFNP INVAR.
+  exploit Mem.tailcall_stage_inject; eauto. apply SEP. intros (m2' & TC' & INJ').
+  eexists; split; eauto.
+  destruct SEP as (INJ & PM & DISJ).
+  split; [|split].
+  - simpl in *. auto.
+  - eapply m_invar. eauto.
+    destruct (m_invar_weak P); eauto using Mem.strong_unchanged_on_weak, Mem.tailcall_stage_unchanged_on.
+    congruence.
+  - red; intros. eapply DISJ. 2: eauto. simpl in H |- *.
+    decompose [ex and] H.
+    repeat eexists;  eauto.
+    revert H3; rewrite_perms. auto.
+Qed.
+
 Theorem transf_step_correct:
   forall s1 t s2, Linear.step fn_stack_requirements init_ls ge s1 t s2 ->
              forall (WTS: wt_state init_ls s1) s1'
@@ -3390,29 +3414,6 @@ Proof.
   rename SEP into SEP_init.
   intros (rs1 & m1' & Q & R & S & T & U & SEP & SE').
 
-  Lemma tailcall_stage_rule:
-    forall m1 m1' m2 j g P,
-      m2 |= minjection j g m1 ** P ->
-      Mem.tailcall_stage m1 = Some m1' ->
-      Mem.top_frame_no_perm m2 ->
-      m_invar_stack P = false ->
-      exists m2', Mem.tailcall_stage m2 = Some m2' /\
-             m2' |= minjection j g m1' ** P.
-  Proof.
-    intros m1 m1' m2 j g P SEP TC TFNP INVAR.
-    exploit Mem.tailcall_stage_inject; eauto. apply SEP. intros (m2' & TC' & INJ').
-    eexists; split; eauto.
-    destruct SEP as (INJ & PM & DISJ).
-    split; [|split].
-    - simpl in *. auto.
-    - eapply m_invar. eauto.
-      destruct (m_invar_weak P); eauto using Mem.strong_unchanged_on_weak, Mem.tailcall_stage_unchanged_on.
-      congruence.
-    - red; intros. eapply DISJ. 2: eauto. simpl in H |- *.
-      decompose [ex and] H.
-      repeat eexists;  eauto.
-      revert H3; rewrite_perms. auto.
-  Qed.
   edestruct tailcall_stage_rule as (m2' & TC' & SEP'); eauto.
   {
     inv CallStackConsistency.

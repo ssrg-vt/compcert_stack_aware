@@ -1490,6 +1490,17 @@ Proof.
   eapply in_frame'_norepet; eauto.
 Qed.
 
+Lemma inline_sizes_same_top:
+  forall g f1 f2 s1 s2,
+    inline_sizes g (f1::s1) s2 ->
+    size_frames f1 = size_frames f2 ->
+    inline_sizes g (f2::s1) s2.
+Proof.
+  intros g f1 f2 s1 s2 SZ EQ; inv SZ; simpl in *. destruct n; simpl in *. inv H0.
+  econstructor; simpl; eauto. omega.
+  econstructor; simpl; eauto.
+Qed.
+
 Theorem step_simulation:
   forall S1 t S2,
   step fn_stack_requirements ge S1 t S2 ->
@@ -1725,17 +1736,6 @@ Proof.
   tauto.
   repeat rewrite_stack_blocks.
   intro EQ1; rewrite EQ1 in SIZES.
-
-  Lemma inline_sizes_same_top:
-    forall g f1 f2 s1 s2,
-      inline_sizes g (f1::s1) s2 ->
-      size_frames f1 = size_frames f2 ->
-      inline_sizes g (f2::s1) s2.
-  Proof.
-    intros g f1 f2 s1 s2 SZ EQ; inv SZ; simpl in *. destruct n; simpl in *. inv H0.
-    econstructor; simpl; eauto. omega.
-    econstructor; simpl; eauto.
-  Qed.
   eapply inline_sizes_same_top. eauto.
   rewrite size_frames_tc. auto.
 
