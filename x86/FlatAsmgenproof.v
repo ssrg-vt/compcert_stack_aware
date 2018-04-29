@@ -192,7 +192,7 @@ Definition extfun_entry_is_external (mj:meminj) :=
     Genv.genv_internal_codeblock tge b' = false.
 
 
-Definition def_frame_inj m := (flat_frameinj (length (Mem.stack (Mem.push_new_stage m)))).
+Definition def_frame_inj m := (flat_frameinj (length (Mem.stack m))).
 
 
 Lemma store_pres_def_frame_inj : forall chunk m1 b ofs v m1',
@@ -294,11 +294,31 @@ Definition init_meminj (gmap: GID_MAP_TYPE) : meminj :=
         end
       end.
 
+Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty.
+Proof.
+  unfold def_frame_inj. apply Mem.self_inject; auto.
+  intros. congruence.
+Qed.
+
+Lemma initial_inject: (Mem.inject (fun b => None) (def_frame_inj Mem.empty) Mem.empty (fst (Mem.alloc Mem.empty 0 0))).
+Proof.
+  apply Mem.alloc_right_inject with 
+      (m2 := Mem.empty) (lo:=0) (hi:=0) 
+      (b2 := snd (Mem.alloc Mem.empty 0 0)).
+  apply mem_empty_inject. 
+  destruct (Mem.alloc Mem.empty 0 0). simpl. auto.
+Qed.
 
 Lemma init_mem_pres : forall m, 
-    Genv.init_mem prog = Some m -> exists m', init_mem tprog = Some m'. 
+    Genv.init_mem prog = Some m -> 
+    exists m' j, init_mem tprog = Some m' /\ Mem.inject j (def_frame_inj m) m m'. 
 Proof. 
-  Admitted.
+  unfold Genv.init_mem, init_mem. intros m H.
+  generalize initial_inject. intros INITINJ.
+  destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ.
+Admitted.
+  
+
 
 Lemma transf_initial_states : forall st1,
     RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
@@ -314,12 +334,11 @@ Proof.
         # PC <- (get_main_fun_ptr tge tprog)
         # RA <- Vnullptr
         # RSP <- (init_rsp tge tprog)).
-  exploit init_mem_pres; eauto. intros (m' & INITM').
-  eexists. split. 
-  - econstructor; eauto. 
-    + admit.
-    + admit.
-  - 
+  (* exploit init_mem_pres; eauto. intros (m' & INITM'). *)
+  (* eexists. split.  *)
+  (* - econstructor; eauto.  *)
+  (*   + admit. *)
+  (*   + admit. *)
   Admitted.
 
 

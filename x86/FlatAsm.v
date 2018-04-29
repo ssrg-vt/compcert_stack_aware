@@ -925,7 +925,7 @@ Fixpoint acc_segblocks (nextblock: block) (ids: list segid_type) (map: segid_typ
   genfun_from_bs_pairs1 map pairs.
 
 Definition list_of_segments (p:program) : list segment  := 
-  (p.(stack_seg) :: p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: nil).
+  (p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: p.(stack_seg) :: nil).
 
 (** The assignments of blocks are as follows: 
     Block 1: reserved for undefined segments
@@ -933,8 +933,8 @@ Definition list_of_segments (p:program) : list segment  :=
     Block 3: starting block of the rest blocks (data, code, dynamically allocated, etc)
  *)
 Definition undef_seg_block := 1%positive.
-Definition stack_block := 2%positive.
-Definition init_block := 3%positive.
+Definition stack_block := 5%positive.
+Definition init_block := 2%positive.
 
 Definition gen_segblocks (p:program) : segid_type -> block :=
   let initmap := fun id => undef_seg_block in
