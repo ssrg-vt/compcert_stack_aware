@@ -309,6 +309,30 @@ Proof.
   destruct (Mem.alloc Mem.empty 0 0). simpl. auto.
 Qed.
 
+Lemma alloc_segments_inject: forall sl f g m m',
+    Mem.inject f g m m' ->
+    Mem.inject f g m (alloc_segments m' sl).
+Proof.
+  induction sl; simpl; intros.
+  - auto.
+  - destruct (Mem.alloc m' 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC.
+    exploit Mem.alloc_right_inject; eauto.
+Qed.
+
+Lemma alloc_global_inject : forall j m1 m2 m1' smap gdef1 gdef2 sb id,
+    Mem.inject j (def_frame_inj m1) m1 m1' ->
+    Genv.alloc_global ge m1 (id, Some gdef1) = Some m2 ->
+    exists j' m2', alloc_global tge smap m1' (id, Some gdef2, sb) = Some m2' 
+              /\ Mem.inject j' (def_frame_inj m2) m2 m2'.
+Admitted.
+
+Lemma alloc_globals_inject : forall j m1 m2 m1' smap gdefs1 gdefs2,
+    Mem.inject j (def_frame_inj m1) m1 m1' ->
+    Genv.alloc_globals ge m1 gdefs1 = Some m2 ->
+    exists j' m2', alloc_globals tge smap m1' gdefs2 = Some m2' 
+           /\ Mem.inject j' (def_frame_inj m2) m2 m2'.
+Admitted.
+
 Lemma init_mem_pres : forall m, 
     Genv.init_mem prog = Some m -> 
     exists m' j, init_mem tprog = Some m' /\ Mem.inject j (def_frame_inj m) m m'. 
@@ -316,9 +340,13 @@ Proof.
   unfold Genv.init_mem, init_mem. intros m H.
   generalize initial_inject. intros INITINJ.
   destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ.
-Admitted.
-  
-
+  exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto.
+  intros SINJ.
+  set (m1 := alloc_segments m0 (list_of_segments tprog)) in *.
+  exploit (alloc_globals_inject (fun _ => None) Mem.empty m m1 (gen_segblocks tprog) (AST.prog_defs prog) (prog_defs tprog)); eauto.
+  intros (j' & m2' & ALLOC & GINJ).
+  eexists; eexists; eauto.
+Qed.
 
 Lemma transf_initial_states : forall st1,
     RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->

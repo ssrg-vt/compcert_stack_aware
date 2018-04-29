@@ -1032,7 +1032,7 @@ Fixpoint alloc_segments m (segs: list segment) :=
 Definition init_mem (p: program) :=
   let ge := globalenv p in
   let (initm,_) := Mem.alloc Mem.empty 0 0 in (** *r A dummy block is allocated for undefined segments *)
-  let m := alloc_segments initm (p.(stack_seg) :: p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: nil) in
+  let m := alloc_segments initm (list_of_segments p) in
   alloc_globals ge (gen_segblocks p) m p.(prog_defs).
 
 (** Execution of whole programs. *)
