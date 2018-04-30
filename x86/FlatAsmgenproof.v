@@ -294,6 +294,129 @@ Definition init_meminj (gmap: GID_MAP_TYPE) : meminj :=
         end
       end.
 
+
+Lemma genv_next_find_funct_ptr_absurd : forall {F V} (p:AST.program F V) m ge gdef,
+  Genv.init_mem p = Some m -> ge = (Genv.globalenv p) -> 
+  Genv.find_funct_ptr ge (Genv.genv_next ge) = Some gdef -> False.
+Proof.
+  intros F V p m ge0 gdef INITM GE FINDPTR. subst ge0.
+  exploit Genv.find_funct_ptr_not_fresh; eauto. intros BVALID.
+  erewrite Genv.init_mem_genv_next in BVALID; eauto.
+  unfold Mem.valid_block in BVALID. apply Plt_strict in BVALID. contradiction.
+Qed.
+
+Lemma transl_instr_segblock : forall gmap lmap ofs' id i i',
+      transl_instr gmap lmap (Ptrofs.unsigned ofs') id i = OK i' ->
+      segblock_to_label (snd i') = (code_segid, ofs').
+Proof.
+  intros. monadInv H. unfold segblock_to_label. simpl.
+  rewrite Ptrofs.repr_unsigned. auto.
+Qed.
+
+Lemma find_instr_ofs_non_negative : forall code ofs i,
+    find_instr ofs code = Some i -> ofs >= 0.
+Proof.
+  induction code; simpl; intros.
+  - inv H.
+  - destruct zeq. omega.
+    apply IHcode in H. generalize (instr_size_positive a). omega.
+Qed.
+
+Lemma transl_instrs_ofs_bound: forall code code' gmap lmap id ofs fofs,
+  transl_instrs gmap lmap id ofs code = OK (fofs, code') -> ofs <= fofs.
+Proof.
+  induction code; simpl; intros.
+  - inv H. omega.
+  - monadInv H. apply IHcode in EQ1. 
+    generalize (instr_size_positive a). unfold instr_size. omega.
+Qed.
+
+Lemma find_instr_transl_instr : forall code gmap lmap id i ofs ofs' fofs code',
+    find_instr (Ptrofs.unsigned ofs) code = Some i ->
+    transl_instrs gmap lmap id (Ptrofs.unsigned ofs') code = OK (fofs, code') ->
+    fofs <= Ptrofs.max_unsigned ->
+    exists i' ofs1, transl_instr gmap lmap ofs1 id i = OK i' /\
+               segblock_to_label (snd i') = (code_segid, Ptrofs.add ofs ofs').
+Proof.
+  induction code; simpl; intros.
+  - inv H.
+  - monadInv H0. destruct zeq.
+    + inv H. eexists; eexists; split; eauto.
+      rewrite <- (Ptrofs.repr_unsigned ofs). rewrite e. rewrite Ptrofs.add_zero_l.
+      eapply transl_instr_segblock; eauto.
+    + exploit (IHcode gmap lmap id i 
+                      (Ptrofs.repr (Ptrofs.unsigned ofs - instr_size a))
+                      (Ptrofs.repr (Ptrofs.unsigned ofs' + si_size (snd a)))); eauto.
+      rewrite Ptrofs.unsigned_repr. auto. 
+      generalize (find_instr_ofs_non_negative code (Ptrofs.unsigned ofs - instr_size a) i H).
+      generalize (instr_size_positive a).
+      generalize (Ptrofs.unsigned_range_2 ofs). intros. omega.
+      rewrite Ptrofs.unsigned_repr. eauto. 
+      generalize (transl_instrs_ofs_bound code x1 gmap lmap id 
+                                          (Ptrofs.unsigned ofs' + si_size (snd a)) fofs EQ1).
+      generalize (Ptrofs.unsigned_range_2 ofs'). 
+      generalize (instr_size_positive a). unfold instr_size. omega.
+      intros (i' & ofs1 & TRANSI & SBEQ).
+      eexists; eexists; split. eauto. rewrite SBEQ. f_equal.
+      unfold instr_size.
+      rewrite Ptrofs.add_unsigned. repeat rewrite Ptrofs.unsigned_repr.
+      replace (Ptrofs.unsigned ofs - si_size (snd a) + (Ptrofs.unsigned ofs' + si_size (snd a))) with
+              (Ptrofs.unsigned ofs + Ptrofs.unsigned ofs') by omega.
+      rewrite <- Ptrofs.add_unsigned. auto.
+      generalize (transl_instrs_ofs_bound code x1 gmap lmap id 
+                                          (Ptrofs.unsigned ofs' + si_size (snd a)) fofs EQ1).
+      generalize (Ptrofs.unsigned_range_2 ofs'). 
+      generalize (instr_size_positive a). unfold instr_size. omega.
+      generalize (find_instr_ofs_non_negative code (Ptrofs.unsigned ofs - instr_size a) i H).
+      generalize (instr_size_positive a).
+      generalize (Ptrofs.unsigned_range_2 ofs). unfold instr_size. intros. omega.
+Qed.
+
+
+Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
+    Genv.init_mem prog = Some m ->
+    update_map prog = OK (gmap,lmap,dsize,csize,efsize) ->
+    transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
+    match_sminj gmap lmap (init_meminj gmap).
+Proof.   
+  intros gmap lmap dsize csize efsize m INITMEM UPDATE TRANS. 
+  unfold update_map in UPDATE. 
+  set (dinfo_gvars := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog)) in *.
+  set (dinfo_extfuns := (update_extfuns_map {| di_size := 0; di_map := di_map dinfo_gvars |} (AST.prog_defs prog))) in *.
+  set (cinfo_funs := (update_funs_map {| ci_size := 0; ci_map := di_map dinfo_extfuns; ci_lmap := default_label_map |} (AST.prog_defs prog))) in *.
+  inv UPDATE. 
+  monadInv TRANS.
+  rename EQ into TRANSGV. rename EQ1 into TRANSFUN. rename EQ0 into TRANSEF.
+  rename x into gvars. rename x0 into gfuns. rename x2 into efuns. rename x1 into code.
+  constructor.
+  - (* agree_sminj_instr *) 
+    intros b b' f ofs ofs' i FPTR FINST INITINJ.
+    unfold init_meminj in INITINJ. fold ge in INITINJ.
+    destruct (eq_block b (Genv.genv_next ge)); inversion INITINJ. 
+    subst ofs' b' b. clear INITINJ.
+    + exfalso. eapply genv_next_find_funct_ptr_absurd; eauto. 
+    + destruct (Genv.invert_symbol ge b) eqn:INVSYM; inversion H1.
+      destruct (ci_map cinfo_funs i0) eqn:CIMAP; inversion H2.
+      subst ofs' b'. clear INITINJ H1 H2.
+      rewrite Ptrofs.repr_unsigned. rename i0 into id.
+      apply Genv.invert_find_symbol in INVSYM.
+  Admitted.
+
+  (* dinfo_gvars := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog) : dinfo *)
+  (* dinfo_extfuns := update_extfuns_map {| di_size := 0; di_map := di_map dinfo_gvars |} (AST.prog_defs prog) : dinfo *)
+  (* cinfo_funs := update_funs_map {| ci_size := 0; ci_map := di_map dinfo_extfuns; ci_lmap := default_label_map |} (AST.prog_defs prog) : cinfo *)
+  (* transl_funs (ci_map cinfo_funs) (ci_lmap cinfo_funs) (AST.prog_defs prog) = OK (gfuns, code) *)
+  (* Genv.find_funct_ptr ge b = Some (Internal f) *)
+  (* find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i *)
+  (* Genv.invert_symbol ge b = Some id *)
+  (* ci_map cinfo_funs id = Some s *)
+
+  (*                            --> *)
+
+  (* Genv.find_instr tge (Vptr (Genv.genv_segblocks (globalenv tprog) (fst s)) (Ptrofs.add ofs (snd s))) = Some i' /\ *)
+  (* transl_instr (ci_map cinfo_funs) (ci_lmap cinfo_funs) ofs1 id i = OK i' *)
+
+
 Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty.
 Proof.
   unfold def_frame_inj. apply Mem.self_inject; auto.
@@ -319,12 +442,22 @@ Proof.
     exploit Mem.alloc_right_inject; eauto.
 Qed.
 
+(* Lemma alloc_globvar_inject : forall gmap gvar1 gvar2 j m1 m2 m1' smap gdef1 gdef2 sb id, *)
+(*     transl_gvar gmap gvar1 = OK gvar2 -> *)
+(*     Mem.inject j (def_frame_inj m1) m1 m1' -> *)
+(*     Genv.alloc_global ge m1 (id, Some gdef1) = Some m2 -> *)
+(*     exists j' m2', alloc_global tge smap m1' (id, Some gdef2, sb) = Some m2'  *)
+(*               /\ Mem.inject j' (def_frame_inj m2) m2 m2'. *)
+
 Lemma alloc_global_inject : forall j m1 m2 m1' smap gdef1 gdef2 sb id,
     Mem.inject j (def_frame_inj m1) m1 m1' ->
     Genv.alloc_global ge m1 (id, Some gdef1) = Some m2 ->
     exists j' m2', alloc_global tge smap m1' (id, Some gdef2, sb) = Some m2' 
               /\ Mem.inject j' (def_frame_inj m2) m2 m2'.
-Admitted.
+Proof.
+  intros. destruct gdef1. destruct f. simpl in H0.
+  Admitted.
+
 
 Lemma alloc_globals_inject : forall j m1 m2 m1' smap gdefs1 gdefs2,
     Mem.inject j (def_frame_inj m1) m1 m1' ->
@@ -352,16 +485,16 @@ Lemma transf_initial_states : forall st1,
     RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
     exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
 Proof.
-  intros st1 INIT.
-  generalize TRANSF. intros TRANSF'. 
-  unfold match_prog in TRANSF'. monadInv TRANSF'.
-  rename x into gmap. rename x0 into lmap.
-  inv INIT. inv H0.
-  set (rs0' :=
-        (Asm.Pregmap.init Vundef)
-        # PC <- (get_main_fun_ptr tge tprog)
-        # RA <- Vnullptr
-        # RSP <- (init_rsp tge tprog)).
+  (* intros st1 INIT. *)
+  (* generalize TRANSF. intros TRANSF'.  *)
+  (* unfold match_prog in TRANSF'. monadInv TRANSF'. *)
+  (* rename x into gmap. rename x0 into lmap. *)
+  (* inv INIT. inv H0. *)
+  (* set (rs0' := *)
+  (*       (Asm.Pregmap.init Vundef) *)
+  (*       # PC <- (get_main_fun_ptr tge tprog) *)
+  (*       # RA <- Vnullptr *)
+  (*       # RSP <- (init_rsp tge tprog)). *)
   (* exploit init_mem_pres; eauto. intros (m' & INITM'). *)
   (* eexists. split.  *)
   (* - econstructor; eauto.  *)
