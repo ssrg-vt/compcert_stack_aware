@@ -15,6 +15,7 @@ Local Open Scope error_monad_scope.
 
 (** Translation from CompCert Assembly (RawAsm) to FlatAsm *)
 
+Definition alignw:Z := 8.
 
 Definition stack_segid: segid_type := 1%positive.
 Definition data_segid:  segid_type := 2%positive.
@@ -85,24 +86,42 @@ Definition transl_gvar {V:Type} (gvar : AST.globvar V) : res (globvar V) :=
         (AST.gvar_volatile gvar)).
 
 (** Translation of global variables *)
-Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * segblock)) :=
+Fixpoint transl_globvars (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (list (ident * option FlatAsm.gdef * segblock)) :=
   match gdefs with
-  | nil => OK (ofs, nil)
+  | nil => OK nil
   | ((id, None) :: gdefs') =>
-    transl_globvars ofs gdefs'
+    transl_globvars gdefs'
   | ((_, Some (AST.Gfun _)) :: gdefs') =>
-    transl_globvars ofs gdefs'
+    transl_globvars gdefs'
   | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    let sz := AST.init_data_list_size (AST.gvar_init v) in
-    let sblk := mkSegBlock data_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
-    let nofs := ofs+sz in
-    do (fofs, tgdefs') <- transl_globvars nofs gdefs';
-    do v' <- transl_gvar v;
-    OK (fofs, ((id, Some (Gvar v'), sblk) :: tgdefs'))
+    match gid_map id with
+    | None => Error (MSG "Translation of a global variable fails: no address for the variable" :: nil)
+    | Some (sid,ofs) =>
+      let sz := AST.init_data_list_size (AST.gvar_init v) in
+      let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+      do tgdefs' <- transl_globvars gdefs';
+      do v' <- transl_gvar v;
+      OK ((id, Some (Gvar v'), sblk) :: tgdefs')
+    end
   end.
 
-
+(* Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit))) *)
+(*                          : res (Z * list (ident * option FlatAsm.gdef * segblock)) := *)
+(*   match gdefs with *)
+(*   | nil => OK (ofs, nil) *)
+(*   | ((id, None) :: gdefs') => *)
+(*     transl_globvars ofs gdefs' *)
+(*   | ((_, Some (AST.Gfun _)) :: gdefs') => *)
+(*     transl_globvars ofs gdefs' *)
+(*   | ((id, Some (AST.Gvar v)) :: gdefs') => *)
+(*     let sz := AST.init_data_list_size (AST.gvar_init v) in *)
+(*     let sblk := mkSegBlock data_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in *)
+(*     let nofs := ofs+sz in *)
+(*     do (fofs, tgdefs') <- transl_globvars nofs gdefs'; *)
+(*     do v' <- transl_gvar v; *)
+(*     OK (fofs, ((id, Some (Gvar v'), sblk) :: tgdefs')) *)
+(*   end. *)
 
 
 (** * Translation of instructions *)
@@ -444,62 +463,66 @@ Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instr_with_info) : 
   end.
 
 (** Tranlsation of a function *)
-Definition transl_fun (fid: ident) (ofs:Z) (f:Asm.function) : res (Z* function) :=
-  do (fofs, code') <- transl_instrs fid ofs (Asm.fn_code f);
-  let sz := fofs - ofs in
-  let sblk := mkSegBlock code_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
-  OK (fofs, (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk)).
+Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
+  match gid_map fid with
+  | None => Error (MSG "Translation of function fails: no address for this function" :: nil)
+  | Some (sid, ofs) =>
+    let ofs' := Ptrofs.unsigned ofs in
+    do (fofs, code') <- transl_instrs fid ofs' (Asm.fn_code f);
+      let sz := fofs - ofs' in
+      let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+      OK (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk)
+  end.
 
 (** Translation of internal functions *)
-Fixpoint transl_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * segblock) * code) :=
+Fixpoint transl_funs (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (list (ident * option FlatAsm.gdef * segblock) * code) :=
   match gdefs with
-  | nil => OK (ofs, nil, nil)
+  | nil => OK (nil, nil)
   | ((id, None) :: gdefs') =>
-    transl_funs ofs gdefs'
+    transl_funs gdefs'
   | ((id, Some (AST.Gfun f)) :: gdefs') =>
     match f with
     | External f => 
-      transl_funs ofs gdefs'
+      transl_funs gdefs'
     | Internal fd =>
-      do (nofs, fd') <- transl_fun id ofs fd;
-      do (h, code') <- transl_funs nofs gdefs';
-      let (fofs, tgdefs') := h in
-      OK (fofs, (id, Some (Gfun (Internal fd')), (fn_range fd'))::tgdefs', (fn_code fd')++code')
+      do fd' <- transl_fun id fd;
+      do (tgdefs', code') <- transl_funs gdefs';
+      OK ((id, Some (Gfun (Internal fd')), (fn_range fd'))::tgdefs', (fn_code fd')++code')
     end
   | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    transl_funs ofs gdefs'
+    transl_funs gdefs'
   end.
 
 (** Translation of external functions *)
-Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * segblock)) :=
+Fixpoint transl_ext_funs (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (list (ident * option FlatAsm.gdef * segblock)) :=
   match gdefs with
-  | nil => OK (ofs, nil)
+  | nil => OK nil
   | ((id, None) :: gdefs') =>
-    transl_ext_funs ofs gdefs'
+    transl_ext_funs gdefs'
   | ((id, Some (AST.Gfun f)) :: gdefs') =>
     match f with
     | External f => 
-      (* We assume an external function only occupies one byte *)
-      let nofs := ofs+1 in
-      let sblk := mkSegBlock extfuns_segid (Ptrofs.repr nofs) Ptrofs.one in
-      do (fofs, tgdefs') <- transl_ext_funs nofs gdefs';
-      OK (fofs, (id, Some (Gfun (External f)), sblk)::tgdefs')
+      match gid_map id with
+      | None => Error (MSG "Translation of an external function fails: no address for the function" :: nil)
+      | Some (sid, ofs) => 
+        let sblk := mkSegBlock extfuns_segid ofs Ptrofs.one in
+        do tgdefs' <- transl_ext_funs gdefs';
+          OK ((id, Some (Gfun (External f)), sblk)::tgdefs')
+      end
     | Internal fd =>
-      transl_ext_funs ofs gdefs'
+      transl_ext_funs gdefs'
     end
   | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    transl_ext_funs ofs gdefs'
+    transl_ext_funs gdefs'
   end.
 
-
 (** Translation of a program *)
-Definition transl_prog_with_map (p:Asm.program) : res program := 
-  do (data_sz, data_defs) <- transl_globvars 0 (AST.prog_defs p);
-  do (h, code) <- transl_funs 0 (AST.prog_defs p);
-  let (code_sz, fun_defs) := h in
-  do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
+Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program := 
+  do data_defs <- transl_globvars (AST.prog_defs p);
+  do (fun_defs, code) <- transl_funs (AST.prog_defs p);
+  do ext_fun_defs <- transl_ext_funs (AST.prog_defs p);
   OK (Build_program
         (data_defs ++ fun_defs ++ ext_fun_defs)
         (AST.prog_public p)
@@ -530,7 +553,8 @@ mkDinfo{
 Definition update_gvar_map {V:Type} (di: dinfo)
            (id:ident) (gvar: AST.globvar V) : dinfo :=
   let sz:= AST.init_data_list_size (AST.gvar_init gvar) in
-  mkDinfo (di_size di + sz) (update_gid_map id (data_label (di_size di)) (di_map di)).
+  let ofs := align (di_size di) alignw in
+  mkDinfo (ofs + sz) (update_gid_map id (data_label ofs) (di_map di)).
 
 
 (** Update the gid mapping for all global variables *)
@@ -590,8 +614,9 @@ Fixpoint update_funs_map (ci:cinfo) (gdefs : list (ident * option (AST.globdef A
     match f with
     | External _ => update_funs_map ci gdefs'
     | Internal f =>
-      let ci' := mkCinfo (ci_size ci)
-                         (update_gid_map id (code_label (ci_size ci)) (ci_map ci))
+      let ofs := align (ci_size ci) alignw in
+      let ci' := mkCinfo ofs
+                         (update_gid_map id (code_label ofs) (ci_map ci))
                          (ci_lmap ci)
       in
       let ci'' := update_instrs_map id ci' (Asm.fn_code f) in
@@ -612,8 +637,9 @@ Fixpoint update_extfuns_map (ei: dinfo) (gdefs : list (ident * option (AST.globd
   | ((id, Some (AST.Gfun f)) :: gdefs') =>
     match f with
     | External _ => 
-      let ei' := mkDinfo (di_size ei + 1)
-                         (update_gid_map id (extfun_label (di_size ei)) (di_map ei))
+      let ofs := align (di_size ei) alignw in
+      let ei' := mkDinfo (ofs + alignw)
+                         (update_gid_map id (extfun_label ofs) (di_map ei))
       in
       update_extfuns_map ei' gdefs'
     | Internal f =>
@@ -625,18 +651,22 @@ Fixpoint update_extfuns_map (ei: dinfo) (gdefs : list (ident * option (AST.globd
   
 
 (** Update the gid and label mappings by traversing an Asm program *)
-Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE) :=
+Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * Z) :=
   let init_di := (mkDinfo 0 default_gid_map) in
   let di := update_gvars_map init_di (AST.prog_defs p) in
+  let data_seg_size := align (di_size di) alignw in
   let ei := mkDinfo 0 (di_map di) in
   let ei' := update_extfuns_map ei (AST.prog_defs p) in
+  let extfuns_seg_size := align (di_size ei') alignw in
   let init_ci := mkCinfo 0 (di_map ei') default_label_map in
   let final_ci := update_funs_map init_ci (AST.prog_defs p) in
-  OK (ci_map final_ci, ci_lmap final_ci).
+  let code_seg_size := align (ci_size final_ci) alignw in
+  OK (ci_map final_ci, ci_lmap final_ci, data_seg_size, code_seg_size, extfuns_seg_size).
 
 
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=
-  do (gmap,lmap) <- update_map p;
-  transl_prog_with_map gmap lmap p.
+  do r <- update_map p;
+  let '(gmap,lmap,dsize,csize,efsize) := r in
+  transl_prog_with_map gmap lmap p dsize csize efsize.
 
