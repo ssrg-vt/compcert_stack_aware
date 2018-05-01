@@ -444,21 +444,21 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     Error (MSG (Asm.instr_to_string i) :: MSG " not supported" :: nil)
   end.
 
-Definition transl_instr (ofs:Z) (fid: ident) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
+Definition transl_instr (ofs:Z) (fid: ident) (sid:segid_type) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
     let sz := si_size (snd i) in
-    let sblk := mkSegBlock code_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    let sblk := mkSegBlock sid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
     do instr <- transl_instr' fid (fst i);
     OK (instr, sblk).
 
 (** Translation of a sequence of instructions in a function *)
-Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instr_with_info) : res (Z * list instr_with_info) :=
+Fixpoint transl_instrs (fid:ident) (sid:segid_type) (ofs:Z) (instrs: list Asm.instr_with_info) : res (Z * list instr_with_info) :=
   match instrs with
   | nil => OK (ofs, nil)
   | i::instrs' =>
     let sz := si_size (snd i) in
     let nofs := ofs+sz in
-    do instr <- transl_instr ofs fid i;
-    do (fofs, tinstrs') <- transl_instrs fid nofs instrs';
+    do instr <- transl_instr ofs fid sid i;
+    do (fofs, tinstrs') <- transl_instrs fid sid nofs instrs';
     OK (fofs, instr :: tinstrs')
   end.
 
@@ -468,7 +468,7 @@ Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
   | None => Error (MSG "Translation of function fails: no address for this function" :: nil)
   | Some (sid, ofs) =>
     let ofs' := Ptrofs.unsigned ofs in
-    do (fofs, code') <- transl_instrs fid ofs' (Asm.fn_code f);
+    do (fofs, code') <- transl_instrs fid sid ofs' (Asm.fn_code f);
       if zle fofs Ptrofs.max_unsigned then
         (let sz := fofs - ofs' in
          let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in

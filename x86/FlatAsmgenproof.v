@@ -132,10 +132,10 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :
         Genv.find_funct_ptr ge b = Some (Internal f) -> 
         Asm.find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
         mj b = Some (b', ofs') -> 
-        exists id i' ofs1, 
+        exists id i' sid ofs1, 
           Genv.find_instr tge (Vptr b' (Ptrofs.add ofs (Ptrofs.repr ofs'))) = Some i' /\
           Genv.find_symbol ge id = Some b /\
-          transl_instr gm lm ofs1 id i = OK i';
+          transl_instr gm lm ofs1 id sid i = OK i';
 
       agree_sminj_glob : forall id gloc,
           gm id = Some gloc ->
@@ -305,9 +305,9 @@ Proof.
   unfold Mem.valid_block in BVALID. apply Plt_strict in BVALID. contradiction.
 Qed.
 
-Lemma transl_instr_segblock : forall gmap lmap ofs' id i i',
-      transl_instr gmap lmap (Ptrofs.unsigned ofs') id i = OK i' ->
-      segblock_to_label (snd i') = (code_segid, ofs').
+Lemma transl_instr_segblock : forall gmap lmap ofs' id i i' sid,
+      transl_instr gmap lmap (Ptrofs.unsigned ofs') id sid i = OK i' ->
+      segblock_to_label (snd i') = (sid, ofs').
 Proof.
   intros. monadInv H. unfold segblock_to_label. simpl.
   rewrite Ptrofs.repr_unsigned. auto.
@@ -322,8 +322,8 @@ Proof.
     apply IHcode in H. generalize (instr_size_positive a). omega.
 Qed.
 
-Lemma transl_instrs_ofs_bound: forall code code' gmap lmap id ofs fofs,
-  transl_instrs gmap lmap id ofs code = OK (fofs, code') -> ofs <= fofs.
+Lemma transl_instrs_ofs_bound: forall code code' gmap lmap id sid ofs fofs,
+  transl_instrs gmap lmap id sid ofs code = OK (fofs, code') -> ofs <= fofs.
 Proof.
   induction code; simpl; intros.
   - inv H. omega.
@@ -331,12 +331,12 @@ Proof.
     generalize (instr_size_positive a). unfold instr_size. omega.
 Qed.
 
-Lemma find_instr_transl_instrs : forall code gmap lmap id i ofs ofs' fofs code',
+Lemma find_instr_transl_instrs : forall code gmap lmap id sid i ofs ofs' fofs code',
     find_instr (Ptrofs.unsigned ofs) code = Some i ->
-    transl_instrs gmap lmap id (Ptrofs.unsigned ofs') code = OK (fofs, code') ->
+    transl_instrs gmap lmap id sid (Ptrofs.unsigned ofs') code = OK (fofs, code') ->
     fofs <= Ptrofs.max_unsigned ->
-    exists i' ofs1, transl_instr gmap lmap ofs1 id i = OK i' /\
-               segblock_to_label (snd i') = (code_segid, Ptrofs.add ofs ofs').
+    exists i' ofs1, transl_instr gmap lmap ofs1 id sid i = OK i' /\
+               segblock_to_label (snd i') = (sid, Ptrofs.add ofs ofs').
 Proof.
   induction code; simpl; intros.
   - inv H.
@@ -344,7 +344,7 @@ Proof.
     + inv H. eexists; eexists; split; eauto.
       rewrite <- (Ptrofs.repr_unsigned ofs). rewrite e. rewrite Ptrofs.add_zero_l.
       eapply transl_instr_segblock; eauto.
-    + exploit (IHcode gmap lmap id i 
+    + exploit (IHcode gmap lmap id sid i 
                       (Ptrofs.repr (Ptrofs.unsigned ofs - instr_size a))
                       (Ptrofs.repr (Ptrofs.unsigned ofs' + si_size (snd a)))); eauto.
       rewrite Ptrofs.unsigned_repr. auto. 
@@ -352,7 +352,7 @@ Proof.
       generalize (instr_size_positive a).
       generalize (Ptrofs.unsigned_range_2 ofs). intros. omega.
       rewrite Ptrofs.unsigned_repr. eauto. 
-      generalize (transl_instrs_ofs_bound code x1 gmap lmap id 
+      generalize (transl_instrs_ofs_bound code x1 gmap lmap id sid
                                           (Ptrofs.unsigned ofs' + si_size (snd a)) fofs EQ1).
       generalize (Ptrofs.unsigned_range_2 ofs'). 
       generalize (instr_size_positive a). unfold instr_size. omega.
@@ -363,7 +363,7 @@ Proof.
       replace (Ptrofs.unsigned ofs - si_size (snd a) + (Ptrofs.unsigned ofs' + si_size (snd a))) with
               (Ptrofs.unsigned ofs + Ptrofs.unsigned ofs') by omega.
       rewrite <- Ptrofs.add_unsigned. auto.
-      generalize (transl_instrs_ofs_bound code x1 gmap lmap id 
+      generalize (transl_instrs_ofs_bound code x1 gmap lmap id sid
                                           (Ptrofs.unsigned ofs' + si_size (snd a)) fofs EQ1).
       generalize (Ptrofs.unsigned_range_2 ofs'). 
       generalize (instr_size_positive a). unfold instr_size. omega.
@@ -376,13 +376,15 @@ Lemma find_instr_transl_fun : forall id f f' ofs i gmap lmap s,
     find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
     transl_fun gmap lmap id f = OK f' ->
     gmap id = Some s ->
-    exists i' ofs1, transl_instr gmap lmap ofs1 id i = OK i' /\
-               segblock_to_label (snd i') = (code_segid, Ptrofs.add ofs (snd s)).
+    exists i' ofs1 sid, transl_instr gmap lmap ofs1 id sid i = OK i' 
+               /\ segblock_to_label (snd i') = (sid, Ptrofs.add ofs (snd s)).
 Proof.
   intros id f f' ofs i gmap lmap s FINSTR TRANSFUN GMAP.
   unfold transl_fun in TRANSFUN. rewrite GMAP in TRANSFUN.
   monadInvX TRANSFUN. destruct zle; inversion EQ1; clear EQ1.
   exploit find_instr_transl_instrs; eauto.
+  intros (i' & ofs1 & TRANSLI & STL).
+  repeat eexists. eauto. simpl. congruence.
 Qed.
 
 Lemma transl_fun_exists : forall gmap lmap defs res f id,
@@ -436,9 +438,10 @@ Proof.
       intros FINPROG.
       exploit transl_fun_exists; eauto. intros (f' & TRANSLFUN').
       exploit find_instr_transl_fun; eauto. 
-      intros (i' & ofs1 & TRANSINSTR & SEGLBL).
-      exists id, i', ofs1. split. 
-      admit. 
+      intros (i' & ofs1 & sid & TRANSINSTR & SEGLBL).
+      exists id, i', sid, ofs1. split. 
+      unfold segblock_to_label in SEGLBL. inversion SEGLBL.
+      admit.
       split; auto.
       Admitted.
 
@@ -2067,7 +2070,7 @@ Qed.
 
 
 (** The internal step preserves the invariant *)
-Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f b
+Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id sid ofs ofs' f b
                         (MINJ: Mem.inject j (def_frame_inj m1) m1 m2)
                         (MATCHSMINJ: match_sminj gm lm j)
                         (* (GINJFLATMEM: globs_inj_into_flatmem j) *)
@@ -2082,7 +2085,7 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id ofs ofs' f
     Genv.find_funct_ptr ge b = Some (Internal f) ->
     Asm.find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
     RawAsm.exec_instr ge f i rs1 m1 = Next rs1' m1' ->
-    transl_instr gm lm ofs' id i = OK i' ->
+    transl_instr gm lm ofs' id sid i = OK i' ->
     exists rs2' m2',
       FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
       match_states (State rs1' m1') (State rs2' m2').
@@ -2257,7 +2260,7 @@ Proof.
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
     inversion 1; subst.
     exploit (agree_sminj_instr gm lm j MATCHSMINJ b b2 f ofs delta i); eauto.
-    intros (id & i' & ofs1 & FITARG & FSYMB & TRANSL).
+    intros (id & i' & sid & ofs1 & FITARG & FSYMB & TRANSL).
     exploit (exec_instr_step j rs rs'0 m m'0 rs' m' gm lm i i' id); eauto.
     intros (rs2' & m2' & FEXEC & MS1).
     exists (State rs2' m2'). split; auto.
@@ -2267,10 +2270,10 @@ Proof.
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H.
     inversion 1; subst.
     exploit (agree_sminj_instr gm lm j MATCHSMINJ b b2 f ofs delta (Asm.Pbuiltin ef args res, sz)); auto.
-    intros (id & i' & ofs1 & FITARG & FSYMB & TRANSL).
+    intros (id & i' & sid & ofs1 & FITARG & FSYMB & TRANSL).
     (* exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst. *)
     monadInv TRANSL. monadInv EQ.
-    set (pbseg := {| segblock_id := code_segid; segblock_start := Ptrofs.repr ofs1; segblock_size := Ptrofs.repr (si_size sz) |}) in *.
+    set (pbseg := {| segblock_id := sid; segblock_start := Ptrofs.repr ofs1; segblock_size := Ptrofs.repr (si_size sz) |}) in *.
     exploit (eval_builtin_args_inject gm lm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
     intros (vargs' & EBARGS & ARGSINJ).
     generalize (external_call_inject j vargs vargs' m m'0 m' vres t ef ARGSINJ MINJ H3).
