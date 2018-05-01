@@ -19,14 +19,6 @@ Require Import AsmFacts.
 
 Open Scope Z_scope.
 
-(* Lemma find_symbol_funct_ptr_inversion : forall id b f, *)
-(*   ge' = fold_left Genv.add_global ge gl -> *)
-(*   Genv.find_symbol ge' id = Some b -> *)
-(*   Genv.find_funct_ptr ge' b = Some (Internal f) -> *)
-(*   In (id, Some (Gfun (Internal f))) gl. *)
-(* Proof. *)
-(*   subst ge. unfold Genv.globalenv. *)
-
 Ltac monadInvX1 H :=
   let monadInvX H :=  
       monadInvX1 H ||
@@ -393,6 +385,23 @@ Proof.
   exploit find_instr_transl_instrs; eauto.
 Qed.
 
+Lemma transl_fun_exists : forall gmap lmap defs res f id,
+    transl_funs gmap lmap defs = OK res ->
+    In (id, Some (Gfun (Internal f))) defs ->
+    exists f', transl_fun gmap lmap id f = OK f'.
+Proof.
+  induction defs; simpl; intros.
+  - contradiction.
+  - destruct a. destruct H0.
+    + inv H0. monadInv H. eexists; eauto.
+    + destruct o. destruct g. destruct f0.
+      monadInv H. 
+      eapply IHdefs; eauto.
+      eapply IHdefs; eauto.
+      eapply IHdefs; eauto.
+      eapply IHdefs; eauto.
+Qed.
+
 Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
     Genv.init_mem prog = Some m ->
     update_map prog = OK (gmap,lmap,dsize,csize,efsize) ->
@@ -423,7 +432,16 @@ Proof.
       subst ofs' b'. clear INITINJ H1 H2.
       rewrite Ptrofs.repr_unsigned. rename i0 into id.
       apply Genv.invert_find_symbol in INVSYM.
+      exploit (Genv.find_symbol_funct_ptr_inversion prog); eauto.
+      intros FINPROG.
+      exploit transl_fun_exists; eauto. intros (f' & TRANSLFUN').
+      exploit find_instr_transl_fun; eauto. 
+      intros (i' & ofs1 & TRANSINSTR & SEGLBL).
+      exists id, i', ofs1. split. 
+      admit. 
+      split; auto.
       Admitted.
+
   (* exploit Genv.find_symbol_inversion. subst ge. eauto. *)
   (* intros INDEFS. *)
 
