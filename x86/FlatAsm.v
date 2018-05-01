@@ -10,6 +10,7 @@ Require Import AST Integers Floats Values Memory Events Smallstep.
 Require Import Locations Stacklayout Conventions EraseArgs.
 Require Import Segment FlatAsmGlobenv FlatAsmBuiltin FlatAsmGlobdef.
 Require Import Asm RawAsm.
+Require Import Logic.FinFun.
 Require Globalenvs.
 
 
@@ -870,6 +871,47 @@ Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * segblock)) : gen
     add_globals ge' gl'
   end.  
 
+Lemma add_global_pres_genv_instrs: forall def ge ge',
+  ge' = add_global ge def ->
+  forall b ofs, Genv.genv_instrs ge b ofs = Genv.genv_instrs ge' b ofs.
+Proof.
+  intros def ge ge' H b ofs.
+  subst. unfold add_global. destruct def. destruct p. destruct o.
+  destruct g. simpl. auto. auto. auto.
+Qed.
+
+Lemma add_globals_pres_genv_instrs: forall defs ge ge',
+  ge' = add_globals ge defs ->
+  forall b ofs, Genv.genv_instrs ge b ofs = Genv.genv_instrs ge' b ofs.
+Proof.
+  induction defs; simpl; intros.
+  - subst. auto.
+  - assert (Genv.genv_instrs ge b ofs = Genv.genv_instrs (add_global ge a) b ofs)
+           by (eapply add_global_pres_genv_instrs; eauto).
+    rewrite H0. apply IHdefs. auto.
+Qed.
+
+Lemma add_global_pres_genv_segblocks: forall def ge ge',
+  ge' = add_global ge def ->
+  forall id, Genv.genv_segblocks ge id = Genv.genv_segblocks ge' id.
+Proof.
+  intros def ge ge' H id.
+  subst. unfold add_global. destruct def. destruct p. destruct o.
+  destruct g. simpl. auto. auto. auto.
+Qed.
+
+Lemma add_globals_pres_genv_segblocks: forall defs ge ge',
+  ge' = add_globals ge defs ->
+  forall id, Genv.genv_segblocks ge id = Genv.genv_segblocks ge' id.
+Proof.
+  induction defs; simpl; intros.
+  - subst. auto.
+  - assert (Genv.genv_segblocks ge id = Genv.genv_segblocks (add_global ge a) id)
+           by (eapply add_global_pres_genv_segblocks; eauto).
+    rewrite H0. apply IHdefs. auto.
+Qed.
+
+
 Definition get_instr_ptr (smap:segid_type ->block) (i:instr_with_info): val :=
   let (_,bi) := i in Genv.label_to_ptr smap (segblock_to_label bi).
 
@@ -883,9 +925,54 @@ Fixpoint acc_instrs_map (smap:segid_type -> block) (c:code) map
   match c with 
   | nil => map 
   | i'::c' => 
-    let map' := acc_instr_map smap i' map in
-    acc_instrs_map smap c' map'
+    let map' := acc_instrs_map smap c' map in
+    acc_instr_map smap i' map'
   end.
+
+Definition code_labels (c:code) : list seglabel :=
+  List.map (fun i => segblock_to_label (snd i)) c.
+
+Lemma incode_labels : forall i (c:code),
+  In i c -> In (segblock_to_label (snd i)) (code_labels c).
+Proof.
+  induction c; simpl; intros.
+  - auto.
+  - destruct H. subst. auto.
+    right. apply IHc. auto.
+Qed.
+
+Fixpoint code_labels_are_distinct (c: code) : Prop :=
+  match c with
+  | nil => True
+  | (i,sb)::code' =>
+    code_labels_are_distinct code' /\
+    ~In (segblock_to_label sb) (code_labels code')
+  end.
+
+Lemma acc_instrs_map_self : forall i c map map' sbmap,
+  Injective sbmap -> 
+  In i c ->
+  code_labels_are_distinct c ->
+  map' = acc_instrs_map sbmap c map ->
+  map' (sbmap (segblock_id (snd i))) (segblock_start (snd i)) = Some i.
+Proof. 
+  induction c; simpl; intros.
+  - contradiction.
+  - destruct H0. 
+    + subst. unfold acc_instr_map.
+      unfold get_instr_ptr. destruct i. simpl. unfold Genv.label_to_ptr.
+      unfold segblock_to_label. simpl. destruct Val.eq. auto.
+      congruence.
+    + subst. unfold acc_instr_map. destruct Val.eq.
+      * unfold get_instr_ptr in e. destruct a. unfold Genv.label_to_ptr in e.
+        unfold segblock_to_label in e. simpl in e.
+        inv e. unfold Injective in H. apply H in H3.
+        assert (segblock_to_label (snd i) = segblock_to_label s).
+        unfold segblock_to_label. f_equal; auto.
+        destruct H1. rewrite <- H2 in H5.
+        apply incode_labels in H0. congruence.
+      * eapply IHc; eauto. destruct a. destruct H1. auto.
+Qed.
 
 (* Generate a mapping from offsets to instructions *)
 Definition gen_instrs_map (smap:segid_type -> block) (p:program) 
@@ -897,19 +984,19 @@ Definition gen_internal_codeblock (smap:segid_type -> block) (p:program) : block
   let code_seg_id := segid (fst (p.(code_seg))) in
   fun b => eq_block b (smap code_seg_id).
 
-Fixpoint gen_block_segid_pairs (nextblock: block) (ids: list segid_type) : list (block * segid_type) :=
-  match ids with
-  | nil => nil
-  | id::ids' => ((nextblock, id) :: (gen_block_segid_pairs (Psucc nextblock) ids'))
-  end.
+(* Fixpoint gen_block_segid_pairs (nextblock: block) (ids: list segid_type) : list (block * segid_type) := *)
+(*   match ids with *)
+(*   | nil => nil *)
+(*   | id::ids' => ((nextblock, id) :: (gen_block_segid_pairs (Psucc nextblock) ids')) *)
+(*   end. *)
 
-Fixpoint genfun_from_bs_pairs1 (initf: segid_type -> block) (pairs: list (block * segid_type)) 
-  : segid_type -> block :=
-  match pairs with 
-  | nil => initf 
-  | (b,s)::pairs' =>
-    fun id => if ident_eq id s then b else (genfun_from_bs_pairs1 initf pairs' id)
-  end.
+(* Fixpoint genfun_from_bs_pairs1 (initf: segid_type -> block) (pairs: list (block * segid_type))  *)
+(*   : segid_type -> block := *)
+(*   match pairs with  *)
+(*   | nil => initf  *)
+(*   | (b,s)::pairs' => *)
+(*     fun id => if ident_eq id s then b else (genfun_from_bs_pairs1 initf pairs' id) *)
+(*   end. *)
 
 (* Fixpoint genfun_from_bs_pairs2 (pairs: list (block * segid_type))  *)
 (*   : block -> option segid_type := *)
@@ -919,10 +1006,19 @@ Fixpoint genfun_from_bs_pairs1 (initf: segid_type -> block) (pairs: list (block 
 (*     fun b' => if eq_block b b' then Some s else (genfun_from_bs_pairs2 pairs' b') *)
 (*   end. *)
   
+(* Fixpoint acc_segblocks (nextblock: block) (ids: list segid_type) (map: segid_type -> block) *)
+(*   : (segid_type -> block) := *)
+(*   let pairs := gen_block_segid_pairs nextblock ids in *)
+(*   genfun_from_bs_pairs1 map pairs. *)
+
 Fixpoint acc_segblocks (nextblock: block) (ids: list segid_type) (map: segid_type -> block)
   : (segid_type -> block) :=
-  let pairs := gen_block_segid_pairs nextblock ids in
-  genfun_from_bs_pairs1 map pairs.
+  match ids with
+  | nil => map
+  | id::ids' =>
+    let map' := acc_segblocks (Psucc nextblock) ids' map in
+    (fun x => if ident_eq x id then nextblock else map' x)
+  end.
 
 Definition list_of_segments (p:program) : list segment  := 
   (p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: p.(stack_seg) :: nil).
