@@ -19,6 +19,14 @@ Require Import AsmFacts.
 
 Open Scope Z_scope.
 
+(* Lemma find_symbol_funct_ptr_inversion : forall id b f, *)
+(*   ge' = fold_left Genv.add_global ge gl -> *)
+(*   Genv.find_symbol ge' id = Some b -> *)
+(*   Genv.find_funct_ptr ge' b = Some (Internal f) -> *)
+(*   In (id, Some (Gfun (Internal f))) gl. *)
+(* Proof. *)
+(*   subst ge. unfold Genv.globalenv. *)
+
 Ltac monadInvX1 H :=
   let monadInvX H :=  
       monadInvX1 H ||
@@ -331,7 +339,7 @@ Proof.
     generalize (instr_size_positive a). unfold instr_size. omega.
 Qed.
 
-Lemma find_instr_transl_instr : forall code gmap lmap id i ofs ofs' fofs code',
+Lemma find_instr_transl_instrs : forall code gmap lmap id i ofs ofs' fofs code',
     find_instr (Ptrofs.unsigned ofs) code = Some i ->
     transl_instrs gmap lmap id (Ptrofs.unsigned ofs') code = OK (fofs, code') ->
     fofs <= Ptrofs.max_unsigned ->
@@ -372,6 +380,18 @@ Proof.
       generalize (Ptrofs.unsigned_range_2 ofs). unfold instr_size. intros. omega.
 Qed.
 
+Lemma find_instr_transl_fun : forall id f f' ofs i gmap lmap s,
+    find_instr (Ptrofs.unsigned ofs) (Asm.fn_code f) = Some i ->
+    transl_fun gmap lmap id f = OK f' ->
+    gmap id = Some s ->
+    exists i' ofs1, transl_instr gmap lmap ofs1 id i = OK i' /\
+               segblock_to_label (snd i') = (code_segid, Ptrofs.add ofs (snd s)).
+Proof.
+  intros id f f' ofs i gmap lmap s FINSTR TRANSFUN GMAP.
+  unfold transl_fun in TRANSFUN. rewrite GMAP in TRANSFUN.
+  monadInvX TRANSFUN. destruct zle; inversion EQ1; clear EQ1.
+  exploit find_instr_transl_instrs; eauto.
+Qed.
 
 Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
     Genv.init_mem prog = Some m ->
@@ -380,6 +400,9 @@ Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
     match_sminj gmap lmap (init_meminj gmap).
 Proof.   
   intros gmap lmap dsize csize efsize m INITMEM UPDATE TRANS. 
+  generalize TRANSF. intros TRANSF'.
+  unfold match_prog in TRANSF'. monadInv TRANSF'.
+  rewrite UPDATE in EQ. inv EQ. clear EQ0.
   unfold update_map in UPDATE. 
   set (dinfo_gvars := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog)) in *.
   set (dinfo_extfuns := (update_extfuns_map {| di_size := 0; di_map := di_map dinfo_gvars |} (AST.prog_defs prog))) in *.
@@ -400,7 +423,15 @@ Proof.
       subst ofs' b'. clear INITINJ H1 H2.
       rewrite Ptrofs.repr_unsigned. rename i0 into id.
       apply Genv.invert_find_symbol in INVSYM.
-  Admitted.
+      Admitted.
+  (* exploit Genv.find_symbol_inversion. subst ge. eauto. *)
+  (* intros INDEFS. *)
+
+
+  (* transl_funs (ci_map cinfo_funs) (ci_lmap cinfo_funs) (AST.prog_defs prog) = OK (gfuns, code) *)
+  (* transl_fun (ci_map cinfo_funs) (ci_lmap cinfo_funs) id f = OK f' *)
+  
+  
 
   (* dinfo_gvars := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog) : dinfo *)
   (* dinfo_extfuns := update_extfuns_map {| di_size := 0; di_map := di_map dinfo_gvars |} (AST.prog_defs prog) : dinfo *)

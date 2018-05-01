@@ -469,9 +469,12 @@ Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
   | Some (sid, ofs) =>
     let ofs' := Ptrofs.unsigned ofs in
     do (fofs, code') <- transl_instrs fid ofs' (Asm.fn_code f);
-      let sz := fofs - ofs' in
-      let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
-      OK (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk)
+      if zle fofs Ptrofs.max_unsigned then
+        (let sz := fofs - ofs' in
+         let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+         OK (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk))
+      else
+        Error (MSG "The size of the function exceeds limit" ::nil)
   end.
 
 (** Translation of internal functions *)
