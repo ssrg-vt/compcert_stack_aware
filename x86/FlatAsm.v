@@ -949,10 +949,27 @@ Fixpoint code_labels_are_distinct (c: code) : Prop :=
     ~In (segblock_to_label sb) (code_labels code')
   end.
 
-Lemma acc_instrs_map_self : forall i c map map' sbmap,
-  Injective sbmap -> 
+Section WITHSEGSLENGTH.
+
+Variable init_block : block.
+Variable segs_length : nat.
+
+Definition segblock_is_valid (b:block) : Prop :=
+  Ple init_block b /\ Plt b (Pos.of_nat ((Pos.to_nat init_block) + segs_length)).
+
+Definition injective_on_valid_segs (sbmap: segid_type -> block) : Prop :=
+  forall s1 s2, sbmap s1 = sbmap s2 -> segblock_is_valid (sbmap s1) -> s1 = s2.
+
+Definition code_labels_are_valid (sbmap: segid_type -> block) (c:code) : Prop :=
+  forall i sblk, In (i,sblk) c -> segblock_is_valid (sbmap (segblock_id sblk)).
+
+End WITHSEGSLENGTH.
+
+Lemma acc_instrs_map_self : forall init_block slen i c map map' sbmap,
+  injective_on_valid_segs init_block slen sbmap ->
   In i c ->
   code_labels_are_distinct c ->
+  code_labels_are_valid init_block slen sbmap c ->
   map' = acc_instrs_map sbmap c map ->
   map' (sbmap (segblock_id (snd i))) (segblock_start (snd i)) = Some i.
 Proof. 
@@ -966,12 +983,17 @@ Proof.
     + subst. unfold acc_instr_map. destruct Val.eq.
       * unfold get_instr_ptr in e. destruct a. unfold Genv.label_to_ptr in e.
         unfold segblock_to_label in e. simpl in e.
-        inv e. unfold Injective in H. apply H in H3.
+        inv e. unfold injective_on_valid_segs in H. 
+        exploit H; eauto. 
+        unfold code_labels_are_valid in H2. apply H2 with (fst i).
+        apply in_cons. destruct i; auto. intros.
         assert (segblock_to_label (snd i) = segblock_to_label s).
         unfold segblock_to_label. f_equal; auto.
-        destruct H1. rewrite <- H2 in H5.
+        destruct H1. rewrite <- H6 in *.
         apply incode_labels in H0. congruence.
       * eapply IHc; eauto. destruct a. destruct H1. auto.
+        unfold code_labels_are_valid in *. intros.
+        apply H2 with i0. apply in_cons. auto.
 Qed.
 
 (* Generate a mapping from offsets to instructions *)
@@ -1036,6 +1058,79 @@ Definition gen_segblocks (p:program) : segid_type -> block :=
   let initmap := fun id => undef_seg_block in
   let ids := List.map segid (list_of_segments p) in
   acc_segblocks init_block ids initmap.
+
+
+Lemma acc_segblocks_cases: forall ids b initb initmap s,
+  b = (acc_segblocks initb ids initmap s) -> 
+  b = (initmap s) \/ segblock_is_valid initb (length ids) b.
+Proof.
+  induction ids; simpl; intros.
+  - auto.
+  - destruct ident_eq; subst.
+    + right. red. split. apply Ple_refl.
+      rewrite Nat.add_comm.
+      (* simpl. destruct ((Datatypes.length ids + Pos.to_nat initb)%nat) eqn:EQ. *)
+      (* assert (Pos.to_nat initb = 0%nat) by omega. *)
+      (* generalize (Pos2Nat.is_pos initb). omega. *)
+      (* assert (Pos.to_nat initb <= Datatypes.S n)%nat by omega. *)
+      (* rewrite Nat2Pos.inj_succ. *)
+      admit.
+    + exploit (IHids (acc_segblocks (Pos.succ initb) ids initmap s)); eauto.
+      intros [ACC | VALID].
+      auto. right. unfold segblock_is_valid in *. destruct VALID.
+      split. apply Ple_trans with (Pos.succ initb); auto. apply Ple_succ.
+      assert ((Pos.to_nat initb + Datatypes.S (Datatypes.length ids))%nat =
+              (Pos.to_nat (Pos.succ initb) + Datatypes.length ids)%nat).
+      rewrite Pos2Nat.inj_succ. rewrite Nat.add_comm. simpl. omega.
+      rewrite H1. auto.
+Admitted.
+
+Lemma Plt_le_absurd : forall a b,
+  Plt a b -> Ple b a -> False.
+Proof.
+  intros a b H H0. apply Pos.lt_nle in H. unfold Ple in *.
+  contradiction.
+Qed.
+
+Lemma acc_segblocks_absurd : forall ids b initb initmap s,
+  (forall s, Plt (initmap s) b) -> Plt b initb ->
+  b = (acc_segblocks initb ids initmap s) -> False.
+Proof.
+  intros. apply acc_segblocks_cases in H1. destruct H1.
+  - subst. specialize (H s). specialize (Plt_strict (initmap s)).
+    congruence.
+  - red in H1. destruct H1. generalize (Plt_le_absurd b initb); eauto.
+Qed.
+
+Lemma acc_segblocks_valid : forall ids init_block initmap sbmap,
+    (forall s, Plt (initmap s) init_block) ->
+    sbmap = acc_segblocks init_block ids initmap ->
+    injective_on_valid_segs init_block (length ids) sbmap.
+Proof.
+  induction ids; intros.
+  - simpl in *. subst. red.
+    intros s1 s2 EQ VALID.
+    red in VALID. rewrite Nat.add_0_r in VALID. rewrite Pos2Nat.id in VALID.
+    destruct VALID as [VALID1 VALID2]. exfalso.
+    generalize (Plt_le_absurd (initmap s1) init_block0); eauto.
+  - simpl in H0. subst. red. intros. repeat destruct ident_eq.
+    + subst. auto.
+    + red in H1. destruct H1.
+      exfalso. eapply (acc_segblocks_absurd ids init_block0 (Psucc init_block0)); eauto.
+      apply Pos.lt_succ_r. apply Ple_refl.
+    + red in H1. destruct H1.
+      exfalso. eapply (acc_segblocks_absurd ids init_block0 (Psucc init_block0)); eauto.
+      apply Pos.lt_succ_r. apply Ple_refl.
+    + set (sbmap := acc_segblocks (Pos.succ init_block0) ids initmap) in *.
+      generalize (IHids (Pos.succ init_block0) initmap sbmap). intros.
+      exploit H2; eauto. intros. apply Plt_trans_succ. auto.
+      set (b1 := sbmap s1) in *. 
+      assert (b1 = sbmap s2) by auto. subst sbmap.
+      apply acc_segblocks_cases in H3. destruct H3; auto.
+      red in H1. destruct H1. specialize (H s2). rewrite <- H3 in H.
+      exfalso. generalize (Plt_le_absurd b1 init_block0); eauto.
+Qed.
+
 
 Definition empty_genv (p:program): genv :=
   Genv.mkgenv (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p).
