@@ -757,6 +757,16 @@ Proof.
 Qed.
 
 
+Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l',
+    In (id, Some (Gfun (Internal f))) (AST.prog_defs prog) ->
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
+    label_pos l 0 (Asm.fn_code f) = Some z ->
+    lmap id l = Some l' ->
+    exists slbl, gmap id = Some slbl /\
+            fst slbl = fst l' /\
+            Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l'.
+Admitted.
+
 Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
     Genv.init_mem prog = Some m ->
     update_map prog = OK (gmap,lmap,dsize,csize,efsize) ->
@@ -814,11 +824,25 @@ Proof.
     repeat rewrite offset_seglabel_zero. auto.
 
   - (* agree_sminj_lbl *)
-    intros id b f l z z' FINDSYM FINDPTR LPOS LPOS'.
+    intros id b f l z l' FINDSYM FINDPTR LPOS LPOS'.
     subst ge. exploit Genv.find_symbol_funct_ptr_inversion; eauto. intros INDEFS.
     exploit transl_fun_exists; eauto.
     intros (f' & TRANSLF & INCODE).
-    Admitted.
+    set (ge := Genv.globalenv prog).
+    exploit update_map_lmap_inversion; eauto. intros (slbl & GMAP & LEQ & OFSEQ).
+    unfold Genv.symbol_address. unfold Genv.label_to_ptr. 
+    apply Val.inject_ptr with (Ptrofs.unsigned (snd slbl)).   
+    unfold init_meminj. destruct eq_block.
+    subst b. exfalso. 
+    eapply genv_find_symbol_next_abusrd; eauto.
+    erewrite Genv.find_invert_symbol; eauto.
+    rewrite offset_seglabel_zero. 
+    unfold Genv.symbol_block_offset. unfold Genv.label_to_block_offset.
+    rewrite GMAP. rewrite LEQ. auto.
+    rewrite offset_seglabel_zero. rewrite Ptrofs.repr_unsigned. symmetry.
+    rewrite Ptrofs.add_commut. auto.
+Admitted.
+    
 
 Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty.
 Proof.
