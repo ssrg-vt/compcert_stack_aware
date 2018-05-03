@@ -16,7 +16,6 @@ Require Import StackADT.
 Require Import Linking Errors.
 Require Import Globalenvs FlatAsmGlobenv.
 Require Import AsmFacts.
-Require Import Logic.FinFun.
 
 Open Scope Z_scope.
 
@@ -100,7 +99,204 @@ Ltac monadInvX H :=
       ((progress simpl in H) || unfold F in H); monadInvX1 H
   | (?F _ = OK _) =>
       ((progress simpl in H) || unfold F in H); monadInvX1 H
-  end.
+  end.  
+
+
+Lemma tprog_id_in_seg_lists : forall gmap lmap p dsize csize efsize tp id,
+  transl_prog_with_map gmap lmap p dsize csize efsize = OK tp ->
+  id = stack_segid \/ id = code_segid \/ id = data_segid \/ id = extfuns_segid ->
+  In id (map segid (list_of_segments tp)).
+Proof.
+  intros gmap lmap p dsize csize efsize tp id H H0.
+  monadInv H. unfold list_of_segments in *. simpl in *.
+  destruct H0. auto.
+  destruct H. auto. destruct H. auto. destruct H. auto. 
+Qed.
+
+Lemma update_instrs_map_id_cases : forall instrs cinfo cinfo' fid id b,
+    cinfo' = update_instrs_map fid cinfo instrs ->
+    ci_map cinfo' id = Some b -> (fst b = code_segid \/ (ci_map cinfo id = Some b)).
+Proof.
+  induction instrs; simpl; intros.
+  - subst. auto.
+  - exploit IHinstrs; eauto.
+Qed.
+
+Lemma update_funs_map_id_cases : forall defs cinfo cinfo' id b,
+    cinfo' = update_funs_map cinfo defs ->
+    ci_map cinfo' id = Some b -> (fst b = code_segid \/ (ci_map cinfo id = Some b)).
+Proof.
+  induction defs; simpl; intros;
+    try (subst; simpl in *; auto).
+  destruct a. destruct o. destruct g. destruct f.
+  exploit IHdefs; eauto. intros. destruct H. auto. 
+  exploit update_instrs_map_id_cases; eauto. intros.
+  destruct H1. auto. simpl in *.
+  unfold update_gid_map in H1. destruct peq. subst. inv H1.
+  unfold code_label. simpl. auto. auto.
+  eapply IHdefs; eauto.
+  eapply IHdefs; eauto.
+  eapply IHdefs; eauto.
+Qed.
+
+Lemma update_gvars_map_id_cases : forall defs dinfo dinfo' id b,
+    dinfo' = update_gvars_map dinfo defs ->
+    di_map dinfo' id = Some b -> (fst b = code_segid \/ (di_map dinfo id = Some b)).
+Proof.
+Admitted.
+
+Lemma update_extfuns_map_id_cases : forall defs dinfo dinfo' id b,
+    dinfo' = update_extfuns_map dinfo defs ->
+    di_map dinfo' id = Some b -> (fst b = code_segid \/ (di_map dinfo id = Some b)).
+Proof.
+Admitted.
+
+
+Lemma update_map_gmap_domain : forall p gmap lmap dsize csize efsize tp,
+  update_map p = OK (gmap, lmap, dsize, csize, efsize) ->
+  transl_prog_with_map gmap lmap p dsize csize efsize = OK tp ->
+  forall id b, gmap id = Some b -> In (fst b) (map segid (list_of_segments tp)).
+Proof.
+  intros p gmap lmap dsize csize efsize tp UPDATE TRANS id b GMAP.
+  monadInv UPDATE.
+  set (gvmap := (update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs p))) in *.
+  set (efmap := (update_extfuns_map {| di_size := 0; di_map := di_map gvmap |} (AST.prog_defs p))) in *.
+  set (fmap := (update_funs_map {| ci_size := 0; ci_map := di_map efmap; ci_lmap := default_label_map |} (AST.prog_defs p))) in *.
+  exploit update_funs_map_id_cases; eauto. intros. destruct H.
+  eapply tprog_id_in_seg_lists; eauto.
+  exploit update_extfuns_map_id_cases; eauto. intros. destruct H0.
+  eapply tprog_id_in_seg_lists; eauto.
+  exploit update_gvars_map_id_cases; eauto. intros. destruct H1.
+  eapply tprog_id_in_seg_lists; eauto.
+  simpl in H1. cbv in H1. inv H1.
+Qed.
+
+Lemma transl_fun_gen_valid_code_labels : forall gmap lmap i f f' tp,
+  (forall id b, gmap id = Some b -> In (fst b) (map segid (list_of_segments tp))) ->
+  transl_fun gmap lmap i f = OK f' -> 
+  code_labels_are_valid init_block (length (list_of_segments tp)) (gen_segblocks tp) (fn_code f').
+Proof.
+  Admitted.
+  
+  
+Lemma code_labels_are_valid_app : forall initb slen sbmap l1 l2,
+    code_labels_are_valid initb slen sbmap l1 ->
+    code_labels_are_valid initb slen sbmap l2 ->
+    code_labels_are_valid initb slen sbmap (l1 ++ l2).
+Proof.
+  induction l1. intros. simpl. auto.
+  intros. simpl.
+Admitted.
+
+Lemma code_labels_are_valid_eq_map : forall initb slen sbmap sbmap' l,
+    (forall id, sbmap id = sbmap' id) ->
+    code_labels_are_valid initb slen sbmap l ->
+    code_labels_are_valid initb slen sbmap' l.
+Admitted.
+
+Lemma transl_funs_gen_valid_code_labels : forall defs gmap lmap fundefs code tp,
+  (forall id b, gmap id = Some b -> In (fst b) (map segid (list_of_segments tp))) ->
+  transl_funs gmap lmap defs = OK (fundefs, code) -> 
+  code_labels_are_valid init_block (length (list_of_segments tp)) (gen_segblocks tp) code.
+Proof.
+  induction defs; intros.
+  - monadInv H0. red. intros. inv H0.
+  - monadInvX H0. subst. destruct g. destruct f. monadInv H0.
+    apply code_labels_are_valid_app.
+    eapply transl_fun_gen_valid_code_labels; eauto.
+    eapply IHdefs; eauto.
+    eapply IHdefs; eauto.
+    eapply IHdefs; eauto.
+    eapply IHdefs; eauto.
+Qed.
+
+Lemma acc_segblocks_cases: forall ids b initb initmap s,
+  b = (acc_segblocks initb ids initmap s) -> 
+  b = (initmap s) \/ segblock_is_valid initb (length ids) b.
+Proof.
+  induction ids; simpl; intros.
+  - auto.
+  - destruct ident_eq; subst.
+    + right. red. split. apply Ple_refl.
+      rewrite Nat.add_comm.
+      (* assert ((Datatypes.S (Datatypes.length ids) + Pos.to_nat initb)%nat = *)
+      (*         (Datatypes.S (Datatypes.length ids + Pos.to_nat initb))%nat) by omega. *)
+      (* rewrite H. apply Plt_Ple_trans with (Pos.of_nat (Datatypes.length ids + Pos.to_nat initb)). *)
+      (* apply Plt_Ple_trans with (Pos.of_nat (Pos.to_nat initb)).  *)
+      (* rewrite Pos2Nat.id. *)
+      admit. 
+      (* simpl. destruct ((Datatypes.length ids + Pos.to_nat initb)%nat) eqn:EQ. *)
+      (* assert (Pos.to_nat initb = 0%nat) by omega. *)
+      (* generalize (Pos2Nat.is_pos initb). omega. *)
+      (* assert (Pos.to_nat initb <= Datatypes.S n)%nat by omega. *)
+      (* rewrite Nat2Pos.inj_succ. *)
+    + exploit (IHids (acc_segblocks (Pos.succ initb) ids initmap s)); eauto.
+      intros [ACC | VALID].
+      auto. right. unfold segblock_is_valid in *. destruct VALID.
+      split. apply Ple_trans with (Pos.succ initb); auto. apply Ple_succ.
+      assert ((Pos.to_nat initb + Datatypes.S (Datatypes.length ids))%nat =
+              (Pos.to_nat (Pos.succ initb) + Datatypes.length ids)%nat).
+      rewrite Pos2Nat.inj_succ. rewrite Nat.add_comm. simpl. omega.
+      rewrite H1. auto.
+Admitted.
+
+Lemma Plt_le_absurd : forall a b,
+  Plt a b -> Ple b a -> False.
+Proof.
+  intros a b H H0. apply Pos.lt_nle in H. unfold Ple in *.
+  contradiction.
+Qed.
+
+Lemma acc_segblocks_absurd : forall ids b initb initmap s,
+  (forall s, Plt (initmap s) b) -> Plt b initb ->
+  b = (acc_segblocks initb ids initmap s) -> False.
+Proof.
+  intros. apply acc_segblocks_cases in H1. destruct H1.
+  - subst. specialize (H s). specialize (Plt_strict (initmap s)).
+    congruence.
+  - red in H1. destruct H1. generalize (Plt_le_absurd b initb); eauto.
+Qed.
+
+Lemma acc_segblocks_valid : forall ids init_block0 initmap sbmap,
+    (forall s, Plt (initmap s) init_block0) ->
+    sbmap = acc_segblocks init_block0 ids initmap ->
+    injective_on_valid_segs init_block0 (length ids) sbmap.
+Proof.
+  induction ids; intros.
+  - simpl in *. subst. red.
+    intros s1 s2 EQ VALID.
+    red in VALID. rewrite Nat.add_0_r in VALID. rewrite Pos2Nat.id in VALID.
+    destruct VALID as [VALID1 VALID2]. exfalso.
+    generalize (Plt_le_absurd (initmap s1) init_block0); eauto.
+  - simpl in H0. subst. red. intros. repeat destruct ident_eq.
+    + subst. auto.
+    + red in H1. destruct H1.
+      exfalso. eapply (acc_segblocks_absurd ids init_block0 (Psucc init_block0)); eauto.
+      apply Pos.lt_succ_r. apply Ple_refl.
+    + red in H1. destruct H1.
+      exfalso. eapply (acc_segblocks_absurd ids init_block0 (Psucc init_block0)); eauto.
+      apply Pos.lt_succ_r. apply Ple_refl.
+    + set (sbmap := acc_segblocks (Pos.succ init_block0) ids initmap) in *.
+      generalize (IHids (Pos.succ init_block0) initmap sbmap). intros.
+      exploit H2; eauto. intros. apply Plt_trans_succ. auto.
+      set (b1 := sbmap s1) in *. 
+      assert (b1 = sbmap s2) by auto. subst sbmap.
+      apply acc_segblocks_cases in H3. destruct H3; auto.
+      red in H1. destruct H1. specialize (H s2). rewrite <- H3 in H.
+      exfalso. generalize (Plt_le_absurd b1 init_block0); eauto.
+Qed.
+
+Lemma gen_segblocks_valid : forall p,
+    injective_on_valid_segs init_block (length (list_of_segments p)) (gen_segblocks p).
+Proof.
+  intros p. set (sbmap := gen_segblocks p) in *. 
+  unfold gen_segblocks in *.
+  assert (length (list_of_segments p) = length (map segid (list_of_segments p))).
+  symmetry. apply list_length_map. rewrite H.
+  eapply acc_segblocks_valid; eauto. 
+  instantiate (1:=(fun _ : segid_type => undef_seg_block)). intros. simpl. 
+  apply Plt_succ. auto.
+Qed.
 
 
 Section WITHMEMORYMODEL.
@@ -411,14 +607,31 @@ Proof.
       exploit IHdefs; eauto. 
 Qed.
 
+Lemma target_code_labels_are_valid : 
+  code_labels_are_valid 
+    init_block (length (list_of_segments tprog)) 
+    (Genv.genv_segblocks tge)
+    (snd (code_seg tprog)).
+Proof.
+  unfold match_prog in TRANSF. monadInv TRANSF.
+  destruct x. destruct p. destruct p. destruct p.
+  subst tge. 
+  eapply code_labels_are_valid_eq_map. intros.
+  symmetry. apply genv_gen_segblocks.
+  monadInv EQ0.
+  eapply transl_funs_gen_valid_code_labels; eauto.
+  eapply update_map_gmap_domain; eauto.
+  unfold transl_prog_with_map. rewrite EQ1.
+  simpl. rewrite EQ0. simpl. rewrite EQ2. simpl. auto.
+Qed.
+
 Lemma find_instr_self : forall i, 
-    Injective (gen_segblocks tprog) -> 
     code_labels_are_distinct (snd (code_seg tprog)) ->
     In i (snd (code_seg tprog)) ->
     Genv.find_instr tge 
                     (Vptr (Genv.genv_segblocks tge (segblock_id (snd i))) (segblock_start (snd i))) = Some i.
 Proof.
-  intros i INJE DLBL IN. subst tge.
+  intros i DLBL IN. subst tge.
   unfold Genv.find_instr. unfold globalenv.
   erewrite <- add_globals_pres_genv_instrs; eauto. simpl.
   erewrite <- add_globals_pres_genv_segblocks; eauto. simpl.
@@ -426,6 +639,12 @@ Proof.
   unfold gen_instrs_map.
   set (code := (snd (code_seg tprog))) in *.
   eapply acc_instrs_map_self; eauto.
+  apply gen_segblocks_valid.
+  set (tge := globalenv tprog).
+  subst sbmap code.
+  apply code_labels_are_valid_eq_map with (Genv.genv_segblocks tge).
+  apply genv_gen_segblocks.
+  apply target_code_labels_are_valid.
 Qed.
 
 Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
@@ -466,11 +685,16 @@ Proof.
       exists id, i', (fst s), ofs1. split. 
       unfold segblock_to_label in SEGLBL. inversion SEGLBL.
       apply INR in IN.
-      apply find_instr_self. admit. admit. subst tprog; simpl. auto.
+      apply find_instr_self. admit. subst tprog; simpl. auto.
       split; auto.
 
-      Admitted.
+  - (* agree_sminj_glob *)
+    admit.
 
+  - (* agree_sminj_lbl *)
+    admit.
+
+    Admitted.
 
 Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty.
 Proof.
@@ -2355,7 +2579,14 @@ Lemma transf_final_states:
   forall st1 st2 r,
   match_states st1 st2 -> Asm.final_state st1 r -> FlatAsm.final_state st2 r.
 Proof.
-Admitted.
+  intros st1 st2 r MATCH FINAL.
+  inv FINAL. inv MATCH. constructor. 
+  - red in RSINJ. generalize (RSINJ PC). rewrite H. 
+    unfold Vnullptr. destruct Archi.ptr64; inversion 1; auto.
+  - red in RSINJ. generalize (RSINJ RAX). rewrite H0.
+    inversion 1. auto.
+Qed.
+  
 
 Theorem transf_program_correct:
   forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef)) (FlatAsm.semantics tprog).
