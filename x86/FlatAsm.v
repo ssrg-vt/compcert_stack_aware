@@ -947,6 +947,16 @@ Fixpoint code_labels_are_distinct (c: code) : Prop :=
     ~In (segblock_to_label sb) (code_labels code')
   end.
 
+Lemma of_nat_le_mono : forall m n,
+  (m <= n)%nat -> Ple (Pos.of_nat m) (Pos.of_nat n).
+Proof.
+  induction 1; intros.
+  - apply Ple_refl.
+  - apply Ple_trans with (Pos.of_nat m0); auto.
+    simpl. destruct m0. simpl. apply Ple_refl.
+    apply Ple_succ.
+Qed.
+
 Section WITHSEGSLENGTH.
 
 Variable init_block : block.
@@ -955,10 +965,24 @@ Variable segs_length : nat.
 Definition segblock_is_valid (b:block) : Prop :=
   Ple init_block b /\ Plt b (Pos.of_nat ((Pos.to_nat init_block) + segs_length)).
 
-Lemma segblock_is_valid_init : segblock_is_valid init_block.
+Lemma pos_incr_comm : forall p,
+  Pos.of_nat (Datatypes.S (Pos.to_nat p))%nat = Psucc p.
 Proof.
-  red. split. apply Ple_refl. admit.
-Admitted.
+  clear. intros p. rewrite <- Pos2Nat.inj_succ.
+  rewrite Pos2Nat.id. auto.
+Qed.
+
+Lemma segblock_is_valid_init : 
+  (segs_length <> 0)%nat -> segblock_is_valid init_block.
+Proof.
+  clear. red. split. apply Ple_refl. 
+  assert (((Pos.to_nat init_block) + segs_length)%nat = (Datatypes.S (Pos.to_nat init_block) + (segs_length - 1))%nat) by omega.
+  rewrite H0.
+  apply Plt_Ple_trans with (Pos.of_nat (Datatypes.S (Pos.to_nat init_block))).
+  rewrite pos_incr_comm. apply Plt_succ.
+  apply of_nat_le_mono. omega.
+Qed.
+
 
 Definition injective_on_valid_segs (sbmap: segid_type -> block) : Prop :=
   forall s1 s2, sbmap s1 = sbmap s2 -> segblock_is_valid (sbmap s1) -> s1 = s2.
@@ -1067,26 +1091,29 @@ Lemma acc_segblocks_in_valid: forall ids id sbmap initb initmap,
   sbmap = acc_segblocks initb ids initmap ->
   segblock_is_valid initb (length ids) (sbmap id).
 Proof.
+  clear.
   induction ids. intros.
   - inv H.
   - intros id sbmap initb initmap H H0. simpl in H. destruct H.
     subst. simpl. destruct ident_eq.
-    apply segblock_is_valid_init. congruence.
+    apply segblock_is_valid_init. omega. congruence.
     simpl in H0. subst. destruct ident_eq. 
-    apply segblock_is_valid_init. 
+    apply segblock_is_valid_init. simpl. omega.
     exploit (IHids id (acc_segblocks (Pos.succ initb) ids initmap)); eauto.
     intros VALID. unfold segblock_is_valid in *.  destruct VALID.
     split. apply Ple_trans with (Pos.succ initb); auto. 
     apply Ple_succ. 
     apply Plt_Ple_trans with (Pos.of_nat (Pos.to_nat (Pos.succ initb) + Datatypes.length ids)); auto.
-    rewrite Pos2Nat.inj_succ. admit.
-    Admitted.
+    rewrite Pos2Nat.inj_succ. 
+    apply of_nat_le_mono. simpl. omega.
+Qed.
     
 Lemma gen_segblocks_in_valid : forall p id sbmap,
   In id (map segid (list_of_segments p)) ->
   sbmap = gen_segblocks p ->
   segblock_is_valid init_block (length (list_of_segments p)) (sbmap id).
 Proof.
+  clear.
   intros p id sbmap H H0.
   assert (length (list_of_segments p) = length (map segid (list_of_segments p))).
   { rewrite list_length_map. auto. }
