@@ -24,6 +24,12 @@ Definition offset_seglabel (l:seglabel) (ofs:ptrofs) : seglabel :=
   | (s,o) => (s, Ptrofs.add o ofs)
   end.
 
+Lemma offset_seglabel_zero : forall l,
+  offset_seglabel l Ptrofs.zero = l.
+Proof.
+  intros l. destruct l. simpl. rewrite Ptrofs.add_zero. auto.
+Qed.
+
 (* (** Get the address of a label in a section *) *)
 (* Definition get_sect_label_addr0 smap l := *)
 (*   match (get_sect_label_offset0 smap l) with *)

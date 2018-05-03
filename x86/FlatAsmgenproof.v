@@ -19,6 +19,26 @@ Require Import AsmFacts.
 
 Open Scope Z_scope.
 
+Lemma map_fst_inversion : forall (A B:Type) (l:list (A*B)) a,
+  In a (map fst l) -> exists b, In (a, b) l.
+Proof.
+  induction l; simpl; intros.
+  - contradiction.
+  - destruct H. 
+    + destruct a. simpl in H. subst. eauto.
+    + exploit IHl; eauto. intros H0. destruct H0. eauto.
+Qed.
+
+Lemma find_symbol_exists_1:
+  forall (F V : Type) (p : AST.program F V) (id : ident),
+    In id (prog_defs_names p) -> exists b : block, Genv.find_symbol (Genv.globalenv p) id = Some b.
+Proof.
+  intros F V p id H.
+  unfold prog_defs_names in H. apply map_fst_inversion in H. destruct H.
+  eapply Genv.find_symbol_exists; eauto.
+Qed.
+
+
 Ltac monadInvX1 H :=
   let monadInvX H :=  
       monadInvX1 H ||
@@ -113,13 +133,21 @@ Proof.
   destruct H. auto. destruct H. auto. destruct H. auto. 
 Qed.
 
-Lemma update_instrs_map_id_cases : forall instrs cinfo cinfo' fid id b,
-    cinfo' = update_instrs_map fid cinfo instrs ->
-    ci_map cinfo' id = Some b -> (fst b = code_segid \/ (ci_map cinfo id = Some b)).
+Lemma update_instr_pres_gmap : forall i cinfo fid,
+    ci_map (update_instr_map fid cinfo i) = ci_map cinfo.
+Proof.
+  intros i. destruct i.
+  destruct i; unfold update_instr_map; simpl; intros; subst; auto.
+Qed.
+
+Lemma update_instrs_pres_gmap : forall instrs cinfo fid,
+    ci_map (update_instrs_map fid cinfo instrs) = ci_map cinfo.
 Proof.
   induction instrs; simpl; intros.
   - subst. auto.
-  - exploit IHinstrs; eauto.
+  - apply eq_trans with (ci_map (update_instr_map fid cinfo a)).
+    eapply IHinstrs; eauto.
+    apply update_instr_pres_gmap; auto.
 Qed.
 
 Lemma update_funs_map_id_cases : forall defs cinfo cinfo' id b,
@@ -130,9 +158,13 @@ Proof.
     try (subst; simpl in *; auto).
   destruct a. destruct o. destruct g. destruct f.
   exploit IHdefs; eauto. intros. destruct H. auto. 
-  exploit update_instrs_map_id_cases; eauto. intros.
-  destruct H1. auto. simpl in *.
-  unfold update_gid_map in H1. destruct peq. subst. inv H1.
+  match type of H with
+  | (ci_map (update_instrs_map _ ?ci _) _ = Some _) =>
+    generalize (update_instrs_pres_gmap (Asm.fn_code f) ci i)
+  end.
+  intros H1. rewrite H1 in H.
+  simpl in *.
+  unfold update_gid_map in H. destruct peq. subst. inv H.
   unfold code_label. simpl. auto. auto.
   eapply IHdefs; eauto.
   eapply IHdefs; eauto.
@@ -152,7 +184,7 @@ Proof.
 Admitted.
 
 
-Lemma update_map_gmap_domain : forall p gmap lmap dsize csize efsize tp,
+Lemma update_map_gmap_range : forall p gmap lmap dsize csize efsize tp,
   update_map p = OK (gmap, lmap, dsize, csize, efsize) ->
   transl_prog_with_map gmap lmap p dsize csize efsize = OK tp ->
   forall id b, gmap id = Some b -> In (fst b) (map segid (list_of_segments tp)).
@@ -620,7 +652,7 @@ Proof.
   symmetry. apply genv_gen_segblocks.
   monadInv EQ0.
   eapply transl_funs_gen_valid_code_labels; eauto.
-  eapply update_map_gmap_domain; eauto.
+  eapply update_map_gmap_range; eauto.
   unfold transl_prog_with_map. rewrite EQ1.
   simpl. rewrite EQ0. simpl. rewrite EQ2. simpl. auto.
 Qed.
@@ -647,6 +679,84 @@ Proof.
   apply target_code_labels_are_valid.
 Qed.
 
+Lemma genv_find_symbol_next_abusrd: forall id, 
+    Genv.find_symbol ge id = Some (Genv.genv_next ge) -> False.
+Proof. 
+  intros id FIND. 
+  unfold Genv.find_symbol in FIND. 
+  apply Genv.genv_symb_range in FIND.
+  generalize (Plt_strict (Genv.genv_next ge)). 
+  congruence.
+Qed.
+
+Lemma update_funs_map_id : forall defs cinfo id slbl,
+    ci_map (update_funs_map cinfo defs) id = Some slbl ->
+    (ci_map cinfo id = Some slbl \/ In id (map fst defs)).
+Proof.
+  induction defs; simpl; intros.
+  - auto.
+  - destruct a. destruct o. destruct g. destruct f.
+    + exploit IHdefs; eauto. intros H0. destruct H0.
+      match type of H0 with
+      | (ci_map (update_instrs_map _ ?ci _) _ = Some _) =>
+        generalize (update_instrs_pres_gmap (Asm.fn_code f) ci i)
+      end.
+      intros H1. rewrite H1 in H0. simpl in H0.
+      unfold update_gid_map in H0. destruct peq. subst.
+      inv H0. auto. auto. auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+Qed.
+
+
+Lemma update_exfuns_map_id : forall defs dinfo id slbl,
+    di_map (update_extfuns_map dinfo defs) id = Some slbl ->
+    (di_map dinfo id = Some slbl \/ In id (map fst defs)).
+Proof.
+  induction defs; simpl; intros.
+  - auto.
+  - destruct a. destruct o. destruct g. destruct f.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+      simpl in H0.
+      unfold update_gid_map in H0. destruct peq. subst.
+      inv H0. auto. auto. 
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+Qed.
+  
+
+Lemma update_gvars_map_id : forall defs dinfo id slbl,
+    di_map (update_gvars_map dinfo defs) id = Some slbl ->
+    (di_map dinfo id = Some slbl \/ In id (map fst defs)).
+Proof.
+  induction defs; simpl; intros.
+  - auto.
+  - destruct a. destruct o. destruct g. destruct f.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+      simpl in H0.
+      unfold update_gid_map in H0. destruct peq. subst.
+      inv H0. auto. auto. 
+    + exploit IHdefs; eauto. intros H0. destruct H0; auto.
+Qed.
+
+Lemma update_map_gmap_domain : forall gmap lmap dsize csize efsize id slbl, 
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
+    gmap id = Some slbl ->
+    In id (prog_defs_names prog).
+Proof.
+  intros gmap lmap dsize csize efsize id slbl H H0.
+  monadInv H. 
+  exploit update_funs_map_id; eauto. intros H. destruct H; auto.
+  exploit update_exfuns_map_id; eauto. intros H1. destruct H1; auto.
+  exploit update_gvars_map_id; eauto. intros H2. destruct H2; auto.
+  simpl in H2. inv H2.
+Qed.
+
+
 Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
     Genv.init_mem prog = Some m ->
     update_map prog = OK (gmap,lmap,dsize,csize,efsize) ->
@@ -657,6 +767,7 @@ Proof.
   generalize TRANSF. intros TRANSF'.
   unfold match_prog in TRANSF'. monadInv TRANSF'.
   rewrite UPDATE in EQ. inv EQ. clear EQ0.
+  generalize UPDATE. intros UPDATE'.
   unfold update_map in UPDATE. 
   set (dinfo_gvars := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog)) in *.
   set (dinfo_extfuns := (update_extfuns_map {| di_size := 0; di_map := di_map dinfo_gvars |} (AST.prog_defs prog))) in *.
@@ -689,7 +800,18 @@ Proof.
       split; auto.
 
   - (* agree_sminj_glob *)
-    admit.
+    intros id gloc GMAP.
+    assert (In id (prog_defs_names prog)) 
+      by (eapply update_map_gmap_domain; eauto).
+    exploit find_symbol_exists_1; eauto.
+    intros (b & FIND).
+    esplit. exists b. esplit. split. auto. split.
+    unfold Genv.symbol_address. unfold Genv.label_to_ptr. auto.
+    unfold init_meminj.       
+    destruct eq_block. exfalso. subst b. eapply genv_find_symbol_next_abusrd; eauto.    
+    apply Genv.find_invert_symbol in FIND. subst ge. rewrite FIND. rewrite GMAP.
+    unfold Genv.symbol_block_offset. unfold Genv.label_to_block_offset.
+    repeat rewrite offset_seglabel_zero. auto.
 
   - (* agree_sminj_lbl *)
     admit.
