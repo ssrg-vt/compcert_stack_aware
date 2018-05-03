@@ -16,6 +16,7 @@ Require Import StackADT.
 Require Import Linking Errors.
 Require Import Globalenvs FlatAsmGlobenv.
 Require Import AsmFacts.
+Require Import Num.
 
 Open Scope Z_scope.
 
@@ -120,55 +121,6 @@ Ltac monadInvX H :=
   | (?F _ = OK _) =>
       ((progress simpl in H) || unfold F in H); monadInvX1 H
   end.  
-
-Lemma code_labels_are_valid_cons_inv : forall initb slen sbmap a l,
-    code_labels_are_valid initb slen sbmap (a :: l) ->
-    segblock_is_valid initb slen (sbmap (segblock_id (snd a)))
-    /\ code_labels_are_valid initb slen sbmap l.
-Proof.
-  unfold code_labels_are_valid. 
-  intros initb slen sbmap a l VALID. split.
-  - apply VALID with (fst a). destruct a. simpl. auto.
-  - intros i sblk IN. apply VALID with i. apply in_cons. auto.
-Qed.
-
-Lemma code_labels_are_valid_cons : forall initb slen sbmap a l,
-    segblock_is_valid initb slen (sbmap (segblock_id (snd a))) ->
-    code_labels_are_valid initb slen sbmap l ->
-    code_labels_are_valid initb slen sbmap (a :: l).
-Proof.
-  unfold code_labels_are_valid. 
-  intros initb slen sbmap a l SVALID VALID i sblk IN. simpl in IN.
-  destruct IN.
-  - subst. simpl in *. auto.
-  - apply VALID with i. auto.
-Qed.
-  
-Lemma code_labels_are_valid_app : forall initb slen sbmap l1 l2,
-    code_labels_are_valid initb slen sbmap l1 ->
-    code_labels_are_valid initb slen sbmap l2 ->
-    code_labels_are_valid initb slen sbmap (l1 ++ l2).
-Proof.
-  induction l1; intros; simpl in *.
-  - auto.
-  - apply code_labels_are_valid_cons_inv in H. destruct H.
-    assert (code_labels_are_valid initb slen sbmap (l1 ++ l2)) 
-      by (apply IHl1; auto).
-    apply code_labels_are_valid_cons; auto.
-Qed.
-
-Lemma code_labels_are_valid_eq_map : forall initb slen sbmap sbmap' l,
-    (forall id, sbmap id = sbmap' id) ->
-    code_labels_are_valid initb slen sbmap l ->
-    code_labels_are_valid initb slen sbmap' l.
-Proof.
-  induction l; simpl.
-  - intros EQMAP VALID. red. intros. contradiction.
-  - intros EQMAP VALID.
-    apply code_labels_are_valid_cons_inv in VALID. destruct VALID.
-    apply code_labels_are_valid_cons; auto.
-    specialize (EQMAP (segblock_id (snd a))). rewrite <- EQMAP. auto.
-Qed.
 
 
 Lemma tprog_id_in_seg_lists : forall gmap lmap p dsize csize efsize tp id,
@@ -296,8 +248,6 @@ Proof.
   eapply transl_instrs_gen_valid_code_labels; eauto.
 Qed.
 
-  
-
 Lemma transl_funs_gen_valid_code_labels : forall defs gmap lmap fundefs code tp,
   (forall id b, gmap id = Some b -> In (fst b) (map segid (list_of_segments tp))) ->
   transl_funs gmap lmap defs = OK (fundefs, code) -> 
@@ -313,87 +263,6 @@ Proof.
     eapply IHdefs; eauto.
     eapply IHdefs; eauto.
 Qed.
-
-Lemma acc_segblocks_cases: forall ids b initb initmap s,
-  b = (acc_segblocks initb ids initmap s) -> 
-  b = (initmap s) \/ segblock_is_valid initb (length ids) b.
-Proof.
-  induction ids; simpl; intros.
-  - auto.
-  - destruct ident_eq; subst.
-    + right. red. split. apply Ple_refl.
-      rewrite Nat.add_comm.
-      apply Plt_Ple_trans with (Pos.of_nat (Datatypes.S (Pos.to_nat initb))).
-      rewrite pos_incr_comm. apply Plt_succ.
-      apply of_nat_le_mono. omega.
-    + exploit (IHids (acc_segblocks (Pos.succ initb) ids initmap s)); eauto.
-      intros [ACC | VALID].
-      auto. right. unfold segblock_is_valid in *. destruct VALID.
-      split. apply Ple_trans with (Pos.succ initb); auto. apply Ple_succ.
-      assert ((Pos.to_nat initb + Datatypes.S (Datatypes.length ids))%nat =
-              (Pos.to_nat (Pos.succ initb) + Datatypes.length ids)%nat).
-      rewrite Pos2Nat.inj_succ. rewrite Nat.add_comm. simpl. omega.
-      rewrite H1. auto.
-Qed.
-
-Lemma Plt_le_absurd : forall a b,
-  Plt a b -> Ple b a -> False.
-Proof.
-  intros a b H H0. apply Pos.lt_nle in H. unfold Ple in *.
-  contradiction.
-Qed.
-
-Lemma acc_segblocks_absurd : forall ids b initb initmap s,
-  (forall s, Plt (initmap s) b) -> Plt b initb ->
-  b = (acc_segblocks initb ids initmap s) -> False.
-Proof.
-  intros. apply acc_segblocks_cases in H1. destruct H1.
-  - subst. specialize (H s). specialize (Plt_strict (initmap s)).
-    congruence.
-  - red in H1. destruct H1. generalize (Plt_le_absurd b initb); eauto.
-Qed.
-
-Lemma acc_segblocks_valid : forall ids init_block0 initmap sbmap,
-    (forall s, Plt (initmap s) init_block0) ->
-    sbmap = acc_segblocks init_block0 ids initmap ->
-    injective_on_valid_segs init_block0 (length ids) sbmap.
-Proof.
-  induction ids; intros.
-  - simpl in *. subst. red.
-    intros s1 s2 EQ VALID.
-    red in VALID. rewrite Nat.add_0_r in VALID. rewrite Pos2Nat.id in VALID.
-    destruct VALID as [VALID1 VALID2]. exfalso.
-    generalize (Plt_le_absurd (initmap s1) init_block0); eauto.
-  - simpl in H0. subst. red. intros. repeat destruct ident_eq.
-    + subst. auto.
-    + red in H1. destruct H1.
-      exfalso. eapply (acc_segblocks_absurd ids init_block0 (Psucc init_block0)); eauto.
-      apply Pos.lt_succ_r. apply Ple_refl.
-    + red in H1. destruct H1.
-      exfalso. eapply (acc_segblocks_absurd ids init_block0 (Psucc init_block0)); eauto.
-      apply Pos.lt_succ_r. apply Ple_refl.
-    + set (sbmap := acc_segblocks (Pos.succ init_block0) ids initmap) in *.
-      generalize (IHids (Pos.succ init_block0) initmap sbmap). intros.
-      exploit H2; eauto. intros. apply Plt_trans_succ. auto.
-      set (b1 := sbmap s1) in *. 
-      assert (b1 = sbmap s2) by auto. subst sbmap.
-      apply acc_segblocks_cases in H3. destruct H3; auto.
-      red in H1. destruct H1. specialize (H s2). rewrite <- H3 in H.
-      exfalso. generalize (Plt_le_absurd b1 init_block0); eauto.
-Qed.
-
-Lemma gen_segblocks_valid : forall p,
-    injective_on_valid_segs init_block (length (list_of_segments p)) (gen_segblocks p).
-Proof.
-  intros p. set (sbmap := gen_segblocks p) in *. 
-  unfold gen_segblocks in *.
-  assert (length (list_of_segments p) = length (map segid (list_of_segments p))).
-  symmetry. apply list_length_map. rewrite H.
-  eapply acc_segblocks_valid; eauto. 
-  instantiate (1:=(fun _ : segid_type => undef_seg_block)). intros. simpl. 
-  apply Plt_succ. auto.
-Qed.
-
 
 Section WITHMEMORYMODEL.
   
