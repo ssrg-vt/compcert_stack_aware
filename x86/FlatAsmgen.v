@@ -27,7 +27,7 @@ Definition code_label (ofs:Z) : seglabel := (code_segid, Ptrofs.repr ofs).
 Definition extfun_label (ofs:Z) : seglabel := (extfuns_segid, Ptrofs.repr ofs).
 
 Definition GID_MAP_TYPE := ident -> option seglabel.
-Definition LABEL_MAP_TYPE := ident -> Asm.label -> option Z.
+Definition LABEL_MAP_TYPE := ident -> Asm.label -> option seglabel.
 
 Definition default_gid_map : GID_MAP_TYPE := fun id => None.
 Definition default_label_map : LABEL_MAP_TYPE :=
@@ -36,8 +36,8 @@ Definition default_label_map : LABEL_MAP_TYPE :=
 Definition update_gid_map (id:ident) (l:seglabel) (map:GID_MAP_TYPE) : GID_MAP_TYPE :=
   fun id' => if peq id id' then Some l else (map id').
 
-Definition update_label_map (id:ident) (l:Asm.label) (ofs:Z) (map:LABEL_MAP_TYPE) : LABEL_MAP_TYPE :=
-  fun id' l' => if peq id id' then (if peq l l' then Some ofs else (map id' l')) else (map id' l').
+Definition update_label_map (id:ident) (l:Asm.label) (tl:seglabel) (map:LABEL_MAP_TYPE) : LABEL_MAP_TYPE :=
+  fun id' l' => if peq id id' then (if peq l l' then Some tl else (map id' l')) else (map id' l').
 
 
 Section WITH_GID_MAP.
@@ -188,9 +188,9 @@ Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list seglabel) :=
   | l::tbl' =>
     match (label_map fid l) with
     | None => Error (MSG "Unknown label in the jump table" :: nil)
-    | Some ofs => 
+    | Some tl => 
       do rtbl <- transl_tbl fid tbl';
-      OK (code_label ofs :: rtbl)
+      OK (tl :: rtbl)
     end
   end.
 
@@ -351,7 +351,7 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
   | Asm.Pjmp_l l        => 
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjmp_l (code_label ofs))
+    | Some tl => OK (Pjmp_l tl)
     end
   | Asm.Pjmp_s symb sg =>
     match (gid_map symb) with
@@ -362,12 +362,12 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
   | Asm.Pjcc c l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjcc c (code_label ofs))
+    | Some tl => OK (Pjcc c tl)
     end
   | Asm.Pjcc2 c1 c2 l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjcc2 c1 c2 (code_label ofs))
+    | Some tl => OK (Pjcc2 c1 c2 tl)
     end
   | Asm.Pjmptbl r tbl =>
     do tbl' <- transl_tbl fid tbl; OK (Pjmptbl r tbl')
@@ -391,7 +391,7 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
   | Asm.Plabel l => 
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Plabel (code_label ofs))
+    | Some tl => OK (Plabel tl)
     end
   | Asm.Pallocframe fi ofs_ra =>
     OK (Pallocframe fi ofs_ra)
@@ -590,7 +590,7 @@ Definition update_instr_map (fid:ident) (ci:cinfo) (instr:Asm.instr_with_info) :
       match (fst instr) with
       | Asm.Plabel l => 
         let ofs := ci_size ci in
-        update_label_map fid l ofs (ci_lmap ci)
+        update_label_map fid l (code_label ofs) (ci_lmap ci)
       | _ => ci_lmap ci
       end
   in

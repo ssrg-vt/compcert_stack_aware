@@ -373,12 +373,12 @@ Record match_sminj (gm: GID_MAP_TYPE) (lm: LABEL_MAP_TYPE) (mj: meminj) : Type :
             Genv.symbol_address tge gloc Ptrofs.zero = Vptr b' ofs' /\
             mj b = Some (b', Ptrofs.unsigned ofs');
 
-      agree_sminj_lbl : forall id b f l z z',
+      agree_sminj_lbl : forall id b f l z l',
           Genv.find_symbol ge id = Some b ->
           Genv.find_funct_ptr ge b = Some (Internal f) ->
           label_pos l 0 (Asm.fn_code f) = Some z ->
-          lm id l = Some z' ->
-          Val.inject mj (Vptr b (Ptrofs.repr z)) (Genv.symbol_address tge (code_label z') Ptrofs.zero);
+          lm id l = Some l' ->
+          Val.inject mj (Vptr b (Ptrofs.repr z)) (Genv.symbol_address tge l' Ptrofs.zero);
       
     }.
 
@@ -814,8 +814,10 @@ Proof.
     repeat rewrite offset_seglabel_zero. auto.
 
   - (* agree_sminj_lbl *)
-    admit.
-
+    intros id b f l z z' FINDSYM FINDPTR LPOS LPOS'.
+    subst ge. exploit Genv.find_symbol_funct_ptr_inversion; eauto. intros INDEFS.
+    exploit transl_fun_exists; eauto.
+    intros (f' & TRANSLF & INCODE).
     Admitted.
 
 Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty.
@@ -2367,7 +2369,7 @@ Proof.
   destruct (Genv.find_funct_ptr ge b); try inv H0. auto.
 Qed.
 
-Lemma goto_label_inject : forall rs1 rs2 gm lm id b f l z j m1 m2 rs1' m1' ofs
+Lemma goto_label_inject : forall rs1 rs2 gm lm id b f l l' j m1 m2 rs1' m1' ofs
                             (MATCHSMINJ: match_sminj gm lm j)
                             (RINJ: regset_inject j rs1 rs2)
                             (MINJ:Mem.inject j (def_frame_inj m1) m1 m2),
@@ -2375,8 +2377,8 @@ Lemma goto_label_inject : forall rs1 rs2 gm lm id b f l z j m1 m2 rs1' m1' ofs
     Genv.find_symbol ge id = Some b ->
     Genv.find_funct_ptr ge b = Some (Internal f) ->
     Asm.goto_label ge f l rs1 m1 = Next rs1' m1' ->
-    lm id l = Some z ->
-    exists rs2', goto_label tge (code_label z) rs2 m2 = Next rs2' m2 /\
+    lm id l = Some l' ->
+    exists rs2', goto_label tge l' rs2 m2 = Next rs2' m2 /\
             regset_inject j rs1' rs2' /\ Mem.inject j (def_frame_inj m1') m1' m2.
 Proof.
   intros. unfold Asm.goto_label in H2.
