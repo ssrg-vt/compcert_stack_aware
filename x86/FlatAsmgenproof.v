@@ -210,21 +210,55 @@ Lemma transl_fun_gen_valid_code_labels : forall gmap lmap i f f' tp,
 Proof.
   Admitted.
   
+
+Lemma code_labels_are_valid_cons_inv : forall initb slen sbmap a l,
+    code_labels_are_valid initb slen sbmap (a :: l) ->
+    segblock_is_valid initb slen (sbmap (segblock_id (snd a)))
+    /\ code_labels_are_valid initb slen sbmap l.
+Proof.
+  unfold code_labels_are_valid. 
+  intros initb slen sbmap a l VALID. split.
+  - apply VALID with (fst a). destruct a. simpl. auto.
+  - intros i sblk IN. apply VALID with i. apply in_cons. auto.
+Qed.
+
+Lemma code_labels_are_valid_cons : forall initb slen sbmap a l,
+    segblock_is_valid initb slen (sbmap (segblock_id (snd a))) ->
+    code_labels_are_valid initb slen sbmap l ->
+    code_labels_are_valid initb slen sbmap (a :: l).
+Proof.
+  unfold code_labels_are_valid. 
+  intros initb slen sbmap a l SVALID VALID i sblk IN. simpl in IN.
+  destruct IN.
+  - subst. simpl in *. auto.
+  - apply VALID with i. auto.
+Qed.
   
 Lemma code_labels_are_valid_app : forall initb slen sbmap l1 l2,
     code_labels_are_valid initb slen sbmap l1 ->
     code_labels_are_valid initb slen sbmap l2 ->
     code_labels_are_valid initb slen sbmap (l1 ++ l2).
 Proof.
-  induction l1. intros. simpl. auto.
-  intros. simpl.
-Admitted.
+  induction l1; intros; simpl in *.
+  - auto.
+  - apply code_labels_are_valid_cons_inv in H. destruct H.
+    assert (code_labels_are_valid initb slen sbmap (l1 ++ l2)) 
+      by (apply IHl1; auto).
+    apply code_labels_are_valid_cons; auto.
+Qed.
 
 Lemma code_labels_are_valid_eq_map : forall initb slen sbmap sbmap' l,
     (forall id, sbmap id = sbmap' id) ->
     code_labels_are_valid initb slen sbmap l ->
     code_labels_are_valid initb slen sbmap' l.
-Admitted.
+Proof.
+  induction l; simpl.
+  - intros EQMAP VALID. red. intros. contradiction.
+  - intros EQMAP VALID.
+    apply code_labels_are_valid_cons_inv in VALID. destruct VALID.
+    apply code_labels_are_valid_cons; auto.
+    specialize (EQMAP (segblock_id (snd a))). rewrite <- EQMAP. auto.
+Qed.
 
 Lemma transl_funs_gen_valid_code_labels : forall defs gmap lmap fundefs code tp,
   (forall id b, gmap id = Some b -> In (fst b) (map segid (list_of_segments tp))) ->
