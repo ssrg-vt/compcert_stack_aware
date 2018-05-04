@@ -555,6 +555,20 @@ Hypothesis TRANSF: transf_program prog = OK tprog.
 Let ge := Genv.globalenv prog.
 Let tge := globalenv tprog.
 
+Lemma update_funs_map_lmap_inversion: forall defs id l f z cinfo' cinfo l',
+    In (id, Some (Gfun (Internal f))) defs ->
+    label_pos l 0 (Asm.fn_code f) = Some z ->
+    cinfo' = update_funs_map cinfo defs -> ci_lmap cinfo' id l = Some l' ->
+    exists slbl : seglabel, ci_map cinfo' id = Some slbl 
+                       /\ fst slbl = fst l' 
+                       /\ Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l'.
+Proof.
+  induction defs; intros.
+  - contradiction.
+  - simpl in H. destruct H.
+    + subst a. simpl in H1. 
+Admitted.
+
 Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l',
     In (id, Some (Gfun (Internal f))) (AST.prog_defs prog) ->
     update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
@@ -563,7 +577,14 @@ Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l
     exists slbl, gmap id = Some slbl /\
             fst slbl = fst l' /\
             Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l'.
-Admitted.
+Proof.
+  intros id f gmap lmap dsize csize efsize l z l' IN UPDATE LPOS LMAP.
+  monadInv UPDATE.
+  set (gvinfo := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog)) in *.
+  set (efinfo := update_extfuns_map {| di_size := 0; di_map := di_map gvinfo |} (AST.prog_defs prog)) in *.
+  set (cinfo := update_funs_map {| ci_size := 0; ci_map := di_map efinfo; ci_lmap := default_label_map |} (AST.prog_defs prog)) in *.
+  eapply update_funs_map_lmap_inversion; eauto. subst cinfo; eauto.
+Qed.
 
 End WITHTRANSF.
 
