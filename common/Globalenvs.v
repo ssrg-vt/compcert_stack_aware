@@ -392,7 +392,6 @@ Proof.
   rewrite <- in_rev. auto.
 Qed.
 
-
 (** Proof principles *)
 
 Section GLOBALENV_PRINCIPLES.
@@ -637,6 +636,37 @@ Proof.
 (* ensures *)
   intros. unfold find_symbol; simpl. rewrite PTree.gss. econstructor; eauto.
 Qed.
+
+Lemma map_fst_inversion : forall (A B:Type) (l:list (A*B)) a,
+  In a (map fst l) -> exists b, In (a, b) l.
+Proof.
+  induction l; simpl; intros.
+  - contradiction.
+  - destruct H. 
+    + destruct a. simpl in H. subst. eauto.
+    + exploit IHl; eauto. intros H0. destruct H0. eauto.
+Qed.
+
+Lemma find_symbol_exists_1:
+  forall (p : AST.program F V) (id : ident),
+    In id (prog_defs_names p) -> exists b : block, find_symbol (globalenv p) id = Some b.
+Proof.
+  intros p id H.
+  unfold prog_defs_names in H. apply map_fst_inversion in H. destruct H.
+  eapply find_symbol_exists; eauto.
+Qed.
+
+Lemma genv_find_symbol_next_abusrd: forall (p:program F V) id ge, 
+    ge = globalenv p ->
+    find_symbol ge id = Some (genv_next ge) -> False.
+Proof. 
+  intros p id ge GE FIND. 
+  unfold find_symbol in FIND. 
+  apply genv_symb_range in FIND.
+  generalize (Plt_strict (genv_next ge)). 
+  congruence.
+Qed.
+
 
 Theorem find_symbol_inversion : forall p x b,
   find_symbol (globalenv p) x = Some b ->
@@ -1773,6 +1803,16 @@ Theorem init_mem_characterization_2:
 Proof.
   intros. rewrite find_funct_ptr_iff in H.
   exploit init_mem_characterization_gen; eauto.
+Qed.
+
+Lemma genv_next_find_funct_ptr_absurd : forall (p:AST.program F V) m ge gdef,
+  init_mem p = Some m -> ge = (globalenv p) -> 
+  find_funct_ptr ge (genv_next ge) = Some gdef -> False.
+Proof.
+  intros p m ge0 gdef INITM GE FINDPTR. subst ge0.
+  exploit find_funct_ptr_not_fresh; eauto. intros BVALID.
+  erewrite init_mem_genv_next in BVALID; eauto.
+  unfold Mem.valid_block in BVALID. apply Plt_strict in BVALID. contradiction.
 Qed.
 
 (** ** Compatibility with memory injections *)
