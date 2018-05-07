@@ -633,7 +633,14 @@ Qed.
 
 Lemma divides_align : forall y x,
     y > 0 -> (y | x) -> align x y = x.
-Admitted.
+Proof.
+  intros y x GT DV.
+  unfold align. red in DV. destruct DV as [z DV].
+  subst. replace (z * y + y - 1) with (z * y + (y - 1)) by omega.
+  erewrite Int.Zdiv_shift; eauto.
+  erewrite Z_div_mult; eauto. rewrite Z_mod_mult.
+  rewrite zeq_true. rewrite Z.add_0_r. auto.
+Qed.
 
 Lemma align_idempotent : forall v x,
     x > 0 -> align (align v x) x = align v x.
