@@ -671,5 +671,8 @@ Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE * Z *
 Definition transf_program (p:Asm.program) : res program :=
   do r <- update_map p;
   let '(gmap,lmap,dsize,csize,efsize) := r in
-  transl_prog_with_map gmap lmap p dsize csize efsize.
+  if zle (dsize + csize + efsize) Ptrofs.max_unsigned then
+    transl_prog_with_map gmap lmap p dsize csize efsize
+  else
+    Error (MSG "Size of segments too big" :: nil).
 

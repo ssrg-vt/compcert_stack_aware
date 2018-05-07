@@ -103,6 +103,11 @@ Ltac monadInvX H :=
   end.  
 
 
+Lemma alignw_le : forall x, x <= align x alignw.
+Proof.
+  intros x. apply align_le. unfold alignw. omega.
+Qed.
+
 (** Lemmas about FlatAsmgen that are useful for proving invariants *)
 
 Lemma update_instr_pres_gmap : forall i cinfo fid,
@@ -328,12 +333,12 @@ Lemma target_code_labels_are_valid :
     (Genv.genv_segblocks tge)
     (snd (code_seg tprog)).
 Proof.
-  monadInv TRANSF.
+  monadInv TRANSF. 
   destruct x. destruct p. destruct p. destruct p.
   subst tge. 
   eapply code_labels_are_valid_eq_map. intros.
   symmetry. apply genv_gen_segblocks.
-  monadInv EQ0.
+  destruct zle; monadInv EQ0.
   eapply transl_funs_gen_valid_code_labels; eauto.
   eapply update_map_gmap_range; eauto.
   unfold transl_prog_with_map. rewrite EQ1.
@@ -702,12 +707,110 @@ Proof.
     destruct peq. subst. congruence. auto.
 Qed.    
 
-Lemma update_instrs_map_lmap_inversion : forall instrs l z ofs id cinfo cinfo' l',
+Lemma update_gvars_map_size_mono : forall defs dinfo,
+    di_size dinfo <= di_size (update_gvars_map dinfo defs).
+Proof. 
+  induction defs; intros.
+  - simpl. omega.
+  - simpl. destruct a. destruct o. destruct g.
+    apply IHdefs.
+    eapply Zle_trans with (di_size (update_gvar_map dinfo i v)).
+
+    unfold update_gvar_map. simpl.
+    generalize (init_data_list_size_pos (gvar_init v)). 
+    assert (di_size dinfo <= align (di_size dinfo) alignw) by apply alignw_le.
+    omega.
+    
+    apply IHdefs.
+    apply IHdefs.
+Qed.
+
+Lemma update_extfuns_map_size_mono : forall defs dinfo,
+    di_size dinfo <= di_size (update_extfuns_map dinfo defs).
+Proof.
+  induction defs; intros.
+  - simpl. omega.
+  - simpl. destruct a. destruct o. destruct g. destruct f.
+    apply IHdefs.
+    
+    match goal with
+    | [ |- di_size dinfo <= di_size (update_extfuns_map ?dif _) ] =>
+      apply Zle_trans with (di_size dif)
+    end.
+    simpl. generalize (alignw_le (di_size dinfo)). unfold alignw. omega.
+    apply IHdefs.
+    apply IHdefs.
+    apply IHdefs.
+Qed.    
+
+Lemma update_instr_map_size_mono : forall id cinfo i,
+    ci_size cinfo <= ci_size (update_instr_map id cinfo i).
+Proof.
+  intros id cinfo i. destruct i. 
+  generalize (si_size_non_zero s). intros H.
+  destruct i; simpl; omega.
+Qed.
+
+Lemma update_instrs_map_size_mono : forall defs cinfo id,
+  ci_size cinfo <= ci_size (update_instrs_map id cinfo defs).
+Proof.
+  induction defs; intros.
+  - simpl. omega.
+  - simpl. 
+    apply Z.le_trans with (ci_size (update_instr_map id cinfo a)).
+    apply update_instr_map_size_mono.
+    apply IHdefs.
+Qed.
+
+Lemma update_funs_map_pres_size_mono : forall defs cinfo,
+    ci_size cinfo <= ci_size (update_funs_map cinfo defs).
+Proof.
+  induction defs; intros.
+  - simpl. omega.
+  - simpl. destruct a. destruct o. destruct g. destruct f.
+    + match goal with
+      | [ |- ci_size _ <= ci_size (update_funs_map ?cif _) ] => 
+        apply Z.le_trans with (ci_size cif)
+      end. 
+      match goal with
+      | [ |- ci_size _ <= ci_size (update_instrs_map _ ?cif _) ] => 
+        apply Z.le_trans with (ci_size cif)
+      end.
+      simpl. apply alignw_le. 
+      apply update_instrs_map_size_mono.
+      apply IHdefs.
+    + apply IHdefs.
+    + apply IHdefs.
+    + apply IHdefs.
+Qed.
+
+Lemma update_instrs_map_pres_max_size : forall instrs id size cinfo,
+    ci_size (update_instrs_map id cinfo instrs) <= size ->
+    ci_size cinfo <= size.
+Proof.
+  intros instrs id size cinfo H.
+  generalize (update_instrs_map_size_mono instrs cinfo id).
+  omega.
+Qed.
+
+Lemma update_funs_map_pres_max_size : forall defs size cinfo,
+    ci_size (update_funs_map cinfo defs) <= size ->
+    ci_size cinfo <= size.
+Proof.
+  intros defs size cinfo H.
+  generalize (update_funs_map_pres_size_mono defs cinfo).
+  omega.
+Qed.
+
+Lemma update_instrs_map_lmap_inversion : forall instrs cinfo l z ofs id cinfo' l'
+    (MAXSIZE: ci_size cinfo' <= Ptrofs.max_unsigned)
+    (MINSIZE: ci_size cinfo  >= 0),
     asm_labels_distinct (map fst instrs) ->
     label_pos l ofs instrs = Some z ->
     cinfo' = update_instrs_map id cinfo instrs ->
     ci_lmap cinfo' id l = Some l' ->
-    (fst l' = code_segid /\ snd l' = Ptrofs.repr (ci_size cinfo + z - ofs)).
+    (fst l' = code_segid /\ snd l' = Ptrofs.repr (ci_size cinfo + z - ofs)
+     /\ 0 <= (ci_size cinfo + z - ofs) <= Ptrofs.max_unsigned).
 Proof.
   induction instrs; intros.
   - inv H0.
@@ -718,17 +821,43 @@ Proof.
       destruct a. simpl in H0. subst i. simpl in H2.
       unfold update_label_map in H2. repeat rewrite peq_true in H2. 
       inversion H2. subst z. unfold code_label. simpl. split; auto.
-      f_equal. omega.
-    + destruct H0. exploit IHinstrs; eauto.
+      split. f_equal. omega. subst cinfo'. 
+      generalize (update_instrs_map_size_mono instrs 
+                (update_instr_map id cinfo (Asm.Plabel l, s)) id).
+      intros MAXSIZE'.
+      assert (ci_size (update_instr_map id cinfo (Asm.Plabel l, s)) <= Ptrofs.max_unsigned) as MAXSIZE'' by omega.
+      unfold update_instr_map in MAXSIZE''; simpl in MAXSIZE''.
+      unfold instr_size. simpl. generalize (si_size_non_zero s). omega.
+    + destruct H0. 
+      generalize (update_instr_map_size_mono id cinfo a). intros SBOUND.
+      exploit (IHinstrs (update_instr_map id cinfo a) l z (ofs + instr_size a) id); eauto.
+      omega.
       simpl in H. destruct H; auto.
-      unfold update_instr_map; simpl. intros (H4 & H5). split; auto.
-      unfold instr_size in H5.
-      rewrite H5. f_equal. omega.
+      unfold update_instr_map; simpl. intros (H4 & H5 & H6). split; auto.
+      unfold instr_size in H5, H6. 
+      rewrite H5. split. f_equal. omega.
+      omega.
+Qed.
+
+Lemma label_pos_min_size : forall instrs l ofs ofs', 
+    label_pos l ofs instrs = Some ofs' -> ofs <= ofs'.
+Proof.
+  induction instrs; intros.
+  - simpl in *. inv H.
+  - simpl in *. 
+    destruct a. unfold instr_size in *. simpl in *.
+    generalize (si_size_non_zero s). intros H0.
+    destruct i; try (simpl in *; apply IHinstrs in H; omega).
+    unfold is_label in H. simpl in H. destruct peq.
+    + subst l0. inv H. omega.
+    + apply IHinstrs in H. omega.
 Qed.
 
 Lemma update_funs_map_lpos_inversion: forall defs id l f z cinfo' cinfo l'
     (DDISTINCT : defs_names_distinct defs) 
-    (LDISTINCT : asm_labels_distinct (map fst (Asm.fn_code f))),
+    (LDISTINCT : asm_labels_distinct (map fst (Asm.fn_code f)))
+    (MAXSIZE   : ci_size cinfo' <= Ptrofs.max_unsigned)
+    (MINSIZE   : ci_size cinfo >= 0),
     In (id, Some (Gfun (Internal f))) defs ->
     label_pos l 0 (Asm.fn_code f) = Some z ->
     cinfo' = update_funs_map cinfo defs -> 
@@ -746,18 +875,38 @@ Proof.
       erewrite update_instrs_pres_gmap; eauto. simpl.
       unfold update_gid_map. rewrite peq_true. 
       eexists. split. eauto. unfold code_label. simpl.
-      rewrite Ptrofs.add_unsigned.     
-      exploit update_instrs_map_lmap_inversion; eauto. 
-      intros (LFST & LSND). split; auto. simpl in LSND.
+      rewrite Ptrofs.add_unsigned.
+      apply update_funs_map_pres_max_size in MAXSIZE.
+      assert (ci_size cinfo <= align (ci_size cinfo) alignw) as ALIGN by apply alignw_le.
+      assert (0 <= z). eapply (label_pos_min_size (Asm.fn_code f) l 0); eauto.
+      match type of H2 with
+      | (ci_lmap (update_instrs_map _ ?cif _) _ _ = Some _) =>
+        exploit (update_instrs_map_lmap_inversion (Asm.fn_code f) cif); eauto
+      end.
+      simpl. omega.
+      intros (LFST & LSND & MAXSIZE'). split; auto. simpl in LSND.
+      simpl in MAXSIZE'. rewrite Z.sub_0_r in MAXSIZE'.
       repeat rewrite Ptrofs.unsigned_repr. 
-      rewrite LSND. f_equal. omega.
-      admit.
-      admit.
+      rewrite LSND. f_equal. omega.  omega. omega.
     + simpl in H2. destruct a. destruct o. destruct g. destruct f0.
-      exploit IHdefs; eauto.
-Admitted.
+      match type of H2 with
+      | (ci_lmap (update_funs_map ?cif ?dfs) _ _ = Some _) =>
+        exploit (IHdefs id l f z (update_funs_map cif dfs) cif); eauto
+      end.
+      match goal with
+      | [ |- (ci_size (update_instrs_map _ ?cif _) >= _) ] =>
+        apply Zge_trans with (ci_size cif)
+      end.
+      apply Z.le_ge. apply update_instrs_map_size_mono. 
+      simpl. apply Z.le_ge. apply Zle_trans with (ci_size cinfo).
+      omega. apply alignw_le.
+      eapply IHdefs; eauto.
+      eapply IHdefs; eauto.
+      eapply IHdefs; eauto.
+Qed.
 
 Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l',
+    (dsize + csize + efsize) <= Ptrofs.max_unsigned ->
     defs_names_distinct (AST.prog_defs prog) ->
     asm_labels_distinct (map fst (Asm.fn_code f)) ->
     In (id, Some (Gfun (Internal f))) (AST.prog_defs prog) ->
@@ -768,12 +917,26 @@ Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l
             fst slbl = fst l' /\
             Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l'.
 Proof.
-  intros id f gmap lmap dsize csize efsize l z l' DDISTINCT LDISTINCT IN UPDATE LPOS LMAP.
+  intros id f gmap lmap dsize csize efsize l z l' SZBOUND DDISTINCT LDISTINCT IN UPDATE LPOS LMAP.
   monadInv UPDATE.
   set (gvinfo := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog)) in *.
   set (efinfo := update_extfuns_map {| di_size := 0; di_map := di_map gvinfo |} (AST.prog_defs prog)) in *.
   set (cinfo := update_funs_map {| ci_size := 0; ci_map := di_map efinfo; ci_lmap := default_label_map |} (AST.prog_defs prog)) in *.
-  eapply update_funs_map_lpos_inversion; eauto. subst cinfo; eauto.
+  exploit (update_funs_map_lpos_inversion (AST.prog_defs prog) id l f z cinfo 
+                                          {| ci_size := 0; ci_map := di_map efinfo; ci_lmap := default_label_map |}); eauto.
+
+  generalize (update_gvars_map_size_mono (AST.prog_defs prog) 
+                                         {| di_size := 0; di_map := default_gid_map |}). 
+  generalize (update_extfuns_map_size_mono (AST.prog_defs prog) 
+                                           {| di_size := 0; di_map := di_map gvinfo |}). 
+  simpl. fold gvinfo efinfo. 
+  intros EFSIZE GVSIZE.
+  assert ((di_size efinfo) <= align (di_size efinfo) alignw) by apply alignw_le.
+  assert ((di_size gvinfo) <= align (di_size gvinfo) alignw) by apply alignw_le.
+  assert ((ci_size cinfo) <= align (ci_size cinfo) alignw) by apply alignw_le.
+  omega.
+
+  simpl. omega.
 Qed.
 
 End WITHTRANSF.
