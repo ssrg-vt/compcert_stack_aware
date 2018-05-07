@@ -941,14 +941,9 @@ Proof.
     right. apply IHc. auto.
 Qed.
 
-Fixpoint code_labels_are_distinct (c: code) : Prop :=
-  match c with
-  | nil => True
-  | (i,sb)::code' =>
-    code_labels_are_distinct code' /\
-    ~In (segblock_to_label sb) (code_labels code')
-  end.
-
+Definition code_labels_are_distinct (c: code) : Prop :=
+  let labels := (map (fun i => segblock_to_label (snd i)) c) in
+  list_norepet labels.
 
 (* The following are definitions and properties for segment blocks
    and the mapping from segment ids to segment blocks. They are necessary
@@ -1071,11 +1066,11 @@ Proof.
         apply in_cons. destruct i; auto. intros.
         assert (segblock_to_label (snd i) = segblock_to_label s).
         unfold segblock_to_label. f_equal; auto.
-        destruct H1. rewrite <- H6 in *.
-        apply incode_labels in H0. congruence.
-      * eapply IHc; eauto. destruct a. destruct H1. auto.
-        unfold code_labels_are_valid in *. intros.
-        apply H2 with i0. apply in_cons. auto.
+        simpl in H1. inv H1. rewrite <- H6 in *.
+        apply incode_labels in H0. unfold code_labels in H0. congruence.
+      * eapply IHc; eauto. inv H1. auto. destruct a. inv H1.
+        unfold code_labels_are_valid in *. intros i1 sblk H1.
+        apply H2 with i1. apply in_cons. auto.
 Qed.
 
 (* Generate a mapping from offsets to instructions *)

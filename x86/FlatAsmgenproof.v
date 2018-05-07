@@ -555,21 +555,149 @@ Hypothesis TRANSF: transf_program prog = OK tprog.
 Let ge := Genv.globalenv prog.
 Let tge := globalenv tprog.
 
-Lemma update_funs_map_lmap_inversion: forall defs id l f z cinfo' cinfo l',
+Definition defs_names_distinct {F V:Type} (defs: list (ident * option (AST.globdef F V))) : Prop :=
+  list_norepet (map fst defs).
+
+Lemma update_funs_map_pre_maps : forall defs cinfo cinfo' id,
+    cinfo' = update_funs_map cinfo defs ->
+    ~ In id (map fst defs) ->
+    (ci_map cinfo' id = ci_map cinfo id /\
+     forall l, ci_lmap cinfo' id l = ci_lmap cinfo id l).
+Admitted.
+
+Lemma update_funs_map_pre_gmap : forall defs cinfo cinfo' id,
+    cinfo' = update_funs_map cinfo defs ->
+    ~ In id (map fst defs) ->
+    ci_map cinfo' id = ci_map cinfo id.
+Proof.
+  intros defs cinfo cinfo' id H H0.
+  exploit update_funs_map_pre_maps; eauto. destruct 1.
+  auto.
+Qed.
+
+Lemma update_funs_map_pre_lmap : forall defs cinfo cinfo' id l,
+    cinfo' = update_funs_map cinfo defs ->
+    ~ In id (map fst defs) ->
+    ci_lmap cinfo' id l = ci_lmap cinfo id l.
+Proof.
+  intros defs cinfo cinfo' id l H H0.
+  exploit update_funs_map_pre_maps; eauto. destruct 1.
+  auto.
+Qed.
+
+Lemma divides_align : forall y x,
+    y > 0 -> (y | x) -> align x y = x.
+Admitted.
+
+Lemma align_idempotent : forall v x,
+    x > 0 -> align (align v x) x = align v x.
+Proof.
+  intros v x H. eapply divides_align; eauto.
+  apply align_divides. auto.
+Qed.
+
+Fixpoint asm_labels_distinct (c: list Asm.instruction) : Prop :=
+  match c with
+  | nil => True
+  | i::c' => 
+    let p := match i with
+             | Asm.Plabel l => ~ In i c'
+             | _ => True
+             end 
+    in p /\ asm_labels_distinct c'
+  end.
+
+Ltac solve_label_pos_inv := 
+  match goal with
+  | [ |- _ <> Asm.Plabel _ /\ label_pos _ _ _ = Some _] =>
+    split; solve_label_pos_inv
+  | [ |- _ <> Asm.Plabel _ ] =>
+    unfold not; inversion 1
+  | [ |- label_pos _ _ _ = Some _ ] => auto
+  | _ => idtac
+  end.
+
+Lemma label_pos_inv : forall l ofs a instrs z,
+    label_pos l ofs (a :: instrs) = Some z ->
+    (fst a = Asm.Plabel l /\ z = ofs) 
+    \/ (fst a <> Asm.Plabel l /\ label_pos l (ofs + instr_size a) instrs = Some z).
+(* Proof. *)
+(*   intros l ofs a instrs z H. *)
+(*   simpl in H. destruct a. unfold is_label in H; simpl in H. *)
+(*   destruct i; try now (right; solve_label_pos_inv).   *)
+(*   destruct peq.  *)
+(*   - subst. left. inv H. auto. *)
+(*   - right. simpl. split. unfold not. inversion 1. congruence. *)
+(*     auto. *)
+(* Qed. *)
+Admitted.
+
+
+
+Lemma update_instrs_map_pres_lmap : forall instrs l id cinfo cinfo',
+    ~ In (Asm.Plabel l) (map fst instrs) ->
+    cinfo' = update_instrs_map id cinfo instrs ->
+    ci_lmap cinfo' id l = ci_lmap cinfo id l.
+Admitted.
+
+Lemma update_instrs_map_lmap_inversion : forall instrs l z ofs id cinfo cinfo' l',
+    asm_labels_distinct (map fst instrs) ->
+    label_pos l ofs instrs = Some z ->
+    cinfo' = update_instrs_map id cinfo instrs ->
+    ci_lmap cinfo' id l = Some l' ->
+    (fst l' = code_segid /\ snd l' = Ptrofs.repr (ci_size cinfo + z - ofs)).
+Proof.
+  induction instrs; intros.
+  - inv H0.
+  - simpl in H1. 
+    apply label_pos_inv in H0. destruct H0.
+    + destruct H0. simpl in H; rewrite H0 in H; simpl in H. destruct H.
+      erewrite update_instrs_map_pres_lmap in H2; eauto.
+      destruct a. simpl in H0. subst i. simpl in H2.
+      unfold update_label_map in H2. repeat rewrite peq_true in H2. 
+      inversion H2. subst z. unfold code_label. simpl. split; auto.
+      f_equal. omega.
+    + destruct H0. exploit IHinstrs; eauto.
+      simpl in H. destruct H; auto.
+      unfold update_instr_map; simpl. intros (H4 & H5). split; auto.
+      unfold instr_size in H5.
+      rewrite H5. f_equal. omega.
+Qed.
+
+Lemma update_funs_map_lpos_inversion: forall defs id l f z cinfo' cinfo l'
+    (DDISTINCT : defs_names_distinct defs) 
+    (LDISTINCT : asm_labels_distinct (map fst (Asm.fn_code f))),
     In (id, Some (Gfun (Internal f))) defs ->
     label_pos l 0 (Asm.fn_code f) = Some z ->
-    cinfo' = update_funs_map cinfo defs -> ci_lmap cinfo' id l = Some l' ->
-    exists slbl : seglabel, ci_map cinfo' id = Some slbl 
-                       /\ fst slbl = fst l' 
-                       /\ Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l'.
+    cinfo' = update_funs_map cinfo defs -> 
+    ci_lmap cinfo' id l = Some l' ->
+    (exists slbl : seglabel, ci_map cinfo' id = Some slbl 
+                        /\ fst slbl = fst l' 
+                        /\ Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l').
 Proof.
   induction defs; intros.
   - contradiction.
-  - simpl in H. destruct H.
-    + subst a. simpl in H1. 
+  - inv DDISTINCT. inv H.  
+    + simpl in *.
+      erewrite update_funs_map_pre_lmap in H2; eauto.
+      erewrite update_funs_map_pre_gmap; eauto.
+      erewrite update_instrs_pres_gmap; eauto. simpl.
+      unfold update_gid_map. rewrite peq_true. 
+      eexists. split. eauto. unfold code_label. simpl.
+      rewrite Ptrofs.add_unsigned.     
+      exploit update_instrs_map_lmap_inversion; eauto. 
+      intros (LFST & LSND). split; auto. simpl in LSND.
+      repeat rewrite Ptrofs.unsigned_repr. 
+      rewrite LSND. f_equal. omega.
+      admit.
+      admit.
+    + simpl in H2. destruct a. destruct o. destruct g. destruct f0.
+      exploit IHdefs; eauto.
 Admitted.
 
 Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l',
+    defs_names_distinct (AST.prog_defs prog) ->
+    asm_labels_distinct (map fst (Asm.fn_code f)) ->
     In (id, Some (Gfun (Internal f))) (AST.prog_defs prog) ->
     update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
     label_pos l 0 (Asm.fn_code f) = Some z ->
@@ -578,12 +706,12 @@ Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l
             fst slbl = fst l' /\
             Ptrofs.add (snd slbl) (Ptrofs.repr z) = snd l'.
 Proof.
-  intros id f gmap lmap dsize csize efsize l z l' IN UPDATE LPOS LMAP.
+  intros id f gmap lmap dsize csize efsize l z l' DDISTINCT LDISTINCT IN UPDATE LPOS LMAP.
   monadInv UPDATE.
   set (gvinfo := update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog)) in *.
   set (efinfo := update_extfuns_map {| di_size := 0; di_map := di_map gvinfo |} (AST.prog_defs prog)) in *.
   set (cinfo := update_funs_map {| ci_size := 0; ci_map := di_map efinfo; ci_lmap := default_label_map |} (AST.prog_defs prog)) in *.
-  eapply update_funs_map_lmap_inversion; eauto. subst cinfo; eauto.
+  eapply update_funs_map_lpos_inversion; eauto. subst cinfo; eauto.
 Qed.
 
 End WITHTRANSF.
@@ -826,7 +954,7 @@ Proof.
     exploit transl_fun_exists; eauto.
     intros (f' & TRANSLF & INCODE).
     set (ge := Genv.globalenv prog).
-    exploit AGREE_SMINJ_LBL.update_map_lmap_inversion; eauto. intros (slbl & GMAP & LEQ & OFSEQ).
+    exploit AGREE_SMINJ_LBL.update_map_lmap_inversion; eauto. admit. admit. intros (slbl & GMAP & LEQ & OFSEQ).
     unfold Genv.symbol_address. unfold Genv.label_to_ptr. 
     apply Val.inject_ptr with (Ptrofs.unsigned (snd slbl)).   
     unfold init_meminj. destruct eq_block.
