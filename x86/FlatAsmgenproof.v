@@ -558,12 +558,58 @@ Let tge := globalenv tprog.
 Definition defs_names_distinct {F V:Type} (defs: list (ident * option (AST.globdef F V))) : Prop :=
   list_norepet (map fst defs).
 
+Lemma update_instr_pres_lmap : forall id id' cinfo i l,
+    id <> id' ->
+    ci_lmap (update_instr_map id' cinfo i) id l = ci_lmap cinfo id l.
+Proof.
+  intros id id' cinfo i l H.
+  destruct i. destruct i; auto.
+  simpl. unfold update_label_map. rewrite peq_false; auto.
+Qed.
+
+Lemma update_instrs_map_pres_lmap_1 : forall instrs cinfo cinfo' id id' l,
+    id <> id' ->
+    cinfo' = update_instrs_map id' cinfo instrs ->
+    ci_lmap cinfo' id l = ci_lmap cinfo id l.
+Proof.
+  induction instrs; intros.
+  - simpl in *. subst. auto.
+  - simpl in H0. eapply eq_trans.
+    eapply IHinstrs; eauto.
+    erewrite update_instr_pres_lmap; auto.
+Qed.
+  
 Lemma update_funs_map_pre_maps : forall defs cinfo cinfo' id,
     cinfo' = update_funs_map cinfo defs ->
     ~ In id (map fst defs) ->
     (ci_map cinfo' id = ci_map cinfo id /\
      forall l, ci_lmap cinfo' id l = ci_lmap cinfo id l).
-Admitted.
+Proof.
+  induction defs; intros.
+  - simpl in H. subst. auto.
+  - assert (id <> fst a /\ ~ In id (map fst defs)) as NOTINCONS
+      by (apply not_in_cons; auto).
+    destruct NOTINCONS. simpl in H. 
+    destruct a. destruct o. destruct g. destruct f. 
+    + 
+      match type of H with
+      | (cinfo' = update_funs_map ?cinfo1 defs) =>
+        exploit (IHdefs cinfo1 cinfo'); eauto
+      end.
+      intros (GMAPEQ & LMAPEQ).
+      rewrite update_instrs_pres_gmap in GMAPEQ.
+      simpl in GMAPEQ. simpl in H1.
+      split.
+      * rewrite GMAPEQ. unfold update_gid_map.
+        rewrite peq_false; auto. 
+      * intros l. specialize (LMAPEQ l).
+        rewrite LMAPEQ.
+        eapply eq_trans. eapply update_instrs_map_pres_lmap_1; eauto.
+        simpl. auto.
+    + eapply IHdefs; eauto.
+    + eapply IHdefs; eauto.
+    + eapply IHdefs; eauto.
+Qed.    
 
 Lemma update_funs_map_pre_gmap : forall defs cinfo cinfo' id,
     cinfo' = update_funs_map cinfo defs ->
@@ -619,26 +665,35 @@ Ltac solve_label_pos_inv :=
 
 Lemma label_pos_inv : forall l ofs a instrs z,
     label_pos l ofs (a :: instrs) = Some z ->
-    (fst a = Asm.Plabel l /\ z = ofs) 
+    (fst a = Asm.Plabel l /\ z = ofs + instr_size a) 
     \/ (fst a <> Asm.Plabel l /\ label_pos l (ofs + instr_size a) instrs = Some z).
-(* Proof. *)
-(*   intros l ofs a instrs z H. *)
-(*   simpl in H. destruct a. unfold is_label in H; simpl in H. *)
-(*   destruct i; try now (right; solve_label_pos_inv).   *)
-(*   destruct peq.  *)
-(*   - subst. left. inv H. auto. *)
-(*   - right. simpl. split. unfold not. inversion 1. congruence. *)
-(*     auto. *)
-(* Qed. *)
-Admitted.
+Proof.
+  intros l ofs a instrs z H.
+  simpl in H. destruct a. unfold is_label in H; simpl in H.
+  destruct i; try now (right; solve_label_pos_inv).
+  destruct peq.
+  - subst. left. inv H. auto.
+  - right. simpl. split. unfold not. inversion 1. congruence.
+    auto.
+Qed.
 
 
-
-Lemma update_instrs_map_pres_lmap : forall instrs l id cinfo cinfo',
+Lemma update_instrs_map_pres_lmap_2 : forall instrs l id cinfo cinfo',
     ~ In (Asm.Plabel l) (map fst instrs) ->
     cinfo' = update_instrs_map id cinfo instrs ->
     ci_lmap cinfo' id l = ci_lmap cinfo id l.
-Admitted.
+Proof.
+  induction instrs; intros.
+  - simpl in H0. subst. auto.
+  - assert (Asm.Plabel l <> fst a /\ ~ In (Asm.Plabel l) (map fst instrs)) as H1
+      by (apply not_in_cons; auto). destruct H1.
+    simpl in H0. 
+    apply eq_trans with (ci_lmap (update_instr_map id cinfo a) id l).
+    eapply IHinstrs; eauto. destruct a.
+    destruct i; auto. simpl in *.
+    unfold update_label_map. rewrite peq_true. 
+    destruct peq. subst. congruence. auto.
+Qed.    
 
 Lemma update_instrs_map_lmap_inversion : forall instrs l z ofs id cinfo cinfo' l',
     asm_labels_distinct (map fst instrs) ->
@@ -652,7 +707,7 @@ Proof.
   - simpl in H1. 
     apply label_pos_inv in H0. destruct H0.
     + destruct H0. simpl in H; rewrite H0 in H; simpl in H. destruct H.
-      erewrite update_instrs_map_pres_lmap in H2; eauto.
+      erewrite update_instrs_map_pres_lmap_2 in H2; eauto.
       destruct a. simpl in H0. subst i. simpl in H2.
       unfold update_label_map in H2. repeat rewrite peq_true in H2. 
       inversion H2. subst z. unfold code_label. simpl. split; auto.

@@ -590,7 +590,7 @@ Definition update_instr_map (fid:ident) (ci:cinfo) (instr:Asm.instr_with_info) :
       match (fst instr) with
       | Asm.Plabel l => 
         let ofs := ci_size ci in
-        update_label_map fid l (code_label ofs) (ci_lmap ci)
+        update_label_map fid l (code_label (ofs + instr_size instr)) (ci_lmap ci)
       | _ => ci_lmap ci
       end
   in
