@@ -667,12 +667,59 @@ Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE * Z *
   OK (ci_map final_ci, ci_lmap final_ci, data_seg_size, code_seg_size, extfuns_seg_size).
 
 
+(** Check if the source program is well-formed **)
+Fixpoint no_duplicated_defs (F V: Type) (defs: list (ident * option (AST.globdef F V))) : bool :=
+  match defs with
+  | nil => true
+  | (id,_)::defs' =>
+    if (List.existsb (fun id' => ident_eq id id') (map fst defs')) then
+      false
+    else
+      no_duplicated_defs F V defs'
+  end.
+
+Fixpoint no_duplicated_labels (c: Asm.code) : bool :=
+  match c with
+  | nil => true
+  | (i,szi)::c' =>
+    match i with
+    | Asm.Plabel l =>
+      if (List.existsb 
+            (fun i => match i with
+                   | Asm.Plabel l' => ident_eq l l'
+                   | _ => false
+                   end)
+            (map fst c'))
+      then false
+      else no_duplicated_labels c'
+    | _ => no_duplicated_labels c'
+    end
+  end.
+
+Fixpoint defs_no_duplicated_labels (defs: list (ident * option (AST.globdef Asm.fundef unit))) : bool :=
+  match defs with
+  | nil => true
+  | (id, Some (AST.Gfun (Internal f)))::defs' =>
+    andb (no_duplicated_labels (Asm.fn_code f))
+         (defs_no_duplicated_labels defs')
+  | _ :: defs' =>
+    (defs_no_duplicated_labels defs')
+  end. 
+
+
+Definition check_wellformedness (p:Asm.program) : bool :=
+  andb (no_duplicated_defs Asm.fundef unit (AST.prog_defs p))
+       (defs_no_duplicated_labels (AST.prog_defs p)).
+
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=
-  do r <- update_map p;
-  let '(gmap,lmap,dsize,csize,efsize) := r in
-  if zle (dsize + csize + efsize) Ptrofs.max_unsigned then
-    transl_prog_with_map gmap lmap p dsize csize efsize
+  if check_wellformedness p then
+    (do r <- update_map p;
+       let '(gmap,lmap,dsize,csize,efsize) := r in
+       if zle (dsize + csize + efsize) Ptrofs.max_unsigned then
+         transl_prog_with_map gmap lmap p dsize csize efsize
+       else
+         Error (MSG "Size of segments too big" :: nil))
   else
-    Error (MSG "Size of segments too big" :: nil).
+    Error (MSG "Program not well-formed. There exists duplicated labels or definitions" :: nil). 
 

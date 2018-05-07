@@ -333,7 +333,8 @@ Lemma target_code_labels_are_valid :
     (Genv.genv_segblocks tge)
     (snd (code_seg tprog)).
 Proof.
-  monadInv TRANSF. 
+  unfold transf_program in TRANSF. 
+  destruct (check_wellformedness prog) eqn:WF; monadInv TRANSF. 
   destruct x. destruct p. destruct p. destruct p.
   subst tge. 
   eapply code_labels_are_valid_eq_map. intros.
@@ -551,17 +552,25 @@ End AGREE_SMINJ_GLOB.
 (** Lemmas for proving agree_sminj_lbl **)
 Module AGREE_SMINJ_LBL.
 
-Section WITHTRANSF.
-
-Variable prog: Asm.program.
-Variable tprog: FlatAsm.program.
-Hypothesis TRANSF: transf_program prog = OK tprog.
-
-Let ge := Genv.globalenv prog.
-Let tge := globalenv tprog.
-
 Definition defs_names_distinct {F V:Type} (defs: list (ident * option (AST.globdef F V))) : Prop :=
   list_norepet (map fst defs).
+
+Lemma nodup_defs_distinct_names: forall defs,
+    no_duplicated_defs Asm.fundef unit defs = true ->
+    defs_names_distinct defs.
+Proof.
+  induction defs; intros.
+  - red. simpl. constructor.
+  - destruct a. simpl in *. 
+    destruct (existsb (fun id' : positive => ident_eq i id') (map fst defs)) eqn:EQ.
+    inv H.
+    apply IHdefs in H. red. red in H. simpl. constructor; auto.
+    rewrite <- not_true_iff_false in EQ.
+    unfold not in *. intros IN. apply EQ.
+    rewrite existsb_exists. exists i. split; auto. 
+    destruct ident_eq. auto. congruence.
+Qed.
+
 
 Lemma update_instr_pres_lmap : forall id id' cinfo i l,
     id <> id' ->
@@ -664,6 +673,56 @@ Fixpoint asm_labels_distinct (c: list Asm.instruction) : Prop :=
              end 
     in p /\ asm_labels_distinct c'
   end.
+
+Lemma nodup_labels : forall c,
+    no_duplicated_labels c = true -> 
+    asm_labels_distinct (map fst c).
+Proof.
+  induction c; intros.
+  - simpl. auto.
+  - destruct a. destruct i; simpl; split; auto.
+    + 
+      destruct (List.existsb 
+                  (fun i => match i with
+                         | Asm.Plabel l' => ident_eq l l'
+                         | _ => false
+                         end)
+                  (map fst c)) eqn:EQ.
+      simpl in H. rewrite EQ in H. congruence.
+      rewrite <- not_true_iff_false in EQ. unfold not in *.
+      intros. apply EQ. rewrite existsb_exists.
+      exists (Asm.Plabel l). split. auto.
+      destruct ident_eq. auto. congruence.
+    + apply IHc. simpl in H.
+      destruct (List.existsb 
+                  (fun i => match i with
+                         | Asm.Plabel l' => ident_eq l l'
+                         | _ => false
+                         end)
+                  (map fst c)) eqn:EQ.
+      congruence.
+      auto.
+Qed.
+
+Lemma defs_nodup_labels : forall defs f id,
+    defs_no_duplicated_labels defs = true ->
+    In (id, Some (Gfun (Internal f))) defs ->
+    asm_labels_distinct (map fst (Asm.fn_code f)).
+Proof.
+  induction defs; intros.
+  - inv H0.
+  - simpl in *. destruct a. destruct o. destruct g. destruct f0.
+    + apply andb_true_iff in H. destruct H as [NODUPLBL NODUPDEF].
+      destruct H0. inv H.
+      * apply nodup_labels. auto.
+      * eapply IHdefs; eauto.
+    + destruct H0. inv H0.
+      eapply IHdefs; eauto.
+    + destruct H0. inv H0.
+      eapply IHdefs; eauto.
+    + destruct H0. inv H0.
+      eapply IHdefs; eauto.
+Qed.
 
 Ltac solve_label_pos_inv := 
   match goal with
@@ -905,6 +964,16 @@ Proof.
       eapply IHdefs; eauto.
 Qed.
 
+Section WITHTRANSF.
+
+Variable prog: Asm.program.
+Variable tprog: FlatAsm.program.
+Hypothesis TRANSF: transf_program prog = OK tprog.
+
+Let ge := Genv.globalenv prog.
+Let tge := globalenv tprog.
+
+
 Lemma update_map_lmap_inversion : forall id f gmap lmap dsize csize efsize l z l',
     (dsize + csize + efsize) <= Ptrofs.max_unsigned ->
     defs_names_distinct (AST.prog_defs prog) ->
@@ -1125,7 +1194,9 @@ Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
 Proof.   
   intros gmap lmap dsize csize efsize m MAX INITMEM UPDATE TRANS. 
   generalize TRANSF. intros TRANSF'.
-  unfold match_prog in TRANSF'. monadInv TRANSF'.
+  unfold match_prog in TRANSF'. 
+  unfold transf_program in TRANSF'. 
+  destruct (check_wellformedness prog) eqn:WF; monadInv TRANSF'.
   rewrite UPDATE in EQ. inv EQ. clear EQ0.
   generalize UPDATE. intros UPDATE'.
   unfold update_map in UPDATE. 
@@ -1180,7 +1251,17 @@ Proof.
     exploit transl_fun_exists; eauto.
     intros (f' & TRANSLF & INCODE).
     set (ge := Genv.globalenv prog).
-    exploit AGREE_SMINJ_LBL.update_map_lmap_inversion; eauto. admit. admit. intros (slbl & GMAP & LEQ & OFSEQ).
+    exploit AGREE_SMINJ_LBL.update_map_lmap_inversion; eauto. 
+
+    unfold check_wellformedness in WF.
+    rewrite andb_true_iff in WF. destruct WF as [NODUPDEFS NODUPLBLS].
+    apply AGREE_SMINJ_LBL.nodup_defs_distinct_names. auto.
+
+    unfold check_wellformedness in WF.
+    rewrite andb_true_iff in WF. destruct WF as [NODUPDEFS NODUPLBLS].    
+    eapply AGREE_SMINJ_LBL.defs_nodup_labels; eauto.
+
+    intros (slbl & GMAP & LEQ & OFSEQ).
     unfold Genv.symbol_address. unfold Genv.label_to_ptr. 
     apply Val.inject_ptr with (Ptrofs.unsigned (snd slbl)).   
     unfold init_meminj. destruct eq_block.
@@ -1265,7 +1346,8 @@ Lemma transf_initial_states : forall st1,
 Proof.
   intros st1 INIT.
   generalize TRANSF. intros TRANSF'.
-  unfold match_prog in TRANSF'. monadInv TRANSF'.
+  unfold match_prog in TRANSF'. unfold transf_program in TRANSF'.
+  destruct (check_wellformedness prog) eqn:WF; monadInv TRANSF'.
   destruct x. destruct p. destruct p. destruct p.
   destruct zle.
   rename g into gmap.
