@@ -1061,7 +1061,7 @@ Section WITHMEMORYMODEL.
        rename Heqo1 into UNRECORD.
        rename Heqo2 into ISDEF.
        inv MS. rewrite RS1RSP in RSPzero. destruct RSPzero as [bb EQ]; inv EQ.
-       exploit Mem.loadv_inject. eauto. apply LOADRA.
+       exploit Mem.loadbytesv_inject. 3: apply LOADRA. eauto.
        apply Val.offset_ptr_inject. rewrite <- RS1RSP; auto.
        intros (ra' & LOADRA' & INJra).
        rewrite LOADRA'.
@@ -1131,7 +1131,7 @@ Section WITHMEMORYMODEL.
          simpl. reflexivity.
        * rewrite nextinstr_rsp. rewrite Pregmap.gso by congruence.
          rewrite Pregmap.gss.
-         simpl in ISDEF. unfold is_ptr in ISDEF.
+         simpl in ISDEF. unfold Mem.is_ptr in ISDEF.
          destr_in ISDEF. inv ISDEF. unfold current_sp, current_frame_sp in Heqv1.
          revert Heqv1.
          repeat destr; inversion 1. eauto.
@@ -1139,9 +1139,9 @@ Section WITHMEMORYMODEL.
          intros; apply val_inject_set; auto.
          intros; apply val_inject_set; auto.
          assert (v0 = parent_sp (Mem.stack m1)).
-         revert ISDEF. rewrite Heqs.  simpl. unfold is_ptr. destr. 
+         revert ISDEF. rewrite Heqs.  simpl. unfold Mem.is_ptr. destr. 
          simpl.
-         revert ISDEF. simpl. unfold is_ptr. destr. inversion 1; subst. inv ISDEF.
+         revert ISDEF. simpl. unfold Mem.is_ptr. destr. inversion 1; subst. inv ISDEF.
          inv IPS_REC.
          -- simpl in Heqv1. inv Heqv1.
          -- simpl in Heqv1. inv Heqv1.
@@ -1324,7 +1324,7 @@ Section WITHMEMORYMODEL.
        * intros; apply val_inject_nextinstr.
          intros; apply val_inject_set; auto. rewrite S1 in *.
          simpl in Heqo.
-         unfold is_ptr in Heqo; destr_in Heqo. inv Heqo.
+         unfold Mem.is_ptr in Heqo; destr_in Heqo. inv Heqo.
          inv IS. 
          rewrite <- Heqv0. unfold current_sp. destr. inv Heqv0.
          inv IPS_REC. inv Heqv0. simpl in *.

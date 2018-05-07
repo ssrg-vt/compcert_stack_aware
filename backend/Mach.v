@@ -355,7 +355,7 @@ Inductive step: state -> trace -> state -> Prop :=
         (exists fd, Genv.find_funct_ptr ge f' = Some fd) ->
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
       (* load_stack m (Vptr stk soff) Tptr f.(fn_link_ofs) = Some (parent_sp s) -> *)
-      load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra s) ->
+      Mem.loadbytesv Mptr m (Val.offset_ptr (Vptr stk soff) f.(fn_retaddr_ofs)) = Some (parent_ra s) ->
       Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
       Mem.tailcall_stage m' = Some m'' ->
       step (State s fb (Vptr stk soff) (Mtailcall sig ros :: c) rs m)
@@ -401,7 +401,7 @@ Inductive step: state -> trace -> state -> Prop :=
   | exec_Mreturn:
       forall s fb stk soff c rs m f m' m'',
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
-      load_stack m (Vptr stk soff) Tptr f.(fn_retaddr_ofs) = Some (parent_ra s) ->
+      Mem.loadbytesv Mptr m (Val.offset_ptr (Vptr stk soff) f.(fn_retaddr_ofs)) = Some (parent_ra s) ->
       Mem.free m stk (Ptrofs.unsigned soff) (Ptrofs.unsigned soff + f.(fn_stacksize)) = Some m' ->
       invalidate_frame m' = Some m'' ->
       step (State s fb (Vptr stk soff) (Mreturn :: c) rs m)

@@ -35,7 +35,7 @@ Section WITHGE.
         Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- sp) isz) m2
       end
     | Pfreeframe sz ofs_ra =>
-      match loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
+      match Mem.loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra) with
       | None => Stuck
       | Some ra =>
         let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 sz) 8)) in

@@ -571,6 +571,26 @@ Proof.
   - auto.
 Qed.
 
+Program Definition contains_ra (b: block) (ofs: Z) (ra: val) : massert := {|
+  m_pred := fun m =>
+       0 <= ofs <= Ptrofs.max_unsigned
+       /\  Mem.range_perm m b ofs (ofs + size_chunk Mptr) Cur Freeable
+       /\ (align_chunk Mptr | ofs)
+       /\ Mem.loadbytesv Mptr m (Vptr b (Ptrofs.repr ofs)) = Some ra;
+  m_footprint := fun b' ofs' => b' = b /\ ofs <= ofs' < ofs + size_chunk Mptr;
+  m_invar_weak := false;
+  m_invar_stack := false;
+|}.
+Next Obligation.
+  destr_in H4. clear H1.
+  repeat apply conj; auto.
+- red; intros; eapply Mem.perm_unchanged_on; eauto. simpl; auto.
+- erewrite Mem.loadbytes_unchanged_on; eauto.  simpl.  rewrite Ptrofs.unsigned_repr by omega. auto. 
+Qed.
+Next Obligation.
+  eauto with mem. 
+Qed. 
+
 (** A memory area that contains a given value *)
 
 Definition hasvalue (chunk: memory_chunk) (b: block) (ofs: Z) (v: val) : massert :=

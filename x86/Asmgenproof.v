@@ -621,7 +621,7 @@ Qed.
       m2 (EQSTK: Mem.stack m1 = Mem.stack m2),
       exists rs2 sp,
         exec_straight init_stk tge fn ((Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
-        is_ptr (parent_sp (Mem.stack m1)) = Some sp /\
+        Mem.is_ptr (parent_sp (Mem.stack m1)) = Some sp /\
         rs2 rd = sp /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
   Proof.
     intros.
@@ -1135,7 +1135,7 @@ Opaque loadind.
   exploit load_parent_pointer_correct. eauto. eauto.
   instantiate (1 := RAX). congruence. eauto.
   apply SAMEADT. intros (rs2 & sp & ESLoad & ISPTR & RS2SPEC & RS2OTHER).
-  unfold is_ptr in ISPTR. destr_in ISPTR. inv ISPTR.
+  unfold Mem.is_ptr in ISPTR. destr_in ISPTR. inv ISPTR.
   exploit loadind_correct. eexact EQ. rewrite <- H3. eauto.
   intros [rs3 [S [T U]]].
   exists rs3; split;[|split].
@@ -1242,7 +1242,7 @@ Opaque loadind.
   assert (NOOV: code_size tf.(fn_code) <= Ptrofs.max_unsigned).
     eapply transf_function_no_overflow; eauto.
   rewrite (sp_val _ _ _ AG) in *. unfold load_stack in *.
-  exploit Mem.loadv_extends. eauto. eexact H2. auto. simpl. intros [ra' [C D]].
+  exploit Mem.loadbytesv_extends. eauto. 2: eexact H2. auto. simpl. intros [ra' [C D]].
   exploit (lessdef_parent_ra init_ra); eauto. intros. subst ra'. clear D.
   exploit Mem.free_parallel_extends; eauto. constructor. intros (m2_ & E & F).
   inv CSC. erewrite agree_sp in H13 by eauto. inv H13.
@@ -1306,7 +1306,8 @@ exploit functions_translated. apply FFPcalled. intros (tf1 & FPPcalled' & TF).
   left; econstructor; split.
   eapply plus_left. eapply exec_step_internal. eauto.
   eapply functions_transl. apply H6. eauto. eapply find_instr_tail; eauto.
-  unfold exec_instr; simpl. replace (chunk_of_type Tptr) with Mptr in * by (unfold Tptr, Mptr; destruct Archi.ptr64; auto).
+  unfold exec_instr; simpl.
+  replace (chunk_of_type Tptr) with Mptr in * by (unfold Tptr, Mptr; destruct Archi.ptr64; auto).
   rewrite C. rewrite <- (sp_val _ _ _ AG). rewrite CTF.
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
@@ -1521,7 +1522,7 @@ Transparent destroyed_by_jumptable.
     eapply transf_function_no_overflow; eauto.
   rewrite (sp_val _ _ _ AG) in *. unfold load_stack in *.
   replace (chunk_of_type Tptr) with Mptr in * by (unfold Tptr, Mptr; destruct Archi.ptr64; auto).
-  exploit Mem.loadv_extends. eauto. eexact H0. auto. simpl. intros [ra' [C D]].
+  exploit Mem.loadbytesv_extends. eauto. 2: eexact H0. auto. simpl. intros [ra' [C D]].
   exploit (lessdef_parent_ra init_ra); eauto. intros. subst ra'. clear D.
   exploit Mem.free_parallel_extends; eauto. constructor. intros (m2' & E & F).
   inv CSC. erewrite agree_sp in H11; eauto. inv H11.

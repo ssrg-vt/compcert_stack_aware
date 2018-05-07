@@ -293,14 +293,14 @@ Ltac same_hyps :=
       apply Mem.extends_push; auto.
       repeat rewrite_stack_blocks; eauto. constructor; auto.
     - edestruct Mem.free_parallel_extends as (m2' & FREE' & EXT); eauto. constructor.
-      edestruct Mem.loadv_extends as (ra2 & LOADV' & LD). apply MLD. eauto.
-      auto.
+      edestruct Mem.loadbytesv_extends as (ra2 & LOADV' & LD). apply MLD.
+      2: apply H2. simpl; auto.
       edestruct Mem.tailcall_stage_extends as (m3' & TC' & EXT'); eauto.
       inv CallStackConsistency0. eapply Mem.free_top_tframe_no_perm'; eauto.
       erewrite frame_correct; eauto.
       eexists; split. econstructor; eauto.
       eapply find_function_ptr_lessdef; eauto.
-      unfold load_stack. rewrite LOADV'.
+      simpl Val.offset_ptr. rewrite LOADV'.
       inv LD. auto. exfalso; eapply parent_ra_not_undef; eauto.
       constructor; auto.
       repeat rewrite_stack_blocks; eauto.
@@ -324,13 +324,13 @@ Ltac same_hyps :=
       eexists; split. econstructor; eauto. constructor; eauto.
       apply lessdef_undef_regs; auto.
     - edestruct Mem.free_parallel_extends as (m2' & FREE' & EXT); eauto. constructor.
-      edestruct Mem.loadv_extends as (ra2 & LOADV' & LD). apply MLD. eauto. auto.
+      edestruct Mem.loadbytesv_extends as (ra2 & LOADV' & LD). apply MLD. 2: eauto. auto.
       inv H2.
       edestruct Mem.tailcall_stage_right_extends as (m3' & TC & EXT2). apply EXT.
       inv CallStackConsistency. eapply Mem.free_top_tframe_no_perm'; eauto. eapply frame_correct; eauto.
       inv CallStackConsistency0. eapply Mem.free_top_tframe_no_perm'; eauto. eapply frame_correct; eauto.
       eexists; split. econstructor; eauto.
-      unfold load_stack. rewrite LOADV'.
+      rewrite LOADV'.
       inv LD. auto. exfalso; eapply parent_ra_not_undef; eauto.
       constructor; auto.
       repeat rewrite_stack_blocks; eauto.

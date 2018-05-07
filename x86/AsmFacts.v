@@ -614,7 +614,7 @@ Section WITHMEMORYMODEL.
       Mem.unchanged_on
         (fun b o => ~ stack_access init_stk b o (o+1))
         m1 m2 /\
-      (is_ptr (init_sp init_stk) <> None -> exists l', Mem.stack m2 = l' ++ init_stk).
+      (Mem.is_ptr (init_sp init_stk) <> None -> exists l', Mem.stack m2 = l' ++ init_stk).
   Proof.
     intros ge f i rs1 m1 rs2 m2 init_stk l STK EI.
     split.
@@ -698,7 +698,7 @@ Section WITHMEMORYMODEL.
       Mem.stack m1 = l ++ init_stk ->
       step init_stk ge (State rs1 m1) t (State rs2 m2) ->
       Mem.unchanged_on (fun b o => ~ stack_access init_stk b o (o+1)) m1 m2 /\
-      (is_ptr (init_sp init_stk) <> None -> exists l', Mem.stack m2 = l' ++ init_stk).
+      (Mem.is_ptr (init_sp init_stk) <> None -> exists l', Mem.stack m2 = l' ++ init_stk).
   Proof.
     intros ge rs1 m1 t rs2 m2 init_stk l STK STEP.
     inv STEP.

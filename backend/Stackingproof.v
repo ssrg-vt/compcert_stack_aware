@@ -191,6 +191,89 @@ Proof.
   simpl. rewrite Ptrofs.add_zero_l; auto.
 Qed.
 
+Lemma wt_encoded_ra_same:
+  forall v, Val.has_type v Tptr ->
+       v <> Vundef ->
+       Mem.encoded_ra (encode_val Mptr v) = Some v.
+Proof.
+  unfold Tptr, Mem.encoded_ra, Mptr.
+  intros v WT NU.
+  destr_in WT.
+  - destruct v; simpl in WT; try congruence; try easy.
+    + simpl. rewrite proj_inj_bytes. unfold Vptrofs; rewrite Heqb0. f_equal. f_equal.
+      rewrite decode_encode_int.
+      erewrite Ptrofs.agree64_to_int_eq. eauto.
+      etransitivity. apply Ptrofs.agree64_repr. auto.
+      rewrite Z.mod_small.
+      rewrite Int64.repr_unsigned. auto. apply Int64.unsigned_range.
+    + simpl. rewrite WT. rewrite proj_bytes_inj_value. rewrite proj_inj_value. reflexivity.
+  - destruct v; simpl in WT. congruence.
+    + simpl. rewrite proj_inj_bytes. unfold Vptrofs; rewrite Heqb0. f_equal. f_equal.
+      rewrite decode_encode_int.
+      erewrite Ptrofs.agree32_to_int_eq. eauto.
+      etransitivity. apply Ptrofs.agree32_repr. auto.
+      rewrite Z.mod_small.
+      rewrite Int.repr_unsigned. auto. apply Int.unsigned_range.
+    + inv WT.
+    + inv WT.
+    + inv WT.
+    + simpl. rewrite WT. rewrite proj_bytes_inj_value. rewrite proj_inj_value. reflexivity.
+Qed.
+
+Lemma store_rule':
+  forall m b ofs v (spec1: val -> Prop) P,
+    m |= contains Mptr b ofs spec1 ** P ->
+    stack_access (Mem.stack m) b ofs (ofs + size_chunk Mptr) ->
+    Val.has_type v Tptr ->
+    v <> Vundef ->
+    exists m',
+      Mem.store Mptr m b ofs v = Some m' /\ m' |= contains_ra b ofs v ** P.
+Proof.
+  intros m b0 ofs v spec1 P ((D & E & F & v0 & G & I) & B & C) SA VPTR VNU.
+  assert (FREEABLE: Mem.valid_access m Mptr b0 ofs Freeable).
+  {
+    split;[|split]; eauto.
+  }
+  assert (WRITABLE: Mem.valid_access m Mptr b0 ofs Writable).
+  {
+    eauto with mem.
+  }
+  destruct (Mem.valid_access_store _ _ _ _ v WRITABLE) as [m' STORE].
+  exists m'; split; auto. simpl. intuition auto.
+- eapply Mem.store_valid_access_1; eauto.
+- erewrite Mem.loadbytes_store_same; eauto. 2: rewrite Ptrofs.unsigned_repr; eauto.
+  eapply wt_encoded_ra_same; eauto.
+- apply (m_invar P) with m; auto. 
+  destruct (m_invar_weak P).
+  + eapply Mem.store_strong_unchanged_on; eauto.
+    intros; red; intros. apply (C b0 i); simpl; auto.
+  + eapply Mem.store_unchanged_on; eauto.
+    intros; red; intros. apply (C b0 i); simpl; auto.
+  + intros.
+    eapply Mem.store_stack_blocks; eauto.
+Qed.
+
+
+Lemma contains_ra_set_stack:
+  forall v spec1 m sp ofs P,
+  m |= contains Mptr sp ofs spec1 ** P ->
+  stack_access (Mem.stack m) sp ofs (ofs + size_chunk Mptr) ->
+  Val.has_type v Tptr ->
+  v <> Vundef ->
+  exists m',
+      store_stack m (Vptr sp Ptrofs.zero) Tptr (Ptrofs.repr ofs) v = Some m'
+  /\ m' |= contains_ra sp ofs v ** P.
+Proof.
+  intros v spec1 m sp ofs P CONT SA VPTR VNU.
+  unfold store_stack. 
+  replace (Val.offset_ptr (Vptr sp Ptrofs.zero) (Ptrofs.repr ofs)) with (Vptr sp (Ptrofs.repr ofs)).
+  simpl Mem.storev.
+  rewrite Ptrofs.unsigned_repr; eauto.
+  eapply store_rule'; eauto.
+  destruct CONT as ((A & _) & _); auto.
+  simpl. rewrite Ptrofs.add_zero_l; auto.
+Qed.
+
 (** [contains_locations j sp pos bound sl ls] is a separation logic assertion
   that holds if the memory area at block [sp], offset [pos], size [4 * bound],
   reflects the values of the stack locations of kind [sl] given by the
@@ -420,7 +503,7 @@ Definition frame_contents_1 (j: meminj) (sp: block) (ls ls0: locset) (parent ret
     contains_locations j sp fe.(fe_ofs_local) b.(bound_local) Local ls
  ** contains_locations j sp fe_ofs_arg b.(bound_outgoing) Outgoing ls
  (* ** hasvalue Mptr sp fe.(fe_ofs_link) parent *)
- ** hasvalue Mptr sp fe.(fe_ofs_retaddr) retaddr
+ ** contains_ra sp fe.(fe_ofs_retaddr) retaddr
  ** contains_callee_saves j sp fe.(fe_ofs_callee_save) b.(used_callee_save) ls0.
 
 Definition frame_contents (j: meminj) (sp: block) (ls ls0: locset) (parent retaddr: val) :=
@@ -491,11 +574,11 @@ Qed.
 Lemma frame_get_retaddr:
   forall j sp ls ls0 parent retaddr m P,
   m |= frame_contents j sp ls ls0 parent retaddr ** P ->
-  load_stack m (Vptr sp Ptrofs.zero) Tptr (Ptrofs.repr fe.(fe_ofs_retaddr)) = Some retaddr.
+  Mem.loadbytesv Mptr m (Val.offset_ptr (Vptr sp Ptrofs.zero) (Ptrofs.repr fe.(fe_ofs_retaddr))) = Some retaddr.
 Proof.
   unfold frame_contents, frame_contents_1; intros.
-  apply mconj_proj1 in H. apply sep_proj1 in H. apply sep_pick3 in H. rewrite <- chunk_of_Tptr in H.
-  eapply hasvalue_get_stack; eauto.
+  apply mconj_proj1 in H. apply sep_proj1 in H. apply sep_pick3 in H.
+  destruct H as (A & B & C & D). Opaque fe_ofs_retaddr. simpl Val.offset_ptr. rewrite Ptrofs.add_zero_l, D. auto. Transparent fe_ofs_retaddr.
 Qed.
 
 (** Assigning a [Local] or [Outgoing] stack slot. *)
@@ -1290,7 +1373,7 @@ Lemma function_prologue_correct:
   rs1 = undef_regs destroyed_at_function_entry rs ->
   Mem.alloc m1 0 f.(Linear.fn_stacksize) = (m2', sp) ->
   Mem.record_stack_blocks m2' (make_singleton_frame_adt sp (Linear.fn_stacksize f) (frame_size (frame_of_frame_env b))) = Some m2 ->
-  Val.has_type parent Tptr -> Val.has_type ra Tptr ->
+  Val.has_type parent Tptr -> Val.has_type ra Tptr -> ra <> Vundef ->
   top_tframe_tc (Mem.stack m1') ->
   stack_equiv (Mem.stack m1) (Mem.stack m1') ->
   m1' |= minjection j (flat_frameinj (length (Mem.stack m1))) m1 ** globalenv_inject ge j ** P ->
@@ -1316,7 +1399,7 @@ Lemma function_prologue_correct:
     /\ (Mem.stack m5' = Mem.stack m4' /\ Mem.stack m3' = Mem.stack m1')
     /\ (forall b, get_frame_info (Mem.stack m5') b = get_frame_info (Mem.stack m4') b).
 Proof.
-  intros until P; intros STACK AGREGS AGCS WTREGS LS1 RS1 ALLOC RECORD TYPAR TYRA TTNP SEQ SEP.
+  intros until P; intros STACK AGREGS AGCS WTREGS LS1 RS1 ALLOC RECORD TYPAR TYRA RANU TTNP SEQ SEP.
   rewrite unfold_transf_function.
   unfold fn_frame, fn_stacksize, fn_retaddr_ofs.
   (* Stack layout info *)
@@ -1351,18 +1434,18 @@ Proof.
   Focus 2.
   right. 
   red. erewrite Mem.alloc_get_frame_info_fresh; eauto.
-  exploit (contains_set_stack (fun v' => v' = ra) ra (fun _ => True) m2_ Tptr).
-  rewrite chunk_of_Tptr; eexact SEP.
+  exploit (contains_ra_set_stack ra (fun _ => True) m2_).
+  eexact SEP.
   right.
   red. erewrite Mem.alloc_get_frame_info_fresh; eauto.
-  apply Val.load_result_same; auto.
+  auto. auto.
   clear SEP; intros (m3' & STORE_RETADDR & SEP).
   rewrite sep_swap3 in SEP.
 
   assert (SEP' : m3' |= minjection j' (flat_frameinj (length (Mem.stack m2'))) m2' **
                      range sp' (fe_ofs_local fe) (fe_ofs_local fe + 4 * bound_local b) **
                      range sp' fe_ofs_arg (fe_ofs_arg + 4 * bound_outgoing b) **
-                     contains (chunk_of_type Tptr) sp' (fe_ofs_retaddr fe) (fun v' : val => v' = ra) **
+                     contains_ra sp' (fe_ofs_retaddr fe) ra **
                      range sp' (fe_ofs_callee_save fe) (size_callee_save_area b (fe_ofs_callee_save fe)) **
                      globalenv_inject ge j' ** P).
   {
@@ -1429,8 +1512,7 @@ Proof.
   assert (SEP3 : m5'
          |= range sp' (fe_ofs_local fe) (fe_ofs_local fe + 4 * bound_local b) **
             range sp' fe_ofs_arg (fe_ofs_arg + 4 * bound_outgoing b) **
-            (* contains (chunk_of_type Tptr) sp' (fe_ofs_link fe) (fun v' : val => v' = parent) ** *)
-            contains (chunk_of_type Tptr) sp' (fe_ofs_retaddr fe) (fun v' : val => v' = ra) **
+            contains_ra sp' (fe_ofs_retaddr fe) ra **
             range sp' (fe_ofs_callee_save fe) (size_callee_save_area b (fe_ofs_callee_save fe)) **
             minjection j' (flat_frameinj (length (Mem.stack m2))) m2 **
             globalenv_inject ge j' ** P).
@@ -1500,8 +1582,7 @@ Proof.
       destruct FP2 as (b0 & delta & EQ & PERM).
       exists b0, delta; rewrite EQ; split; auto.
       eapply Mem.record_stack_block_perm in PERM; eauto.
-    - rewrite chunk_of_Tptr in SEP.
-      unfold frame_contents_1; rewrite ! sep_assoc. exact SEP.
+    - unfold frame_contents_1; rewrite ! sep_assoc. exact SEP.
     - eapply sep_preserved. eapply sep_proj1. eapply mconj_proj2. eexact SEPCONJ.
       intros; apply range_preserved with m2_; auto.
       intros; apply range_preserved with m2_; auto.
@@ -1664,7 +1745,7 @@ Lemma function_epilogue_correct:
   Mem.free m sp 0 f.(Linear.fn_stacksize) = Some m1 ->
   stack_equiv (Mem.stack m) (Mem.stack m') ->
   exists rs1, exists m1',
-      load_stack m' (Vptr sp' Ptrofs.zero) Tptr tf.(fn_retaddr_ofs) = Some ra
+      Mem.loadbytesv Mptr m' (Val.offset_ptr (Vptr sp' Ptrofs.zero) tf.(fn_retaddr_ofs)) = Some ra
   /\ Mem.free m' sp' 0 (fe_size fe) = Some m1'
   /\ star step tge
        (State cs fb (Vptr sp' Ptrofs.zero) (restore_callee_save fe k) rs m')
@@ -1690,11 +1771,15 @@ Proof.
   (* Reloading the back link and return address *)
   unfold frame_contents in SEP; apply mconj_proj1 in SEP.
   unfold frame_contents_1 in SEP; rewrite ! sep_assoc in SEP.
-  (* exploit (hasvalue_get_stack Tptr). rewrite chunk_of_Tptr. eapply sep_pick3; eexact SEP. intros LOAD_LINK. *)
-  exploit (hasvalue_get_stack Tptr). rewrite chunk_of_Tptr. eapply sep_pick3; eexact SEP. intros LOAD_RETADDR.
+  assert (LOAD_RETADDR: Mem.loadbytesv Mptr m' (Val.offset_ptr (Vptr sp' Ptrofs.zero) (Ptrofs.repr (fe_ofs_retaddr fe))) = Some ra).
+  {
+    exploit sep_pick3. apply SEP. intros (A & B & C & D). simpl Val.offset_ptr. rewrite Ptrofs.add_zero_l. auto.
+  }
   clear SEP.
+  Opaque Mem.loadbytesv.
   (* Conclusions *)
-  rewrite unfold_transf_function; simpl.
+  rewrite unfold_transf_function; simpl in *.
+  Transparent Mem.loadbytesv.
   exists rs', m1'.
   split. assumption.
   split. assumption.
@@ -1880,6 +1965,7 @@ Qed.
 (** [CompCertX:test-compcert-protect-stack-arg] In whole-program settings, [init_sp = Vzero], so the following hypotheses are trivially true. 
     In non-whole-program settings, the following two hypotheses are provided by the caller's assembly semantics, which maintains the well-typedness of the assembly register set as an invariant. *)
 Hypothesis init_ra_int: Val.has_type init_ra Tptr.
+Hypothesis init_ra_not_undef: init_ra <> Vundef.
 
 
 Lemma match_stacks_type_retaddr:
@@ -3024,6 +3110,7 @@ Theorem transf_step_correct:
                (LIN: nextblock_properties_linear init_m s1)
                (* (MACH: nextblock_properties_mach init_sp init_m init_sg s1') *)
                (CSC: call_stack_consistency tge init_sg init_stk s1')
+               (HC: has_code return_address_offset tge s1')
                (MS: match_states s1 s1'),
   exists s2', plus step tge s1' t s2' /\ match_states s2 s2'.
 Proof.
@@ -3754,7 +3841,7 @@ Proof.
   rewrite <- sep_assoc, sep_comm in SEP.
   rewrite <- sep_assoc, sep_comm in SEP.
   exploit function_prologue_correct.
-  14: eapply mconj_proj1; eassumption.
+  15: eapply mconj_proj1; eassumption.
   eassumption.
   apply stack_contents_invar_stack.
   eassumption.
@@ -3772,6 +3859,7 @@ Proof.
   simpl. eauto.
   eapply (type_parent_sp init_stk); eauto.
   eapply match_stacks_type_retaddr; eauto.
+  inv HC. inv CFD; simpl. congruence. congruence.
   inv CSC. auto.
   auto.
   rename SEP into SEP_init;
@@ -4131,6 +4219,7 @@ Proof.
   destruct H0. destruct H1.
   exploit transf_step_correct'; eauto. 
   + apply Val.Vnullptr_has_type.
+  + inversion 1.
   + eapply stacking_frame_correct; eauto.
   + simpl. inversion 1. auto.
   + intros [s2' [A B]].

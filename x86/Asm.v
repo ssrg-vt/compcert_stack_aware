@@ -733,8 +733,6 @@ Notation "'do' X , Y , Z <- A ; B" := (match A with Some (X, Y, Z) => B | None =
 Notation " 'check' A ; B" := (if A then B else Stuck)
   (at level 200, A at level 100, B at level 200).
 
-Definition is_ptr (v: val) :=
-  match v with Vptr _ _ => Some v | _ => None end.
 
 Variable init_stk: stack.
 
@@ -811,21 +809,6 @@ Proof.
   right; intros (B & A); specialize (A _ _ eq_refl _ FFP). congruence.
 Qed.
 
-Definition encoded_ra (l: list memval) : option val :=
-  match proj_bytes l with
-  | Some bl => Some (Vptrofs (Ptrofs.repr (decode_int bl)))
-  | None => is_ptr (Val.load_result Mptr (proj_value (quantity_chunk Mptr) l))
-  end.
-
-Definition loadbytesv chunk m addr :=
-  match addr with
-    Vptr b o =>
-    match Mem.loadbytes m b (Ptrofs.unsigned o) (size_chunk chunk) with
-    | Some bytes => encoded_ra bytes
-    | None => None
-    end
-  | _ => None
-  end.
 
 
 Definition exec_instr
@@ -1189,7 +1172,7 @@ Definition exec_instr
       do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi (frame_size fi));
       Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- (Vptr b Ptrofs.zero)) sz) m3
   | Pfreeframe sz' ofs_ra =>
-      do ra <- loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
+      do ra <- Mem.loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
         match rs#RSP with
         | Vptr stk ofs =>
           check (check_top_frame m (Some stk) sz');
@@ -1197,14 +1180,14 @@ Definition exec_instr
             do m' <- Mem.free m stk 0 sz';
             do m' <- Mem.tailcall_stage m';
             check (check_init_sp_in_stack_dec m');
-            do sp <- is_ptr (parent_sp (Mem.stack m));
+            do sp <- Mem.is_ptr (parent_sp (Mem.stack m));
             Next (nextinstr (rs#RSP <- sp #RA <- ra) sz) m'
         | _ => Stuck
         end
   | Pload_parent_pointer rd sz' =>
     check (check_top_frame m None sz');
       check (Sumbool.sumbool_not _ _ (preg_eq rd RSP));
-      do sp <- is_ptr (parent_sp (Mem.stack m));
+      do sp <- Mem.is_ptr (parent_sp (Mem.stack m));
       Next (nextinstr (rs#rd <- sp) sz) m
   | Pcfi_adjust n => Next rs m
   
