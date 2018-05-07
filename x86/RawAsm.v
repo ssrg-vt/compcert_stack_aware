@@ -95,25 +95,33 @@ Section WITHGE.
 
 End WITHGE.
 
-  Definition frame_info_mono: frame_info :=
-    {|
-      frame_size := Mem.stack_limit;
-      frame_perm := fun o => Public;
-      frame_size_pos := proj1 Mem.stack_limit_range;
-    |}.
+Lemma align_Mptr_pos:
+  0 <= align (size_chunk Mptr) 8.
+Proof.
+  etransitivity. 2: apply align_le. generalize (size_chunk_pos Mptr); omega. omega.
+Qed.
 
+Program Definition frame_info_mono: frame_info :=
+  {|
+    frame_size := Mem.stack_limit + align (size_chunk Mptr) 8;
+    frame_perm := fun o => Public;
+    (* frame_size_pos := proj1 Mem.stack_limit_range; *)
+  |}.
+Next Obligation.
+  generalize Mem.stack_limit_range align_Mptr_pos; omega.
+Qed.
   
   Inductive initial_state_gen (prog: Asm.program) (rs: regset) m: state -> Prop :=
   | initial_state_gen_intro:
       forall m1 bstack m2 m3
-        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 Mem.stack_limit = (m1,bstack))
-        (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
+        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit + align (size_chunk Mptr) 8) = (m1,bstack))
+        (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit + align (size_chunk Mptr) 8) Writable = Some m2)
         (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
         let ge := Genv.globalenv prog in
         let rs0 :=
             rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero)
                #RA <- Vnullptr
-               #RSP <- (Vptr bstack (Ptrofs.repr Mem.stack_limit)) in
+               #RSP <- (Vptr bstack (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8))) in
         initial_state_gen prog rs m (State rs0 m3).
 
   Inductive initial_state (prog: Asm.program) (rs: regset) (s: state): Prop :=

@@ -111,15 +111,15 @@ End WITHGE.
   Inductive initial_state_gen (prog: Asm.program) (rs: regset) m: state -> Prop :=
   | initial_state_gen_intro:
       forall m1 bstack m2 m3 m4
-        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit) = (m1,bstack))
-        (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
+        (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit + align (size_chunk Mptr) 8) = (m1,bstack))
+        (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit + align (size_chunk Mptr) 8) Writable = Some m2)
         (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3)
-        (STORE_RETADDR: Mem.storev Mptr m3 (Vptr bstack (Ptrofs.repr (Mem.stack_limit - size_chunk Mptr))) Vnullptr = Some m4),
+        (STORE_RETADDR: Mem.storev Mptr m3 (Vptr bstack (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8 - size_chunk Mptr))) Vnullptr = Some m4),
         let ge := Genv.globalenv prog in
         let rs0 :=
             rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero)
                #RA <- Vnullptr
-               #RSP <- (Val.offset_ptr (Vptr bstack (Ptrofs.repr (Mem.stack_limit))) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr)))) in
+               #RSP <- (Val.offset_ptr (Vptr bstack (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8))) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr)))) in
         initial_state_gen prog rs m (State rs0 m4).
 
   Inductive initial_state (prog: Asm.program) (rs: regset) (s: state): Prop :=

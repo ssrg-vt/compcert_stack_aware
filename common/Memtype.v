@@ -40,13 +40,23 @@ Definition locset := block -> Z -> Prop.
 Close Scope nat_scope.
 
 Parameter stack_limit': Z.
-Definition stack_limit: Z := Z.max 8 (Ptrofs.unsigned (Ptrofs.repr (align stack_limit' 8))).
+Definition stack_limit: Z := Z.max 8 ((align stack_limit' 8) mod (Ptrofs.modulus - align (size_chunk Mptr) 8)).
 
 Lemma stack_limit_range: 0 <= stack_limit <= Ptrofs.max_unsigned.
 Proof.
   unfold stack_limit.
   rewrite Zmax_spec. destr. vm_compute. intuition congruence.
-  apply Ptrofs.unsigned_range_2.
+  split. omega.
+  eapply Z.lt_le_incl, Z.lt_le_trans. apply Z_mod_lt. unfold Mptr; destr; vm_compute; auto.
+  unfold Ptrofs.max_unsigned. apply Z.sub_le_mono_l. unfold Mptr; destr; simpl; vm_compute; congruence.
+Qed.
+
+Lemma stack_limit_range': stack_limit + align (size_chunk Mptr) 8 <= Ptrofs.max_unsigned.
+Proof.
+  unfold stack_limit.
+  rewrite Zmax_spec. destr. vm_compute. intuition congruence.
+  generalize (Z_mod_lt (align stack_limit' 8) (Ptrofs.modulus - align (size_chunk Mptr) 8)).
+  intro A; trim A. vm_compute. auto. unfold Ptrofs.max_unsigned. omega.
 Qed.
 
 Lemma stack_limit_pos: 0 < stack_limit.
@@ -72,10 +82,12 @@ Lemma stack_limit_aligned: (8 | stack_limit).
 Proof.
   unfold stack_limit.
   rewrite Zmax_spec. destr. exists 1; omega.
-  rewrite Ptrofs.unsigned_repr_eq.
-  apply mod_divides. vm_compute. congruence. rewrite Ptrofs.modulus_power.
+  apply mod_divides. vm_compute. congruence.
+  apply Z.divide_sub_r.
+  rewrite Ptrofs.modulus_power.
   exists (two_p (Ptrofs.zwordsize - 3)). change 8 with (two_p 3). rewrite <- two_p_is_exp. f_equal. vm_compute. congruence. omega.
-  apply align_divides. omega.  
+  apply align_divides. omega.
+  apply align_divides. omega.
 Qed.
 
 Global Opaque stack_limit.

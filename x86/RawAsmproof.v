@@ -88,7 +88,7 @@ Section WITHMEMORYMODEL.
   Definition agree_sp m1 rs2:=
     forall ostack,
       rs2 # RSP = Vptr bstack ostack ->
-      Ptrofs.unsigned ostack = Mem.stack_limit - size_active_stack (Mem.stack m1).
+      Ptrofs.unsigned ostack = Mem.stack_limit + align (size_chunk Mptr) 8 - size_active_stack (Mem.stack m1).
 
   Definition perm_bstack m2:=
     forall (ofs : Z) (k : perm_kind) (p : permission),
@@ -96,7 +96,7 @@ Section WITHMEMORYMODEL.
 
   Definition perm_bstack_stack_limit m2:=
     forall (ofs : Z) (k : perm_kind),
-      0 <= ofs < Mem.stack_limit ->
+      0 <= ofs < Mem.stack_limit + align (size_chunk Mptr) 8 ->
       Mem.perm m2 bstack ofs k Writable.
 
   Definition sp_aligned rs2:=
@@ -110,7 +110,7 @@ Section WITHMEMORYMODEL.
       (bstack,fi)::nil = frame_adt_blocks fr /\
       0 = frame_adt_size fr /\
       (forall o, frame_perm fi o = Public) /\
-      frame_size fi = Mem.stack_limit.
+      frame_size fi = Mem.stack_limit + align (size_chunk Mptr) 8.
 
   Lemma no_stack_no_nil m:
     no_stack m ->
@@ -127,7 +127,7 @@ Section WITHMEMORYMODEL.
       inject_perm_stack j P ((None,r)::l)
   | inject_perm_stack_cons
       l fr b fi (IPS_REC: inject_perm_stack j P l) r
-      (JB: j b = Some (bstack, Mem.stack_limit - size_active_stack l - align (frame_size fi) 8))
+      (JB: j b = Some (bstack, Mem.stack_limit + align (size_chunk Mptr) 8 - size_active_stack l - align (frame_size fi) 8))
       (BLOCKS: frame_adt_blocks fr = (b,fi)::nil)
       (SIZE: frame_adt_size fr = frame_size fi)
       (PERM: forall o k p, 0 <= o < frame_size fi -> P b o k p):
@@ -355,8 +355,6 @@ Section WITHMEMORYMODEL.
 
   Opaque Mem.stack_limit.
 
-
-
   Lemma in_stack_inj_below:
     forall j P l
       (IS: inject_perm_stack j P l)
@@ -364,7 +362,7 @@ Section WITHMEMORYMODEL.
       (INFRAMES: in_stack' l (b,fi)),
     exists l1 l2,
       l = l1 ++ l2 /\
-      j b = Some (bstack, Mem.stack_limit - size_active_stack l2).
+      j b = Some (bstack, Mem.stack_limit + align (size_chunk Mptr) 8 - size_active_stack l2).
   Proof.
     induction 1; simpl; intros; eauto. easy.
     - destruct INFRAMES as [[]|INFRAMES].
@@ -435,6 +433,7 @@ Section WITHMEMORYMODEL.
     rewrite IHl1. omega.
   Qed.
 
+  
  Lemma alloc_inject:
     forall j ostack m1 (rs1 rs1': regset) fi b m1' m5 ofs_ra m2 m4 sz,
       match_states j (Ptrofs.unsigned ostack) (State rs1 m1) (State rs1' m1') ->
@@ -480,7 +479,8 @@ Section WITHMEMORYMODEL.
       split. 2: apply Ptrofs.unsigned_range_2.
       red in AGSP. specialize (AGSP _ RSPEQ). rewrite AGSP.
       apply Z.le_add_le_sub_r.
-      eapply Z.lt_le_incl, Z.le_lt_trans. 2: apply (size_active_stack_below m5).
+      eapply Z.lt_le_incl, Z.le_lt_trans.
+      2: instantiate (1 := size_active_stack (Mem.stack m5)); generalize (size_active_stack_below m5) (align_Mptr_pos); omega.
       repeat rewrite_stack_blocks. intro. 
       simpl. rewrite EQ1. simpl. rewrite size_frame_rew. omega.
     }
@@ -1097,12 +1097,13 @@ Section WITHMEMORYMODEL.
        specialize (AGSP _ EQRSP).
        specialize (SPAL _ EQRSP).
        rewrite EQRSP in RSPEQ. inv RSPEQ.
-       assert (0 <= Mem.stack_limit - size_active_stack (Mem.stack m1') <= Ptrofs.max_unsigned) as RNGnewofs. 
+       assert (0 <= Mem.stack_limit + align (size_chunk Mptr) 8 - size_active_stack (Mem.stack m1') <= Ptrofs.max_unsigned) as RNGnewofs. 
        {
          generalize (size_active_stack_below m1').
          generalize (size_active_stack_pos (Mem.stack m1')).
-         generalize (Mem.stack_limit_range).
-         omega.
+         generalize (Mem.stack_limit_range) Mem.stack_limit_range'.
+         generalize align_Mptr_pos.
+         intros; omega.
        }
        assert (0 <= newostack <= Ptrofs.max_unsigned) as RNGnew.
        {
@@ -1155,8 +1156,9 @@ Section WITHMEMORYMODEL.
             rewrite Z.max_r by (apply frame_size_pos). omega.
             generalize (size_active_stack_below m1).
             generalize (size_active_stack_pos (Mem.stack m1)).
+            generalize (Mem.stack_limit_range') align_Mptr_pos.
             rewrite Heqs. simpl. unfold size_frame. rewrite SIZE, SIZE0.
-            generalize Mem.stack_limit_range. omega.
+            generalize Mem.stack_limit_range. intros; omega.
             rewrite Z.max_r by apply frame_adt_size_pos. omega.
          
        * red. rewrite nextinstr_rsp.
@@ -1172,8 +1174,8 @@ Section WITHMEMORYMODEL.
          rewrite Ptrofs.unsigned_repr by omega.
          generalize (size_active_stack_below m1). rewrite Heqs. simpl.
          generalize (size_active_stack_pos r). 
-         generalize Mem.stack_limit_range.
-         unfold size_frame. omega.
+         generalize Mem.stack_limit_range Mem.stack_limit_range' align_Mptr_pos.
+         unfold size_frame. intros. omega.
        * red. rewrite nextinstr_rsp.
          rewrite ! Pregmap.gso by congruence.
          rewrite Pregmap.gss. simpl. inversion 1. subst. clear H0.
@@ -1186,7 +1188,9 @@ Section WITHMEMORYMODEL.
          exists (two_p (Ptrofs.zwordsize - 3)). change 8 with (two_p 3). rewrite <- two_p_is_exp. f_equal. vm_compute. congruence. omega.
          apply Z.divide_add_r.
          apply Z.divide_sub_r.
+         apply Z.divide_add_r.
          apply Mem.stack_limit_aligned.
+         apply align_divides. omega.
          apply size_active_stack_divides.
          apply align_divides. omega.
        * rewrite nextinstr_rsp.
@@ -1219,7 +1223,7 @@ Section WITHMEMORYMODEL.
             rewrite Ptrofs.unsigned_repr by omega.
             unfold newostack.
             rewrite SIZE.
-            destruct (zle (Ptrofs.unsigned (Ptrofs.repr (Mem.stack_limit - size_active_stack s - align ((frame_size fi)) 8)) + align ((frame_size fi)) 8) (o + delta0)); auto.
+            destruct (zle (Ptrofs.unsigned (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8 - size_active_stack s - align ((frame_size fi)) 8)) + align ((frame_size fi)) 8) (o + delta0)); auto.
             exfalso.
             apply Z.gt_lt in g.
 
@@ -1243,7 +1247,7 @@ Section WITHMEMORYMODEL.
 
             simpl. inv H1.
             unfold size_frame. rewrite SIZE. rewrite Z.sub_add_distr. intros.
-            set (delta := Mem.stack_limit - size_active_stack r - align ((frame_size fi)) 8) in *.
+            set (delta := Mem.stack_limit + align (size_chunk Mptr) 8 - size_active_stack r - align ((frame_size fi)) 8) in *.
             destruct (zlt (o + delta0) (delta + frame_size fi)).
             ++
               assert (DISJ: forall ofs , Mem.perm m1 b ofs Cur Freeable -> bstack <> bstack \/ o + delta0 <> ofs + delta).
@@ -1793,8 +1797,10 @@ Section WITHMEMORYMODEL.
         generalize (size_chunk_pos Mptr).
         generalize (Mem.stack_limit_range).
         generalize (size_active_stack_below m).
-        intros. split. 2: omega.
-        generalize (size_active_smaller (Mem.stack m)). omega.
+        intros. split. 2: generalize Mem.stack_limit_range'; omega.
+        generalize (size_active_smaller (Mem.stack m)).
+        generalize (align_le (size_chunk Mptr) 8).
+        omega.
         unfold Ptrofs.add. rewrite Ptrofs.unsigned_repr_eq.
         erewrite AGSP; eauto.
         apply mod_divides. vm_compute. congruence. rewrite Ptrofs.modulus_power.
@@ -1808,7 +1814,9 @@ Section WITHMEMORYMODEL.
         transitivity 8.
         unfold Mptr; unfold align_chunk. destruct ptr64; simpl.
         exists 1; omega. exists 2; omega.
+        apply Z.divide_add_r.
         apply Mem.stack_limit_aligned.
+        apply align_divides. omega.
         transitivity 8.
         unfold Mptr; unfold align_chunk. destruct ptr64; simpl.
         exists 1; omega. exists 2; omega.
@@ -1846,8 +1854,9 @@ Section WITHMEMORYMODEL.
         generalize (size_chunk_pos Mptr).
         generalize (Mem.stack_limit_range).
         generalize (size_active_stack_below m).
-        intros. split. 2: omega.
-        generalize (size_active_smaller (Mem.stack m)). omega.
+        intros. split. 2: generalize (Mem.stack_limit_range'); omega.
+        generalize (size_active_smaller (Mem.stack m)).
+        generalize (align_le (size_chunk Mptr) 8); omega.
       }
       intro StoreInj.
       edestruct (extcall_arguments_inject) as (vargs' & Hargs & Hargsinj).
@@ -2039,7 +2048,7 @@ End PRESERVATION.
     apply Ptrofs.unsigned_repr.
     generalize (Mem.stack_limit_range); omega.
   Qed.
-  
+
   Lemma match_initial_states s:
     Asm.initial_state prog s ->
     exists s' j ostack, match_states ((Some (make_singleton_frame_adt (Genv.genv_next ge) 0 0),nil) :: nil) (Genv.genv_next ge) j ostack s s' /\
@@ -2055,18 +2064,18 @@ End PRESERVATION.
     apply Mem.push_new_stage_inject_flat in FLATINJ.
     assert  (ALLOCINJ:
                exists (f' : meminj) (m2' : mem) (b2 : block),
-                 Mem.alloc (Mem.push_new_stage m0) 0 Mem.stack_limit = (m2', b2) /\
+                 Mem.alloc (Mem.push_new_stage m0) 0 (Mem.stack_limit + align (size_chunk Mptr) 8) = (m2', b2) /\
                  Mem.inject f' (flat_frameinj (length (Mem.stack (Mem.push_new_stage m0)))) m m2' /\
                  inject_incr (Mem.flat_inj (Mem.nextblock m0)) f' /\
-                 f' b = Some (b2, Mem.stack_limit) /\ (forall b0 : block, b0 <> b -> f' b0 = Mem.flat_inj (Mem.nextblock m2) b0)).
+                 f' b = Some (b2, Mem.stack_limit + align (size_chunk Mptr) 8) /\ (forall b0 : block, b0 <> b -> f' b0 = Mem.flat_inj (Mem.nextblock m2) b0)).
     {
-      destruct (Mem.alloc (Mem.push_new_stage m0) 0 Mem.stack_limit) as (m2' & b2) eqn: ALLOC'.
+      destruct (Mem.alloc (Mem.push_new_stage m0) 0 (Mem.stack_limit + align (size_chunk Mptr) 8)) as (m2' & b2) eqn: ALLOC'.
       eapply Mem.alloc_right_inject in FLATINJ; eauto.
-      exploit (Mem.alloc_left_mapped_inject _ _ _ _ _ _ _ _ b2 Mem.stack_limit FLATINJ ALLOC).
+      exploit (Mem.alloc_left_mapped_inject _ _ _ _ _ _ _ _ b2 (Mem.stack_limit + align (size_chunk Mptr) 8) FLATINJ ALLOC).
       - exploit Mem.alloc_result; eauto. intro; subst. red; rewnb. xomega.
-      - apply Mem.stack_limit_range.
+      - generalize Mem.stack_limit_range, align_Mptr_pos, Mem.stack_limit_range'. omega.
       - intros ofs k p. rewrite_perms. rewrite pred_dec_true; auto.
-        generalize (Mem.stack_limit_range). intros; omega.
+        generalize (Mem.stack_limit_range'). intros; omega.
       - intros ofs k p. omega.
       - red. intro. generalize (size_chunk_pos chunk); omega.
       - unfold Mem.flat_inj. intros b0 delta' ofs k p. destr. inversion 1; subst.
@@ -2132,7 +2141,7 @@ End PRESERVATION.
     }
     destruct RSB' as (m4' & RSB' & RSBINJ).
     eexists _, f', _; split.
-    2: now (econstructor; eauto; econstructor; eauto).
+    2:  (econstructor; eauto; econstructor; eauto).
     econstructor; eauto.
     - apply Mem.inject_push_new_stage_left.
       revert RSBINJ.
@@ -2153,13 +2162,18 @@ End PRESERVATION.
       + econstructor. rewnb. eauto. rewrite Ptrofs.add_zero_l. auto.
     - red; unfold bstack; rewnb. fold ge. xomega.
     - red. rewrite Pregmap.gss. inversion 1; subst.
-      repeat rewrite_stack_blocks. simpl. rewrite repr_stack_limit. unfold size_frame.
+      repeat rewrite_stack_blocks. simpl. rewrite Ptrofs.unsigned_repr. unfold size_frame.
       simpl. inversion 1. subst. simpl. omega.
+      generalize Mem.stack_limit_range, align_Mptr_pos, Mem.stack_limit_range'. omega.
     - red. rewrite Pregmap.gss. inversion 1; subst.
-      rewrite repr_stack_limit. apply Mem.stack_limit_aligned.
+      rewrite Ptrofs.unsigned_repr.
+      apply Z.divide_add_r.
+      apply Mem.stack_limit_aligned.
+      apply align_divides; omega.
+      generalize Mem.stack_limit_range, align_Mptr_pos, Mem.stack_limit_range'. omega.
     - red. intros o k p.
       repeat rewrite_perms. rewrite peq_true. intros (A & B).
-      generalize (Mem.stack_limit_range). trim B; auto. trim B ; auto. split; auto. omega.
+      split. generalize Mem.stack_limit_range'. omega. apply B. auto. auto.
     - red; intros.
       repeat rewrite_perms. rewrite peq_true. split; auto. intros; constructor.
     - red.

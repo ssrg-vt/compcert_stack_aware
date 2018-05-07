@@ -1695,7 +1695,6 @@ apply agree_undef_regs with rs0; eauto.
     eapply parent_ra_def; eauto.
   }
   red. rewrite <- SAMEADT, <- H2. constructor; auto.
-  admit.                        (* needs to be propagated to other semantics. *)
   eapply external_call_symbols_preserved; eauto. apply senv_preserved.
   unfold loc_external_result.
   clear. destruct (loc_result (ef_sig ef)); simpl; try split;
@@ -1724,7 +1723,7 @@ apply agree_undef_regs with rs0; eauto.
   rewrite_stack_blocks.
   intros. repeat rewrite_perms. apply SAMEPERM.
   eapply in_stack_tl; eauto.
-Admitted.
+Qed.
 
 End WITHINITSPRA.
 

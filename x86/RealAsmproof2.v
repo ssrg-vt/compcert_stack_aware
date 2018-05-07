@@ -360,6 +360,14 @@ Section WITHMEMORYMODEL.
     - apply Mem.stack_limit_aligned.
   Qed.
 
+  Lemma align_Mptr_align8 z:
+    (align_chunk Mptr | align z 8).
+  Proof.
+    transitivity 8.
+    - unfold Mptr. destr; simpl. exists 1; omega. exists 2; omega.
+    - apply align_divides. omega.
+  Qed.
+  
   Lemma align_Mptr_modulus:
     (align_chunk Mptr | Ptrofs.modulus).
   Proof.
@@ -379,7 +387,8 @@ Section WITHMEMORYMODEL.
       fold ge. intro; subst.
       eexists; split; eauto.
       apply div_ptr_add.
-      apply div_unsigned_repr. apply align_Mptr_stack_limit.
+      apply div_unsigned_repr.
+      apply Z.divide_add_r. apply align_Mptr_stack_limit. apply align_Mptr_align8.
       apply align_Mptr_modulus. unfold Ptrofs.neg. apply div_unsigned_repr.
       apply Zdivide_opp_r.
       apply div_unsigned_repr.
@@ -414,10 +423,11 @@ Section WITHMEMORYMODEL.
     - unfold rs0, rs1; simpl_regs.
       simpl. rewrite <- Ptrofs.sub_add_opp.
       unfold Ptrofs.sub.
-      rewrite (Ptrofs.unsigned_repr _ (Mem.stack_limit_range)).
       rewrite (Ptrofs.unsigned_repr (size_chunk Mptr)).
-      2: vm_compute; intuition congruence.
+      rewrite (Ptrofs.unsigned_repr (Mem.stack_limit + align (size_chunk Mptr) 8)).
+      3: vm_compute; intuition congruence.
       simpl in STORE_RETADDR. congruence.
+      generalize Mem.stack_limit_range, Mem.stack_limit_range', align_Mptr_pos. omega.
     - simpl. unfold rs0. simpl_regs.
       replace ge0 with ge in * by reflexivity.
       replace ge1 with ge in * by reflexivity.
@@ -1938,18 +1948,24 @@ Section WITHMEMORYMODEL.
       with (match_states := fun s1 s2 => match_states s1 s2 /\ real_asm_inv s2).
     - reflexivity.
     - simpl; intros s1 IS1. inv IS1. inv H0.
-      edestruct (Mem.valid_access_store m3 Mptr bstack0 (Mem.stack_limit - size_chunk Mptr) Vnullptr).
+      edestruct (Mem.valid_access_store m3 Mptr bstack0 (Mem.stack_limit + align (size_chunk Mptr) 8 - size_chunk Mptr) Vnullptr).
       split;[|split].
       red; intros. repeat rewrite_perms. rewrite peq_true. split.
-      cut (size_chunk Mptr <=  Mem.stack_limit). omega. apply stack_limit_range'.
+      cut (size_chunk Mptr <=  Mem.stack_limit). generalize align_Mptr_pos. omega. apply stack_limit_range'.
       constructor.
-      apply Z.divide_sub_r. apply Mem.stack_limit_aligned. apply align_size_chunk_divides.
+      apply Z.divide_sub_r.
+      apply Z.divide_add_r.
+      apply Mem.stack_limit_aligned.
+      apply align_Mptr_align8.
+      apply align_size_chunk_divides.
       intros.
       red. rewrite_stack_blocks. intro. left. unfold is_stack_top. simpl. auto.
       eexists; econstructor. eauto. econstructor; eauto.
       simpl.
       rewrite Ptrofs.unsigned_repr. eauto. 
-      generalize stack_limit_range'. generalize (size_chunk_pos Mptr). omega.
+      generalize stack_limit_range'. generalize Mem.stack_limit_range'. generalize (size_chunk_pos Mptr).
+      generalize (align_le (size_chunk Mptr) 8).
+      omega.
     - simpl; intros s1 s2 IS1 IS2.
       edestruct initial_states_match as (s1' & IS1' & MS); eauto.
       eexists; split; eauto. split; auto. eapply real_initial_inv; eauto.
@@ -1969,8 +1985,6 @@ Section WITHMEMORYMODEL.
       exists s1'; split; eauto. apply plus_one; auto. split; auto.
       eapply real_asm_inv_inv; eauto.
   Qed.
-
-  Print Assumptions real_asm_correct.
 
   End PRESERVATION.
         
