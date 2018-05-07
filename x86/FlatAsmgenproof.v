@@ -1117,12 +1117,13 @@ Definition init_meminj (gmap: GID_MAP_TYPE) : meminj :=
       end.
 
 Theorem init_meminj_match_sminj : forall gmap lmap dsize csize efsize m,
+    dsize + csize + efsize <= Ptrofs.max_unsigned ->
     Genv.init_mem prog = Some m ->
     update_map prog = OK (gmap,lmap,dsize,csize,efsize) ->
     transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
     match_sminj gmap lmap (init_meminj gmap).
 Proof.   
-  intros gmap lmap dsize csize efsize m INITMEM UPDATE TRANS. 
+  intros gmap lmap dsize csize efsize m MAX INITMEM UPDATE TRANS. 
   generalize TRANSF. intros TRANSF'.
   unfold match_prog in TRANSF'. monadInv TRANSF'.
   rewrite UPDATE in EQ. inv EQ. clear EQ0.
@@ -1262,23 +1263,27 @@ Lemma transf_initial_states : forall st1,
     RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
     exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
 Proof.
-  (* intros st1 INIT. *)
-  (* generalize TRANSF. intros TRANSF'.  *)
-  (* unfold match_prog in TRANSF'. monadInv TRANSF'. *)
-  (* rename x into gmap. rename x0 into lmap. *)
-  (* inv INIT. inv H0. *)
-  (* set (rs0' := *)
-  (*       (Asm.Pregmap.init Vundef) *)
-  (*       # PC <- (get_main_fun_ptr tge tprog) *)
-  (*       # RA <- Vnullptr *)
-  (*       # RSP <- (init_rsp tge tprog)). *)
-  (* exploit init_mem_pres; eauto. intros (m' & INITM'). *)
-  (* eexists. split.  *)
-  (* - econstructor; eauto.  *)
-  (*   + admit. *)
-  (*   + admit. *)
+  intros st1 INIT.
+  generalize TRANSF. intros TRANSF'.
+  unfold match_prog in TRANSF'. monadInv TRANSF'.
+  destruct x. destruct p. destruct p. destruct p.
+  destruct zle.
+  rename g into gmap.
+  rename l into lmap.
+  rename z1 into dsize. rename z0 into csize. rename z into efsize.
+  inv INIT.
+  exploit init_meminj_match_sminj; eauto.
+  intros MATCH_SMINJ.
+  set (rs0' :=
+        (Asm.Pregmap.init Vundef)
+        # PC <- (get_main_fun_ptr tge tprog)
+        # RA <- Vnullptr
+        # RSP <- (init_rsp tge tprog)).
+  eexists. split.
+  - econstructor; eauto.
+    + admit.
+    + admit.
   Admitted.
-
 
 Context `{external_calls_ops : !ExternalCallsOps mem }.
 Context `{!EnableBuiltins mem}.
