@@ -1085,7 +1085,6 @@ Definition extfun_entry_is_external (mj:meminj) :=
 
 Definition def_frame_inj m := (flat_frameinj (length (Mem.stack m))).
 
-
 Lemma store_pres_def_frame_inj : forall chunk m1 b ofs v m1',
     Mem.store chunk m1 b ofs v = Some m1' ->
     def_frame_inj m1 = def_frame_inj m1'.
@@ -1370,6 +1369,38 @@ Proof.
     exploit (agree_sminj_lbl gmap lmap j MSMINJ); eauto.
 Qed.
 
+Lemma alloc_pres_def_frame_inj : forall m1 lo hi m1' b,
+    Mem.alloc m1 lo hi = (m1', b) ->
+    def_frame_inj m1 = def_frame_inj m1'.
+Proof.
+  unfold def_frame_inj. intros.
+  apply Mem.alloc_stack_blocks in H. rewrite H. auto.
+Qed.
+
+Lemma push_new_stage_def_frame_inj : forall m,
+    def_frame_inj (Mem.push_new_stage m) = (1%nat :: def_frame_inj m).
+Proof.
+  unfold def_frame_inj. intros.
+  erewrite Mem.push_new_stage_stack. simpl. auto.
+Qed.
+
+Lemma drop_perm_pres_def_frame_inj : forall m1 lo hi m1' b p,
+    Mem.drop_perm m1 b lo hi p = Some m1' ->
+    def_frame_inj m1 = def_frame_inj m1'.
+Proof.
+  unfold def_frame_inj. intros.
+  apply Mem.drop_perm_stack in H. rewrite H. auto.
+Qed.
+
+Lemma drop_perm_parallel_inject : forall m1 m2 b lo hi p f b' delta m1' g,
+    Mem.drop_perm m1 b lo hi p = Some m2 ->
+    Mem.inject f g m1 m1' ->
+    f b = Some (b', delta) -> 
+    exists m2', Mem.drop_perm m1' b' (lo+delta) (hi+delta) p = Some m2'
+           /\ Mem.inject f g m2 m2'.
+Admitted.
+
+
 Lemma transf_initial_states : forall rs st1,
     RawAsm.initial_state prog rs st1  ->
     exists st2, FlatAsm.initial_state tprog rs st2 /\ match_states st1 st2.
@@ -1402,18 +1433,42 @@ Proof.
     subst bstack. apply Mem.push_new_stage_nextblock.
   }
   assert (match_sminj gmap lmap j') by (subst bstack; eapply match_sminj_incr; eauto).
-
+  erewrite <- push_new_stage_def_frame_inj in AINJ.
+  erewrite alloc_pres_def_frame_inj in AINJ; eauto.
+  exploit drop_perm_parallel_inject; eauto.
+  intros (m2' & MDROP' & DMINJ). simpl in MDROP'. rewrite Z.add_0_r in MDROP'.
+  erewrite (drop_perm_pres_def_frame_inj m1) in DMINJ; eauto.
   
-  Lemma drop_perm_parallel_inject : forall m1 m2 b lo hi p f b' delta m1' g,
-      Mem.drop_perm m1 b lo hi p = Some m2 ->
-      Mem.inject f g m1 m1' ->
-      f b = Some (b', delta) -> 
-      exists m2', Mem.drop_perm m2 b' lo hi p = Some m2'
-             /\ Mem.inject f g m1' m2'.
-  Admitted.
+  assert (exists m3', Mem.record_stack_blocks m2' (make_singleton_frame_adt' bstack' frame_info_mono 0) = Some m3'
+                 /\ Mem.inject j' (def_frame_inj m3) m3 m3') as RCD.
+  {
+    unfold def_frame_inj. unfold def_frame_inj in DMINJ.
+    eapply (Mem.record_stack_block_inject_flat m2 m3 m2' j'
+             (make_singleton_frame_adt' bstack frame_info_mono 0)); eauto.
+    admit.
+    admit.
+    admit.
+    admit.
+    admit.
+    admit.
+    admit.
+  }
 
-  assert (exists m2', Mem.drop_perm m1' bstack' 0 Mem.stack_limit Writable = Some m2'
-                 /\ Mem.inject j' (1%nat :: def_frame_inj m)  m2 m2').
+  destruct RCD as (m3' & RCDSB & RMINJ).
+    
+  set (rs0' := rs # PC <- (get_main_fun_ptr tge tprog)
+                  # RA <- Vnullptr
+                  # RSP <- (Vptr bstack' (Ptrofs.repr Mem.stack_limit))) in *.
+  exists (State rs0' m3'). split.
+  - eapply initial_state_intro; eauto.
+    eapply initial_state_gen_intro; eauto.
+  - eapply match_states_intro; eauto.
+    admit.
+    admit.
+    admit.
+    admit.
+    admit.
+    admit.
   
 Admitted.
 
