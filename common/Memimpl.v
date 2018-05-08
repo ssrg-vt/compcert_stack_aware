@@ -3619,6 +3619,12 @@ Qed.
 
 End DROP.
 
+Local Hint Resolve range_perm_drop_1 range_perm_drop_2: mem.
+Local Hint Resolve perm_drop_1 perm_drop_2 perm_drop_3 perm_drop_4: mem.
+Local Hint Resolve drop_perm_valid_block_1 drop_perm_valid_block_2: mem.
+Local Hint Resolve valid_access_drop_1 valid_access_drop_2 : mem.
+
+
 (** * Generic injections *)
 
 (** A memory state [m1] generically injects into another memory state [m2] via the
@@ -6140,6 +6146,41 @@ Proof.
   eapply free_range_perm; eauto. omega.
   intros [A|A]. congruence. omega.
 Qed.
+
+Lemma drop_mapped_inject:
+  forall f g m1 m2 b1 b2 delta lo hi p m1',
+  inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo hi p = Some m1' ->
+  (* range_perm m2 b2 (lo + delta) (hi + delta) Cur Freeable -> *)
+  (* meminj_no_overlap f m1 -> *)
+  f b1 = Some(b2, delta) ->
+  exists m2',
+      drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
+   /\ inject f g m1' m2'.
+Proof.
+  intros. inversion H. 
+  exploit drop_mapped_inj; eauto.
+  eapply range_perm_inj; eauto with mem.
+  intros (m2' & DPERM & MEMINJ).
+  exists m2'. split. auto. constructor.
+(* inj *)
+  auto.
+(* freeblocks *)
+  eauto with mem.
+(* mappedblocks *)
+  eauto with mem.
+(* no overlap *)
+  red; intros. eauto with mem.
+(* representable *)
+  intros. exploit mi_representable; try eassumption.
+  intros [A B]; split; eauto. intros ofs0 P. eapply B.
+  destruct P; eauto with mem.
+(* perm inv *)
+  intros. exploit mi_perm_inv0; eauto using perm_drop_4. 
+  intuition eauto using perm_drop_4.
+  Admitted.
+
 
 Lemma drop_outside_inject: forall f g m1 m2 b lo hi p m2',
   inject f g m1 m2 ->
