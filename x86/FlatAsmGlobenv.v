@@ -68,6 +68,7 @@ Record t: Type := mkgenv {
   genv_instrs: block -> ptrofs -> option I;           (**r mapping offset -> instructions *)
   genv_internal_codeblock : block -> bool;
   genv_segblocks: segid_type -> block;
+  genv_next : block;
 }.
 
 (** ** Lookup functions *)

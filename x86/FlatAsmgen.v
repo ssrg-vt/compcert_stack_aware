@@ -530,7 +530,7 @@ Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): 
         (data_defs ++ fun_defs ++ ext_fun_defs)
         (AST.prog_public p)
         (AST.prog_main p)
-        (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit))
+        (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *)
         (mkSegment data_segid (Ptrofs.repr data_sz))
         (mkSegment code_segid (Ptrofs.repr code_sz), code)
         (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))

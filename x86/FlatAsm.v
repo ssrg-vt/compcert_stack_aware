@@ -254,7 +254,7 @@ Record program : Type := {
   prog_defs: list (ident * option gdef * segblock);
   prog_public: list ident;
   prog_main: ident;
-  stack_seg: segment; (* The stack segment *)
+  (* stack_seg: segment; (* The stack segment *) *)
   data_seg: segment;  (* The data segment *)
   code_seg : segment * code; (* The code segment *)
   extfuns_seg : segment; (* The segment for external functions *)
@@ -860,7 +860,8 @@ Definition add_global (ge:genv) (idg: ident * option gdef * segblock) : genv :=
        (fun b ofs => if Val.eq (Vptr b ofs) ptr then Some f else (Genv.genv_defs ge b ofs))
        (Genv.genv_instrs ge)
        (Genv.genv_internal_codeblock ge)
-       (Genv.genv_segblocks ge))
+       (Genv.genv_segblocks ge)
+       (Genv.genv_next ge))
   end.
 
 Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * segblock)) : genv :=
@@ -1093,18 +1094,13 @@ Fixpoint acc_segblocks (nextblock: block) (ids: list segid_type) (map: segid_typ
   end.
 
 Definition list_of_segments (p:program) : list segment  := 
-  (p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: p.(stack_seg) :: nil).
+  (p.(data_seg) :: (fst p.(code_seg)) :: p.(extfuns_seg) :: nil).
 
-(** The assignments of blocks are as follows: 
-    Block 1: reserved for undefined segments
-    Block 2: stack block
-    Block 3: starting block of the rest blocks (data, code, dynamically allocated, etc)
- *)
 Definition undef_seg_block := 1%positive.
-Definition stack_block := 5%positive.
+(* Definition stack_block := 5%positive. *)
 Definition init_block := 2%positive.
 
-Definition gen_segblocks (p:program) : segid_type -> block :=
+Definition gen_segblocks (p:program) : (segid_type -> block) :=
   let initmap := fun id => undef_seg_block in
   let ids := List.map segid (list_of_segments p) in
   acc_segblocks init_block ids initmap.
@@ -1221,13 +1217,14 @@ Qed.
 
 
 Definition empty_genv (p:program): genv :=
-  Genv.mkgenv (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p).
+  Genv.mkgenv (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p) 1%positive.
 
 Definition globalenv (p: program) : genv :=
   let smap := gen_segblocks p in
   let imap := gen_instrs_map smap p in
   let cbmap := gen_internal_codeblock smap p in
-  let genv := Genv.mkgenv (fun b ofs => None) imap cbmap smap in
+  let nextblock := Pos.of_nat ((Pos.to_nat init_block) + length (list_of_segments p)) in
+  let genv := Genv.mkgenv (fun b ofs => None) imap cbmap smap nextblock in
   add_globals genv p.(prog_defs).
   
 (* (** Initialization of the memory *) *)
@@ -1336,24 +1333,28 @@ Definition get_main_fun_ptr (ge:genv) (p:program) : val :=
   | Some sb => (Genv.symbol_address ge (segblock_to_label sb) Ptrofs.zero)
   end.
 
-Definition init_rsp (ge:genv) (p:program) : val :=
-  Vptr (Genv.genv_segblocks ge (segid (p.(stack_seg))))
-       (segsize (p.(stack_seg))).
+(* Definition init_rsp (ge:genv) (p:program) : val := *)
+(*   Vptr (Genv.genv_segblocks ge (segid (p.(stack_seg)))) *)
+(*        (segsize (p.(stack_seg))). *)
 
-Inductive initial_state (p: program) (rs: regset): state -> Prop :=
-  | initial_state_intro: 
-      let bstack := stack_block in
-      forall m0 m1 m2 
-      (INITMEM: init_mem p = Some m0)
-      (MDROP: Mem.drop_perm m0 bstack 0 (Mem.stack_limit) Writable = Some m1)
-      (MRSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m2),
+Inductive initial_state_gen (p: program) (rs: regset) m: state -> Prop :=
+  | initial_state_gen_intro: 
+      forall m1 m2 m3 bstack
+      (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit) = (m1,bstack))
+      (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
+      (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
       let ge := (globalenv p) in
       let rs0 :=
-        rs
-        # PC <- (get_main_fun_ptr ge p)
-        # RA <- Vnullptr
-        # RSP <- (init_rsp ge p) in
-      initial_state p rs (State rs0 m2).
+        rs # PC <- (get_main_fun_ptr ge p)
+           # RA <- Vnullptr
+           # RSP <- (Vptr bstack (Ptrofs.repr Mem.stack_limit)) in
+      initial_state_gen p rs m (State rs0 m3).
+
+Inductive initial_state (prog: program) (rs: regset) (s: state): Prop :=
+| initial_state_intro: forall m,
+    init_mem prog = Some m ->
+    initial_state_gen prog rs m s ->
+    initial_state prog rs s.
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m r,
@@ -1416,11 +1417,10 @@ Ltac Equalities :=
   eapply external_call_trace_length; eauto.
   eapply external_call_trace_length; eauto.
 - (* initial states *)
-  inv H; inv H0. subst ge ge0. 
-  f_equal. 
-  assert (m0 = m3) by congruence. subst. subst bstack bstack0.
-  assert (m1 = m4) by congruence. subst.
-  congruence.
+  inv H; inv H0. assert (m = m0) by congruence. subst. inv H2; inv H3.
+  assert (m1 = m4 /\ bstack = bstack0) by intuition congruence. destruct H0; subst.
+  assert (m2 = m5) by congruence. subst.
+  f_equal. congruence.
 - (* final no step *)
   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
   { intros; unfold Vnullptr; destruct Archi.ptr64; congruence. }

@@ -656,7 +656,7 @@ Proof.
   eapply find_symbol_exists; eauto.
 Qed.
 
-Lemma genv_find_symbol_next_abusrd: forall (p:program F V) id ge, 
+Lemma genv_find_symbol_next_absurd: forall (p:program F V) id ge, 
     ge = globalenv p ->
     find_symbol ge id = Some (genv_next ge) -> False.
 Proof. 
@@ -1805,14 +1805,15 @@ Proof.
   exploit init_mem_characterization_gen; eauto.
 Qed.
 
-Lemma genv_next_find_funct_ptr_absurd : forall (p:AST.program F V) m ge gdef,
-  init_mem p = Some m -> ge = (globalenv p) -> 
-  find_funct_ptr ge (genv_next ge) = Some gdef -> False.
+Lemma genv_next_find_funct_ptr_absurd : forall (p:AST.program F V) ge gdef,
+  ge = (globalenv p) -> find_funct_ptr ge (genv_next ge) = Some gdef -> False.
 Proof.
-  intros p m ge0 gdef INITM GE FINDPTR. subst ge0.
-  exploit find_funct_ptr_not_fresh; eauto. intros BVALID.
-  erewrite init_mem_genv_next in BVALID; eauto.
-  unfold Mem.valid_block in BVALID. apply Plt_strict in BVALID. contradiction.
+  intros p ge gdef GE FINDPTR. subst ge.
+  unfold find_funct_ptr in FINDPTR. 
+  destruct (find_def (globalenv p) (genv_next (globalenv p))) eqn:EQ; inv FINDPTR.
+  destruct g; inv H0. unfold find_def in EQ.
+  apply genv_defs_range in EQ.
+  apply Plt_strict in EQ. contradiction.
 Qed.
 
 (** ** Compatibility with memory injections *)
