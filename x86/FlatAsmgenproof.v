@@ -1227,7 +1227,9 @@ Proof.
       exists id, i', (fst s), ofs1. split. 
       unfold segblock_to_label in SEGLBL. inversion SEGLBL.
       apply INR in IN.
-      eapply AGREE_SMINJ_INSTR.find_instr_self; eauto. admit. subst tprog; simpl. auto.
+      eapply AGREE_SMINJ_INSTR.find_instr_self; eauto. 
+      
+      admit. subst tprog; simpl. auto.
       split; auto.
 
   - (* agree_sminj_glob *)
@@ -1325,47 +1327,55 @@ Lemma alloc_globals_inject : forall j m1 m2 m1' smap gdefs1 gdefs2,
            /\ Mem.inject j' (def_frame_inj m2) m2 m2'.
 Admitted.
 
-Lemma init_mem_pres : forall m, 
+Lemma init_mem_pres_inject : forall m gmap, 
     Genv.init_mem prog = Some m -> 
-    exists m' j, init_mem tprog = Some m' /\ Mem.inject j (def_frame_inj m) m m'. 
+    exists m', init_mem tprog = Some m' /\ Mem.inject (init_meminj gmap) (def_frame_inj m) m m'. 
 Proof. 
-  unfold Genv.init_mem, init_mem. intros m H.
-  generalize initial_inject. intros INITINJ.
-  destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ.
-  exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto.
-  intros SINJ.
-  set (m1 := alloc_segments m0 (list_of_segments tprog)) in *.
-  exploit (alloc_globals_inject (fun _ => None) Mem.empty m m1 (gen_segblocks tprog) (AST.prog_defs prog) (prog_defs tprog)); eauto.
-  intros (j' & m2' & ALLOC & GINJ).
-  eexists; eexists; eauto.
-Qed.
+(*   unfold Genv.init_mem, init_mem. intros m H. *)
+(*   generalize initial_inject. intros INITINJ. *)
+(*   destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ. *)
+(*   exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto. *)
+(*   intros SINJ. *)
+(*   set (m1 := alloc_segments m0 (list_of_segments tprog)) in *. *)
+(*   exploit (alloc_globals_inject (fun _ => None) Mem.empty m m1 (gen_segblocks tprog) (AST.prog_defs prog) (prog_defs tprog)); eauto. *)
+(*   intros (j' & m2' & ALLOC & GINJ). *)
+(*   eexists; eexists; eauto. *)
+(* Qed. *)
+Admitted.
 
-Lemma transf_initial_states : forall st1,
-    RawAsm.initial_state prog (Pregmap.init Vundef) st1  ->
-    exists st2, FlatAsm.initial_state tprog st2 /\ match_states st1 st2.
-Proof.
-  intros st1 INIT.
-  generalize TRANSF. intros TRANSF'.
-  unfold match_prog in TRANSF'. unfold transf_program in TRANSF'.
-  destruct (check_wellformedness prog) eqn:WF; monadInv TRANSF'.
-  destruct x. destruct p. destruct p. destruct p.
-  destruct zle.
-  rename g into gmap.
-  rename l into lmap.
-  rename z1 into dsize. rename z0 into csize. rename z into efsize.
-  inv INIT.
-  exploit init_meminj_match_sminj; eauto.
-  intros MATCH_SMINJ.
-  set (rs0' :=
-        (Asm.Pregmap.init Vundef)
-        # PC <- (get_main_fun_ptr tge tprog)
-        # RA <- Vnullptr
-        # RSP <- (init_rsp tge tprog)).
-  eexists. split.
-  - econstructor; eauto.
-    + admit.
-    + admit.
-  Admitted.
+Lemma transf_initial_states : forall rs st1,
+    RawAsm.initial_state prog rs st1  ->
+    exists st2, FlatAsm.initial_state tprog rs st2 /\ match_states st1 st2.
+(* Proof. *)
+(*   intros st1 INIT. *)
+(*   generalize TRANSF. intros TRANSF'. *)
+(*   unfold match_prog in TRANSF'. unfold transf_program in TRANSF'. *)
+(*   destruct (check_wellformedness prog) eqn:WF; monadInv TRANSF'. *)
+(*   destruct x. destruct p. destruct p. destruct p. *)
+(*   destruct zle; inv EQ0. *)
+(*   rename g into gmap. *)
+(*   rename l into lmap. *)
+(*   rename z1 into dsize. rename z0 into csize. rename z into efsize. *)
+(*   inv INIT. *)
+(*   exploit init_meminj_match_sminj; eauto. *)
+(*   intros MATCH_SMINJ. *)
+(*   exploit (init_mem_pres_inject m gmap); eauto. *)
+(*   intros (m' & INITM' & MINJ). *)
+(*   set (rs0 := *)
+(*             rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero) *)
+(*                #RA <- Vnullptr *)
+(*                #RSP <- (Vptr bstack (Ptrofs.repr Mem.stack_limit))) *)
+(*   set (rs0' := *)
+(*         (Asm.Pregmap.init Vundef) *)
+(*         # PC <- (get_main_fun_ptr tge tprog) *)
+(*         # RA <- Vnullptr *)
+(*         # RSP <- (init_rsp tge tprog)). *)
+(*   eexists. split. *)
+(*   - econstructor; eauto. *)
+(*     + admit. *)
+(*     + admit. *)
+(*   Admitted. *)
+Admitted.
 
 Context `{external_calls_ops : !ExternalCallsOps mem }.
 Context `{!EnableBuiltins mem}.
@@ -3174,7 +3184,7 @@ Qed.
   
 
 Theorem transf_program_correct:
-  forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef)) (FlatAsm.semantics tprog).
+  forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef)) (FlatAsm.semantics tprog (Pregmap.init Vundef)).
 Proof.
   eapply forward_simulation_step with match_states.
   - simpl. admit.

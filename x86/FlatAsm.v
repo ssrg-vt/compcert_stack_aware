@@ -1340,7 +1340,7 @@ Definition init_rsp (ge:genv) (p:program) : val :=
   Vptr (Genv.genv_segblocks ge (segid (p.(stack_seg))))
        (segsize (p.(stack_seg))).
 
-Inductive initial_state (p: program): state -> Prop :=
+Inductive initial_state (p: program) (rs: regset): state -> Prop :=
   | initial_state_intro: 
       let bstack := stack_block in
       forall m0 m1 m2 
@@ -1349,11 +1349,11 @@ Inductive initial_state (p: program): state -> Prop :=
       (MRSB: Mem.record_stack_blocks m1 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m2),
       let ge := (globalenv p) in
       let rs0 :=
-        (Asm.Pregmap.init Vundef)
+        rs
         # PC <- (get_main_fun_ptr ge p)
         # RA <- Vnullptr
         # RSP <- (init_rsp ge p) in
-      initial_state p (State rs0 m2).
+      initial_state p rs (State rs0 m2).
 
 Inductive final_state: state -> int -> Prop :=
   | final_state_intro: forall rs m r,
@@ -1363,8 +1363,8 @@ Inductive final_state: state -> int -> Prop :=
 
 Local Existing Instance mem_accessors_default.
 
-Definition semantics (p: program) :=
-  Semantics_gen step (initial_state p) final_state (globalenv p) dummy_senv.
+Definition semantics (p: program) (rs: regset) :=
+  Semantics_gen step (initial_state p rs) final_state (globalenv p) dummy_senv.
 
 (* (** Determinacy of the [Asm] semantics. *) *)
 
@@ -1390,7 +1390,7 @@ Definition semantics (p: program) :=
 (*   intros. eapply C; eauto. *)
 (* Qed. *)
 
-Lemma semantics_determinate: forall p, determinate (semantics p).
+Lemma semantics_determinate: forall p rs, determinate (semantics p rs).
 Proof.
 Ltac Equalities :=
   match goal with
