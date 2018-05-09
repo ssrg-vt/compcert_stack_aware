@@ -6152,8 +6152,6 @@ Lemma drop_mapped_inject:
   inject f g m1 m2 ->
   inject_perm_condition Freeable ->
   drop_perm m1 b1 lo hi p = Some m1' ->
-  (* range_perm m2 b2 (lo + delta) (hi + delta) Cur Freeable -> *)
-  (* meminj_no_overlap f m1 -> *)
   f b1 = Some(b2, delta) ->
   exists m2',
       drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
@@ -6179,8 +6177,16 @@ Proof.
 (* perm inv *)
   intros. exploit mi_perm_inv0; eauto using perm_drop_4. 
   intuition eauto using perm_drop_4.
-  Admitted.
-
+  destruct (eq_block b0 b1). subst b0.
+  destruct (zle lo ofs). destruct (zlt ofs hi). 
+  rewrite H2 in H3. inv H3.
+  assert (perm_order p p0). eapply perm_drop_2; eauto. omega.
+  assert (perm m1' b1 ofs k p). eapply perm_drop_1; eauto.
+  left. eauto with mem.
+  left. eapply perm_drop_3; eauto. right. right. omega.
+  left. eapply perm_drop_3; eauto. right. left. omega.
+  left. eapply perm_drop_3; eauto. 
+Qed.
 
 Lemma drop_outside_inject: forall f g m1 m2 b lo hi p m2',
   inject f g m1 m2 ->
