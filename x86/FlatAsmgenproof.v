@@ -1319,23 +1319,24 @@ Qed.
 (*   Admitted. *)
 
 
-(* Lemma alloc_globals_inject : forall j m1 m2 m1' gmap smap gdefs1 gdefs2, *)
-(*     Mem.inject j (def_frame_inj m1) m1 m1' -> *)
-(*     Genv.alloc_globals ge m1 gdefs1 = Some m2 -> *)
-(*     exists m2', alloc_globals tge smap m1' gdefs2 = Some m2'  *)
-(*            /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'. *)
-(* Admitted. *)
+Lemma alloc_globals_inject : forall j m1 m2 m1' gmap smap gdefs1 gdefs2,
+    Mem.inject j (def_frame_inj m1) m1 m1' ->
+    Genv.alloc_globals ge m1 gdefs1 = Some m2 ->
+    exists m2', alloc_globals tge smap m1' gdefs2 = Some m2'
+           /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'.
+Admitted.
 
-Lemma init_mem_pres_inject : forall m gmap, 
+Lemma init_mem_pres_inject : forall m gmap lmap dsize csize efsize, 
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
     Genv.init_mem prog = Some m -> 
     exists m', init_mem tprog = Some m' /\ Mem.inject (init_meminj gmap) (def_frame_inj m) m m'. 
 Proof. 
-(*   unfold Genv.init_mem, init_mem. intros m gmap H. *)
-(*   generalize initial_inject. intros INITINJ. *)
-(*   destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ. *)
-(*   exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto. *)
-(*   intros SINJ. *)
-(*   set (m1 := alloc_segments m0 (list_of_segments tprog)) in *. *)
+  unfold Genv.init_mem, init_mem. intros m gmap lmap dsize csize efsize UPDATE INITM.
+  generalize initial_inject. intros INITINJ.
+  destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ.
+  exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto.
+  intros SINJ.
+  set (m1 := alloc_segments m0 (list_of_segments tprog)) in *.
 (*   exploit (alloc_globals_inject (fun _ => None) Mem.empty m m1 (gen_segblocks tprog) (AST.prog_defs prog) (prog_defs tprog)); eauto. *)
 (*   intros (j' & m2' & ALLOC & GINJ). *)
 (*   eexists; eexists; eauto. *)
