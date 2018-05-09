@@ -521,13 +521,52 @@ Fixpoint transl_ext_funs (gdefs : list (ident * option (AST.globdef Asm.fundef u
     transl_ext_funs gdefs'
   end.
 
+Definition transl_globdef (id:ident) (def: option (AST.globdef Asm.fundef unit)) 
+  : res (option ((ident * option FlatAsm.gdef * segblock) * code)) :=
+  match def with
+  | None => OK None
+  | Some (AST.Gvar v) =>
+    match gid_map id with
+    | None => Error (MSG "Translation of a global variable fails: no address for the variable" :: nil)
+    | Some (sid,ofs) =>
+      let sz := AST.init_data_list_size (AST.gvar_init v) in
+      let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+      do v' <- transl_gvar v;
+        OK (Some ((id, Some (Gvar v'), sblk), nil))
+    end
+  | Some (AST.Gfun f) =>
+    match f with
+    | External f => 
+      match gid_map id with
+      | None => Error (MSG "Translation of an external function fails: no address for the function" :: nil)
+      | Some (sid, ofs) => 
+        let sblk := mkSegBlock extfuns_segid ofs Ptrofs.one in
+        OK (Some ((id, Some (Gfun (External f)), sblk), nil))
+      end
+    | Internal fd =>
+      do fd' <- transl_fun id fd;
+        OK (Some ((id, Some (Gfun (Internal fd')), (fn_range fd')), (fn_code fd')))
+    end
+  end.
+
+Fixpoint transl_globdefs (defs : list (ident * option (AST.globdef Asm.fundef unit))) 
+  : res (list (ident * option gdef * segblock) * code) :=
+  match defs with
+  | nil => OK (nil, nil)
+  | (id, def)::defs' =>
+    do tdef_code <- transl_globdef id def;
+    do (tdefs', c') <- transl_globdefs defs';
+    match tdef_code with
+     | None => OK (tdefs', c')
+     | Some (tdef, c) => OK (tdef :: tdefs', c++c')
+     end
+  end.
+  
 (** Translation of a program *)
 Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program := 
-  do data_defs <- transl_globvars (AST.prog_defs p);
-  do (fun_defs, code) <- transl_funs (AST.prog_defs p);
-  do ext_fun_defs <- transl_ext_funs (AST.prog_defs p);
+  do (defs, code) <- transl_globdefs (AST.prog_defs p);
   OK (Build_program
-        (data_defs ++ fun_defs ++ ext_fun_defs)
+        defs
         (AST.prog_public p)
         (AST.prog_main p)
         (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *)
@@ -535,6 +574,20 @@ Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): 
         (mkSegment code_segid (Ptrofs.repr code_sz), code)
         (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))
       .
+
+(* Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program :=  *)
+(*   do data_defs <- transl_globvars (AST.prog_defs p); *)
+(*   do (fun_defs, code) <- transl_funs (AST.prog_defs p); *)
+(*   do ext_fun_defs <- transl_ext_funs (AST.prog_defs p); *)
+(*   OK (Build_program *)
+(*         (data_defs ++ fun_defs ++ ext_fun_defs) *)
+(*         (AST.prog_public p) *)
+(*         (AST.prog_main p) *)
+(*         (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *) *)
+(*         (mkSegment data_segid (Ptrofs.repr data_sz)) *)
+(*         (mkSegment code_segid (Ptrofs.repr code_sz), code) *)
+(*         (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz))) *)
+(*       . *)
 
 End WITH_LABEL_MAP.
 
