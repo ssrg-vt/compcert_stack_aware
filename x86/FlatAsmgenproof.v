@@ -1340,12 +1340,54 @@ Qed.
 (*   intros. destruct gdef1. destruct f. simpl in H0. *)
 (*   Admitted. *)
 
+Definition globs_meminj (gids: list ident) (gmap: GID_MAP_TYPE) : meminj :=
+  let ge := Genv.globalenv prog in
+  let tge := globalenv tprog in
+  fun b => 
+      match (Genv.invert_symbol ge b) with
+      | None => None
+      | Some id => 
+        if (List.existsb (fun id' => ident_eq id' id) gids) then
+          match (gmap id) with
+          | None => None
+          | Some slbl => Some (Genv.symbol_block_offset tge slbl)
+          end
+        else
+          None
+      end.
 
-Lemma alloc_globals_inject : forall j m1 m2 m1' gmap smap gdefs1 gdefs2,
-    Mem.inject j (def_frame_inj m1) m1 m1' ->
-    Genv.alloc_globals ge m1 gdefs1 = Some m2 ->
-    exists m2', alloc_globals tge smap m1' gdefs2 = Some m2'
-           /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'.
+Lemma alloc_globals_inject : forall m1 m2 m1' gmap lmap gdefs tgdefs code gids dsize csize efsize,
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
+    transl_globdefs gmap lmap gdefs = OK (tgdefs, code) ->
+    Mem.inject (globs_meminj gids gmap) (def_frame_inj m1) m1 m1' ->
+    Genv.alloc_globals ge m1 gdefs = Some m2 ->
+    exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
+           /\ Mem.inject (globs_meminj (gids ++ (map fst gdefs)) gmap) (def_frame_inj m2) m2 m2'.
+Admitted.
+
+(* Lemma init_mem_pres_inject : forall m m1 m1' f g code gmap lmap dsize csize efsize defs tdefs, *)
+(*     update_map prog = OK (gmap, lmap, dsize, csize, efsize) -> *)
+(*     transl_globdefs gmap lmap defs = OK (tdefs, code) -> *)
+(*     Globalenvs.Genv.alloc_globals ge m1 defs = Some m -> *)
+(*     Mem.inject f g m1 m1' -> *)
+(*     exists m', Genv.alloc_globals tge m1' tdefs = Some m' *)
+(*           /\ Mem.inject (init_meminj gmap) (def_frame_inj m) m m'. *)
+(* Proof. *)
+
+Lemma globs_meminj_empty : forall gmap b,
+    globs_meminj nil gmap b = None.
+Proof. 
+  intros gmap b. unfold globs_meminj.
+  destruct (Genv.invert_symbol (Genv.globalenv prog) b); auto.
+Qed.
+
+Lemma alloc_globals_ext : forall f1 f2 ge m defs,
+    (forall x, f1 x = f2 x) -> alloc_globals ge f1 m defs = alloc_globals ge f2 m defs.
+Admitted.
+
+Lemma eq_globs_init_meminj : forall gmap lmap dsize csize efsize,
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
+    (globs_meminj (map fst (AST.prog_defs prog)) gmap) = (init_meminj gmap).
 Admitted.
 
 Lemma init_mem_pres_inject : forall m gmap lmap dsize csize efsize, 
@@ -1359,11 +1401,27 @@ Proof.
   exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto.
   intros SINJ.
   set (m1 := alloc_segments m0 (list_of_segments tprog)) in *.
+  generalize TRANSF. intros TRANSF'. unfold match_prog in TRANSF'.
+  unfold transf_program in TRANSF'.
+  destruct (check_wellformedness prog) eqn:WF; monadInv TRANSF'.
+  destruct x. destruct p. destruct p. destruct p.
+  destruct zle; try now monadInv EQ0. unfold transl_prog_with_map in EQ0.
+  destruct (transl_globdefs g l (AST.prog_defs prog)) eqn:TRANSGLOBS; try now inv EQ0.
+  simpl in EQ0. destruct p. inversion EQ0. clear EQ0. rewrite H0.
+  exploit alloc_globals_inject; eauto using INITM, SINJ, Mem.inject_ext, globs_meminj_empty.
+  simpl. intros (m1' & ALLOC' & MINJ). 
+  exists m1'. split. 
+  erewrite (alloc_globals_ext (gen_segblocks tprog) (Genv.genv_segblocks tge)). 
+  subst tprog tge. auto.
+  intros x. subst tge. rewrite genv_gen_segblocks. auto.
+  rewrite UPDATE in EQ. inversion EQ. subst g l z1 z0 z.
+  erewrite eq_globs_init_meminj in MINJ; eauto.
+Qed.
+  
 (*   exploit (alloc_globals_inject (fun _ => None) Mem.empty m m1 (gen_segblocks tprog) (AST.prog_defs prog) (prog_defs tprog)); eauto. *)
 (*   intros (j' & m2' & ALLOC & GINJ). *)
 (*   eexists; eexists; eauto. *)
 (* Qed. *)
-Admitted.
 
 
 Lemma find_funct_ptr_next :
