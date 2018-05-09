@@ -1539,6 +1539,16 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
      free m2 b' (lo + delta) (hi + delta) = Some m2'
   /\ inject f g m1' m2';
 
+ drop_parallel_inject {InjectPerm: InjectPerm}:
+  forall f g m1 m2 b1 b2 delta lo hi p m1',
+  inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo hi p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  exists m2',
+      drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
+   /\ inject f g m1' m2';
+
  drop_outside_inject {injperm: InjectPerm}:
   forall f g m1 m2 b lo hi p m2',
     inject f g m1 m2 ->

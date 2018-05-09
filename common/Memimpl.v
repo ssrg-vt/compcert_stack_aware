@@ -6147,7 +6147,7 @@ Proof.
   intros [A|A]. congruence. omega.
 Qed.
 
-Lemma drop_mapped_inject:
+Lemma drop_parallel_inject:
   forall f g m1 m2 b1 b2 delta lo hi p m1',
   inject f g m1 m2 ->
   inject_perm_condition Freeable ->
@@ -9260,6 +9260,7 @@ Proof.
   intros; eapply free_list_left_inject; eauto.
   intros; eapply free_right_inject; eauto.
   intros; eapply free_parallel_inject; eauto.
+  intros; eapply drop_parallel_inject; eauto.
   intros; eapply drop_outside_inject; eauto.
   intros; eapply drop_right_inject; eauto.
   intros; eapply self_inject; eauto.

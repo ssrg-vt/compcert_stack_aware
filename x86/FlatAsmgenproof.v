@@ -1017,7 +1017,7 @@ End AGREE_SMINJ_LBL.
 Section WITHMEMORYMODEL.
   
 Context `{memory_model: Mem.MemoryModel }.
-Existing Instance inject_perm_upto_writable.
+Existing Instance inject_perm_all.
 
 Definition match_prog (p: Asm.program) (tp: FlatAsm.program) :=
   transf_program p = OK tp.
@@ -1309,22 +1309,22 @@ Qed.
 (*     exists j' m2', alloc_global tge smap m1' (id, Some gdef2, sb) = Some m2'  *)
 (*               /\ Mem.inject j' (def_frame_inj m2) m2 m2'. *)
 
-Lemma alloc_global_inject : forall j m1 m2 m1' gmap smap gdef1 gdef2 sb id,
-    Mem.inject j (def_frame_inj m1) m1 m1' ->
-    Genv.alloc_global ge m1 (id, Some gdef1) = Some m2 ->
-    exists m2', alloc_global tge smap m1' (id, Some gdef2, sb) = Some m2' 
-              /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'.
-Proof.
-  intros. destruct gdef1. destruct f. simpl in H0.
-  Admitted.
+(* Lemma alloc_global_inject : forall j m1 m2 m1' gmap smap gdef1 gdef2 sb id, *)
+(*     Mem.inject j (def_frame_inj m1) m1 m1' -> *)
+(*     Genv.alloc_global ge m1 (id, Some gdef1) = Some m2 -> *)
+(*     exists m2', alloc_global tge smap m1' (id, Some gdef2, sb) = Some m2'  *)
+(*               /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'. *)
+(* Proof. *)
+(*   intros. destruct gdef1. destruct f. simpl in H0. *)
+(*   Admitted. *)
 
 
-Lemma alloc_globals_inject : forall j m1 m2 m1' gmap smap gdefs1 gdefs2,
-    Mem.inject j (def_frame_inj m1) m1 m1' ->
-    Genv.alloc_globals ge m1 gdefs1 = Some m2 ->
-    exists m2', alloc_globals tge smap m1' gdefs2 = Some m2' 
-           /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'.
-Admitted.
+(* Lemma alloc_globals_inject : forall j m1 m2 m1' gmap smap gdefs1 gdefs2, *)
+(*     Mem.inject j (def_frame_inj m1) m1 m1' -> *)
+(*     Genv.alloc_globals ge m1 gdefs1 = Some m2 -> *)
+(*     exists m2', alloc_globals tge smap m1' gdefs2 = Some m2'  *)
+(*            /\ Mem.inject (init_meminj gmap) (def_frame_inj m2) m2 m2'. *)
+(* Admitted. *)
 
 Lemma init_mem_pres_inject : forall m gmap, 
     Genv.init_mem prog = Some m -> 
@@ -1345,7 +1345,14 @@ Admitted.
 
 Lemma find_funct_ptr_next :
   Genv.find_funct_ptr ge (Globalenvs.Genv.genv_next ge) = None.
-Admitted.
+Proof.
+  unfold Globalenvs.Genv.find_funct_ptr. 
+  destruct (Genv.find_def ge (Globalenvs.Genv.genv_next ge)) eqn:EQ; auto.
+  destruct g; auto.
+  unfold Genv.find_def in EQ.
+  apply Globalenvs.Genv.genv_defs_range in EQ.
+  exploit Plt_strict; eauto. contradiction.
+Qed.
 
 Lemma match_sminj_incr : forall gmap lmap j j',
     (forall b, b <> Globalenvs.Genv.genv_next ge -> j' b = j b) ->
@@ -1392,14 +1399,31 @@ Proof.
   apply Mem.drop_perm_stack in H. rewrite H. auto.
 Qed.
 
-Lemma drop_perm_parallel_inject : forall m1 m2 b lo hi p f b' delta m1' g,
-    Mem.drop_perm m1 b lo hi p = Some m2 ->
-    Mem.inject f g m1 m1' ->
-    f b = Some (b', delta) -> 
-    exists m2', Mem.drop_perm m1' b' (lo+delta) (hi+delta) p = Some m2'
-           /\ Mem.inject f g m2 m2'.
+(* Lemma drop_perm_parallel_inject : forall m1 m2 b lo hi p f b' delta m1' g, *)
+(*     Mem.drop_perm m1 b lo hi p = Some m2 -> *)
+(*     Mem.inject f g m1 m1' -> *)
+(*     f b = Some (b', delta) ->  *)
+(*     exists m2', Mem.drop_perm m1' b' (lo+delta) (hi+delta) p = Some m2' *)
+(*            /\ Mem.inject f g m2 m2'. *)
+(* Admitted. *)
+
+Lemma init_mem_stack:
+  forall (p: program) m,
+    init_mem p = Some m ->
+    Mem.stack m = nil.
+Proof.
 Admitted.
 
+Lemma init_mem_genv_next: forall p m,
+  init_mem p = Some m ->
+  Genv.genv_next (globalenv p) = Mem.nextblock m.
+Admitted.
+
+Lemma init_meminj_genv_next_inv : forall gmap lmap dsize csize efsize b  delta,
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
+    init_meminj gmap b = Some (Genv.genv_next tge, delta) ->
+    b = Globalenvs.Genv.genv_next ge.
+Admitted.
 
 Lemma transf_initial_states : forall rs st1,
     RawAsm.initial_state prog rs st1  ->
@@ -1435,7 +1459,7 @@ Proof.
   assert (match_sminj gmap lmap j') by (subst bstack; eapply match_sminj_incr; eauto).
   erewrite <- push_new_stage_def_frame_inj in AINJ.
   erewrite alloc_pres_def_frame_inj in AINJ; eauto.
-  exploit drop_perm_parallel_inject; eauto.
+  exploit Mem.drop_parallel_inject; eauto. red. simpl. auto.
   intros (m2' & MDROP' & DMINJ). simpl in MDROP'. rewrite Z.add_0_r in MDROP'.
   erewrite (drop_perm_pres_def_frame_inj m1) in DMINJ; eauto.
   
@@ -1445,17 +1469,50 @@ Proof.
     unfold def_frame_inj. unfold def_frame_inj in DMINJ.
     eapply (Mem.record_stack_block_inject_flat m2 m3 m2' j'
              (make_singleton_frame_adt' bstack frame_info_mono 0)); eauto.
-    admit.
-    admit.
-    admit.
-    admit.
-    admit.
-    admit.
-    admit.
+    (* frame inject *)
+    red. unfold make_singleton_frame_adt'. simpl. constructor. 
+    simpl. intros b2 delta FINJ. rewrite FBSTACK in FINJ. inv FINJ.
+    exists frame_info_mono. split. auto. apply inject_frame_info_id.
+    constructor.
+    (* in frame *)
+    unfold make_singleton_frame_adt'. simpl. unfold in_frame. simpl.
+    repeat rewrite_stack_blocks. 
+    erewrite init_mem_stack; eauto.
+    (* valid frame *)
+    unfold make_singleton_frame_adt'. simpl. red. unfold in_frame.
+    simpl. intuition. subst. 
+    eapply Mem.drop_perm_valid_block_1; eauto.
+    eapply Mem.valid_new_block; eauto.
+    (* frame_agree_perms *)
+    red. unfold make_singleton_frame_adt'. simpl. 
+    intros b fi o k p H5 H6. inv H5; try contradiction.
+    inv H7. unfold frame_info_mono. simpl.
+    erewrite drop_perm_perm in H6; eauto. destruct H6.
+    eapply Mem.perm_alloc_3; eauto.
+    (* in frame iff *)
+    unfold make_singleton_frame_adt'. unfold in_frame. simpl.
+    intros b1 b2 delta H5. split.
+    intros H6. destruct H6; try contradiction. subst b1. 
+    rewrite H5 in FBSTACK; inv FBSTACK; auto.
+    intros H6. destruct H6; try contradiction. subst b2. 
+    assert (bstack' = Mem.nextblock (Mem.push_new_stage m')) as BEQ. 
+    eapply Mem.alloc_result; eauto using MALLOC'.
+    rewrite Mem.push_new_stage_nextblock in BEQ.
+    erewrite <- init_mem_genv_next in BEQ; eauto using INITM'.
+    subst bstack'.     
+    destruct (eq_block bstack b1); auto.
+    assert (b1 <> bstack) by congruence.
+    apply NOTBSTK in H6. rewrite H6 in H5.     
+    left. symmetry. subst bstack. eapply init_meminj_genv_next_inv; eauto.
+
+    (* top frame *)
+    red. repeat rewrite_stack_blocks. constructor. auto.
+    (* size stack *)
+    repeat rewrite_stack_blocks. 
+    erewrite init_mem_stack; eauto. simpl. omega.
   }
 
   destruct RCD as (m3' & RCDSB & RMINJ).
-    
   set (rs0' := rs # PC <- (get_main_fun_ptr tge tprog)
                   # RA <- Vnullptr
                   # RSP <- (Vptr bstack' (Ptrofs.repr Mem.stack_limit))) in *.
