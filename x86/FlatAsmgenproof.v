@@ -1356,14 +1356,50 @@ Definition globs_meminj (gids: list ident) (gmap: GID_MAP_TYPE) : meminj :=
           None
       end.
 
-Lemma alloc_globals_inject : forall m1 m2 m1' gmap lmap gdefs tgdefs code gids dsize csize efsize,
-    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
-    transl_globdefs gmap lmap gdefs = OK (tgdefs, code) ->
-    Mem.inject (globs_meminj gids gmap) (def_frame_inj m1) m1 m1' ->
-    Genv.alloc_globals ge m1 gdefs = Some m2 ->
+Lemma alloc_globals_inject : 
+  forall gdefs tgdefs m1 m2 m1' gmap lmap  code gids dsize csize efsize
+    (DEFSIN: forall def, In def gdefs -> In def (AST.prog_defs prog))
+    (UPDATE: update_map prog = OK (gmap, lmap, dsize, csize, efsize))
+    (TRANSG: transl_globdefs gmap lmap gdefs = OK (tgdefs, code))
+    (MINJ: Mem.inject (globs_meminj gids gmap) (def_frame_inj m1) m1 m1')
+    (ALLOCG: Genv.alloc_globals ge m1 gdefs = Some m2),
     exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
            /\ Mem.inject (globs_meminj (gids ++ (map fst gdefs)) gmap) (def_frame_inj m2) m2 m2'.
-Admitted.
+Proof.
+  induction gdefs; intros.
+  - monadInv TRANSG. inv ALLOCG. rewrite app_nil_r. 
+    simpl. eexists; split; eauto.
+  - destruct a. monadInv TRANSG. destruct x; inv EQ2. 
+    + destruct p; inv H0. admit.
+    + simpl. destruct o. destruct g. destruct f.
+      monadInv EQ. 
+      simpl in EQ. destruct (gmap i); inv EQ. destruct s; inv H0. 
+      simpl in EQ. destruct (gmap i); inv EQ. destruct s; monadInv H0.
+      (* the head of gdefs is None *)
+      monadInv EQ. simpl in ALLOCG. 
+      set (mz := Mem.alloc m1 0 0) in *. destruct mz eqn:ALLOCZ. subst mz.
+      exploit (DEFSIN (i,None)); eauto. apply in_eq. intros INNONE.
+      
+      Lemma update_map_gmap_none : forall gmap lmap dsize csize efsize id,
+        update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
+        In (id, None) (AST.prog_defs prog) -> 
+        gmap id = None.
+      Admitted.
+
+      exploit update_map_gmap_none; eauto. intros GMAPNONE.
+      exploit Mem.alloc_left_unmapped_inject; eauto.
+      intros (f & ALLOCINJ & INJINCR & FNONE & FINV).
+
+      Lemma globs_meminj_eq_ids : forall ids ids' gmap
+          (EQIDS: forall i, In i ids <-> In i ids'),
+          forall x, globs_meminj ids gmap x = globs_meminj ids' gmap x.
+      Admitted.
+
+      assert (forall b, globs_meminj (gids ++ (i::nil)) gmap b = f b).
+      { 
+        intros b1. erewrite globs_meminj_eq_ids.
+        instantiate (1 := (i::gids)). unfold globs_meminj.
+        Admitted.
 
 (* Lemma init_mem_pres_inject : forall m m1 m1' f g code gmap lmap dsize csize efsize defs tdefs, *)
 (*     update_map prog = OK (gmap, lmap, dsize, csize, efsize) -> *)
