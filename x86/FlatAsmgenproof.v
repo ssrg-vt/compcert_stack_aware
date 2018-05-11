@@ -1337,6 +1337,13 @@ Ltac destr_match :=
     (destruct b eqn:eq)
   end.
 
+Ltac destr_match_in H := 
+  match type of H with 
+  | context [match ?b with _ => _ end] => 
+    let eq := fresh "EQ" in
+    (destruct b eqn:eq)
+  end.
+
 Lemma find_symbol_add_global_eq : forall (F V: Type) (ge:Globalenvs.Genv.t F V) i def,
     Globalenvs.Genv.find_symbol (Globalenvs.Genv.add_global ge (i, def)) i = Some (Globalenvs.Genv.genv_next ge).
 Proof.
@@ -1425,7 +1432,17 @@ Proof.
   - monadInv TRANSG. inv ALLOCG. rewrite app_nil_r in DEFSTAIL. subst defs.
     simpl. eexists; split; eauto.
   - destruct a. destruct o. 
-    + admit.
+    + destruct g. destruct f.
+      (* the head of gdefs is an internal function *)
+      monadInv TRANSG. destruct x; monadInv EQ. inv EQ2.
+      simpl in ALLOCG. destr_match_in ALLOCG; try now inversion ALLOCG.
+      destruct (Mem.alloc m1 0 1) eqn:ALLOCF.
+      admit.
+      (* the head of gdefs is an external function *)
+      admit.
+      (* the head of gdefs is a global variable *)
+      admit.
+        
     + (* the head of gdefs is None *)
       monadInv TRANSG. simpl in ALLOCG.
       set (mz := Mem.alloc m1 0 0) in *. destruct mz eqn:ALLOCZ. subst mz.
