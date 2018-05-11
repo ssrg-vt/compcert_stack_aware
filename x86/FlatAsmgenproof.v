@@ -1437,6 +1437,20 @@ Proof.
       monadInv TRANSG. destruct x; monadInv EQ. inv EQ2.
       simpl in ALLOCG. destr_match_in ALLOCG; try now inversion ALLOCG.
       destruct (Mem.alloc m1 0 1) eqn:ALLOCF.
+      exploit Mem.alloc_result; eauto using ALLOCF. intros.
+
+Lemma update_map_gmap_internal :
+  forall (prog : Asm.program) (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
+    f defs gdefs,
+    update_map prog = OK (gmap, lmap, dsize, csize, efsize) -> 
+    defs ++ (id, Some (Gfun (Internal f))) :: gdefs = AST.prog_defs prog -> 
+    exists ofs, gmap id = Some (code_label ofs).
+Admitted.
+
+      (* assert (In (i, Some (Gfun (Internal f))) (AST.prog_defs prog)) as IN. *)
+      (* { rewrite <- DEFSTAIL. rewrite in_app. right. apply in_eq. } *)
+      (* exploit update_map_gmap_some; eauto using IN. intros (slbl & GMAP). *)
+      
       admit.
       (* the head of gdefs is an external function *)
       admit.
