@@ -656,11 +656,10 @@ Proof.
   eapply find_symbol_exists; eauto.
 Qed.
 
-Lemma genv_find_symbol_next_absurd: forall (p:program F V) id ge, 
-    ge = globalenv p ->
+Lemma find_symbol_genv_next_absurd: forall id ge, 
     find_symbol ge id = Some (genv_next ge) -> False.
 Proof. 
-  intros p id ge GE FIND. 
+  intros id ge FIND. 
   unfold find_symbol in FIND. 
   apply genv_symb_range in FIND.
   generalize (Plt_strict (genv_next ge)). 
@@ -774,6 +773,15 @@ Proof.
   intros; exploit H; eauto. intros [id' A].
   assert (id = id'). eapply genv_vars_inj; eauto. apply invert_find_symbol; auto.
   congruence.
+Qed.
+
+Lemma invert_symbol_genv_next : forall ge:t,
+    invert_symbol ge (genv_next ge) = None.
+Proof.
+  intros ge.
+  destruct (invert_symbol ge (genv_next ge)) eqn:EQ; auto.
+  apply invert_find_symbol in EQ.
+  exfalso. eapply find_symbol_genv_next_absurd; eauto.
 Qed.
 
 Definition advance_next (gl: list (ident * option (globdef F V))) (x: positive) :=

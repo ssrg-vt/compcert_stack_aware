@@ -1337,23 +1337,78 @@ Ltac destr_match :=
     (destruct b eqn:eq)
   end.
 
+Lemma find_symbol_add_global_eq : forall (F V: Type) (ge:Globalenvs.Genv.t F V) i def,
+    Globalenvs.Genv.find_symbol (Globalenvs.Genv.add_global ge (i, def)) i = Some (Globalenvs.Genv.genv_next ge).
+Proof.
+  intros F V ge0 i def. unfold Genv.find_symbol.
+  unfold Genv.add_global. simpl. rewrite PTree.gss. auto.
+Qed.
+
+Lemma find_symbol_add_global_neq : forall (F V: Type) (ge:Globalenvs.Genv.t F V) i i' def,
+    i <> i' -> 
+    Globalenvs.Genv.find_symbol (Globalenvs.Genv.add_global ge (i, def)) i' = 
+    Globalenvs.Genv.find_symbol ge i'.
+Proof.
+  intros F V ge0 i i' def H. unfold Genv.find_symbol.
+  unfold Genv.add_global. simpl. rewrite PTree.gso; auto.
+Qed.
+
+Lemma invert_symbol_add_global_none : forall (F V: Type) (ge:Globalenvs.Genv.t F V) id def b,
+    Genv.invert_symbol (Genv.add_global ge (id, def)) b = None ->
+    Genv.invert_symbol ge b = None.
+Proof.
+  unfold Genv.add_global. unfold Genv.invert_symbol. simpl.
+  intros F V ge0 id def b H.
+  rewrite PTree.fold_spec. rewrite PTree.fold_spec in H.
+Admitted.  
+
+(* Lemma invert_symbol_add_global : forall (F V: Type) (ge ge':Globalenvs.Genv.t F V) id def b, *)
+(*     ge' = Genv.add_global ge (id, def) -> *)
+(*     Genv.invert_symbol ge' b = Some id  *)
+(*     \/ Genv.invert_symbol ge' b = Genv.invert_symbol ge b. *)
+(* Proof. *)
+(*   intros F V ge0 ge' id def b H. *)
+(*   destruct (Genv.invert_symbol ge' b) eqn:EQ1. *)
+(*   - apply Genv.invert_find_symbol in EQ1. subst ge'. *)
+(*     destruct (ident_eq i id). *)
+(*     + subst. auto. *)
+(*     + erewrite find_symbol_add_global_neq in EQ1; eauto. *)
+(*       apply Genv.find_invert_symbol in EQ1. auto. *)
+(*   - admit. *)
+
 Lemma globs_meminj_none_pres :
   forall i gmap defs x , gmap i = None -> globs_meminj defs gmap x = globs_meminj (defs ++ (i, None)::nil) gmap x.
-(* Proof. *)
-(*   intros i gmap ids x GMAP. unfold globs_meminj. *)
-(*   destruct (Genv.invert_symbol (Genv.globalenv prog) x) eqn: INVSYM. *)
-(*   rewrite existsb_app. simpl. unfold ident. *)
-(*   destr_if. simpl. auto. *)
-(*   simpl. destr_if. rewrite orb_true_iff in EQ0.  destruct EQ0; try congruence. *)
-(*   destruct ident_eq. subst. rewrite GMAP. congruence. inv H. *)
-(*   auto. auto. *)
-(* Qed. *)
-Admitted.
+Proof.
+  intros i gmap ids x GMAP. unfold globs_meminj.
+  destruct (Genv.invert_symbol (partial_genv (ids ++ (i, None) :: nil)) x) eqn:EQ.
+  - apply Genv.invert_find_symbol in EQ. 
+    unfold partial_genv in EQ. rewrite Genv.add_globals_app in EQ. simpl in EQ.
+    destruct (ident_eq i i0).
+    + subst i0. rewrite find_symbol_add_global_eq in EQ. inv EQ.
+      rewrite invert_symbol_genv_next. rewrite GMAP. auto.
+    + erewrite find_symbol_add_global_neq in EQ; eauto.
+      apply Genv.find_invert_symbol in EQ. setoid_rewrite EQ. auto.
+  - unfold partial_genv in EQ. rewrite Genv.add_globals_app in EQ. simpl in EQ.
+    apply invert_symbol_add_global_none in EQ. setoid_rewrite EQ. auto.
+Qed.
+
 
 Lemma update_map_gmap_none :
   forall (prog : Asm.program) (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident),
     update_map prog = OK (gmap, lmap, dsize, csize, efsize) -> In (id, None) (AST.prog_defs prog) -> gmap id = None.
 Admitted.
+
+Lemma invert_add_global_genv_next : forall (F V: Type) (ge:Globalenvs.Genv.t F V) id def,
+    Genv.invert_symbol (Genv.add_global ge (id, def)) (Globalenvs.Genv.genv_next ge) = Some id.
+Admitted.
+
+Lemma partial_genv_invert : forall defs id def,
+    Genv.invert_symbol (partial_genv (defs ++ (id, def) :: nil)) (Globalenvs.Genv.genv_next (partial_genv defs)) = Some id.
+Proof.
+  intros defs id def. unfold partial_genv. 
+  rewrite Genv.add_globals_app. simpl.
+  apply invert_add_global_genv_next.
+Qed.
 
 Lemma alloc_globals_inject : 
   forall gdefs tgdefs defs m1 m2 m1' gmap lmap  code dsize csize efsize ge
@@ -1385,43 +1440,16 @@ Proof.
       intros (f & MINJ' & INJINCR & FNONE & FINV).
       erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
       apply Mem.inject_ext with f. auto.
-      intros x. unfold globs_meminj. 
-
-      (* destr_match.  *)
-      (* destruct (Genv.invert_symbol (Genv.globalenv prog) x) eqn: INVSYM. *)
-      (*   rewrite existsb_app. simpl. unfold ident. *)
-      (*   destr_if. simpl. auto. *)
-      (*   simpl. destr_if. rewrite orb_true_iff in EQ0.  destruct EQ0; try congruence. *)
-      (*   destruct ident_eq. subst. rewrite GMAP. congruence. inv H. *)
-      (*   auto. auto. *)
-      (* Qed. *)
+      intros x. destruct (eq_block b x). subst x.
+      exploit Mem.alloc_result; eauto using ALLOCZ. intros. subst b.
+      unfold globs_meminj. rewrite BLOCKEQ.       
+      rewrite partial_genv_invert. rewrite H. congruence.
+      erewrite FINV; eauto. apply globs_meminj_none_pres. auto.
       
-
-      (* erewrite globs_meminj_none_pres; eauto. *)
-      (* exploit Mem.alloc_left_unmapped_inject; eauto. *)
-      (* intros (f & ALLOCINJ & INJINCR & FNONE & FINV). *)
-
-      (* Lemma globs_meminj_eq_ids : forall ids ids' gmap *)
-      (*     (EQIDS: forall i, In i ids <-> In i ids'), *)
-      (*     forall x, globs_meminj ids gmap x = globs_meminj ids' gmap x. *)
-      (* Admitted. *)
-
-      (* assert (forall b, globs_meminj (gids ++ (i::nil)) gmap b = f b). *)
-      (* { *)
-      (*   intros b1. erewrite globs_meminj_eq_ids. *)
-      (*   instantiate (1 := (i::gids)). unfold globs_meminj. *)
-        
-      (*   Admitted. *)
-
-      (* exploit (DEFSIN (i,None)); eauto. apply in_eq. intros INNONE. *)
-      
-      (* Lemma update_map_gmap_none : forall gmap lmap dsize csize efsize id, *)
-      (*   update_map prog = OK (gmap, lmap, dsize, csize, efsize) -> *)
-      (*   In (id, None) (AST.prog_defs prog) -> *)
-      (*   gmap id = None. *)
-      (* Admitted. *)
-
-      (* exploit update_map_gmap_none; eauto. intros GMAPNONE. *)
+      (* next block *)
+      unfold partial_genv. rewrite Genv.add_globals_app. simpl.
+      exploit Mem.nextblock_alloc; eauto. intros NB. rewrite NB. f_equal.
+      rewrite BLOCKEQ. unfold partial_genv. auto.
 
 Admitted.
 
