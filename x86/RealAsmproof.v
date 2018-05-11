@@ -310,12 +310,6 @@ Section WITHMEMORYMODEL.
 
   
 
-  Ltac rewrite_hyps :=
-    repeat
-      match goal with
-        H1 : ?a = _, H2: ?a = _ |- _ => rewrite H1 in H2; inv H2
-      end.
-
   Ltac simpl_regs_in H :=
     repeat rewrite Pregmap.gso in H by congruence;
     try rewrite Pregmap.gss in H.

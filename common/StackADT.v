@@ -733,6 +733,15 @@ Proof.
   inv H1. simpl; auto.
 Qed.
 
+Lemma is_stack_top_in_stack:
+  forall s b,
+    is_stack_top s b -> in_stack s b.
+Proof.
+  intros s b IS.
+  destruct s; simpl in *. easy. red in IS; simpl in IS.
+  rewrite in_stack_cons; left. eauto.
+Qed.
+
 (** * Surjectivity of stack injections  *)
 
 (* Definition frameinj_surjective (g: frameinj) n2 := *)

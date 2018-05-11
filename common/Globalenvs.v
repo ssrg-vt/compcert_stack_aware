@@ -2138,6 +2138,46 @@ Proof.
   exists ctx', f2; intuition auto. apply find_funct_ptr_iff; auto.
 Qed.
 
+Lemma find_funct_ptr_match_none:
+  forall b,
+    find_funct_ptr (globalenv p) b = None ->
+    find_funct_ptr (globalenv tp) b = None.
+Proof.
+  destruct progmatch as (AA & BB & CC).
+  unfold find_funct_ptr, find_def.
+  unfold globalenv.
+  assert (REC:   forall b : block,
+             match (genv_defs (empty_genv F1 V1 (prog_public p))) ! b with
+             | Some (Gfun f) => Some f
+             | Some (Gvar _) => None
+             | None => None
+             end = None ->
+             match (genv_defs (empty_genv F2 V2 (prog_public tp))) ! b with
+             | Some (Gfun f) => Some f
+             | Some (Gvar _) => None
+             | None => None
+             end = None).
+  {
+    simpl. intros b; rewrite ! PTree.gempty. auto.
+  }
+  assert (NEXT: genv_next (empty_genv F1 V1 (prog_public p)) =
+                genv_next (empty_genv F2 V2 (prog_public tp))).
+  {
+    reflexivity.
+  }
+  revert REC NEXT.
+  generalize (empty_genv F1 V1 (prog_public p)) (empty_genv F2 V2 (prog_public tp)).
+  revert AA.
+  simpl.
+  generalize (prog_defs p) (prog_defs tp).
+  induction 1; simpl. eauto.
+  intros t t0 REC NEXT. apply IHAA.
+  simpl. intro b. inv H. inv H1. auto.
+  rewrite ! Maps.PTree.gsspec.
+  rewrite NEXT. destruct (peq b (Genv.genv_next t0)). inv H3. congruence. auto. auto.
+  simpl. congruence.
+Qed.
+
 Theorem find_funct_match:
   forall v f,
   find_funct (globalenv p) v = Some f ->
@@ -2306,6 +2346,14 @@ Theorem find_funct_ptr_transf:
 Proof.
   intros. exploit (find_funct_ptr_match progmatch); eauto. 
   intros (cu & tf & P & Q & R). congruence.
+Qed.
+
+Lemma find_funct_ptr_transf_none:
+  forall b,
+    find_funct_ptr (globalenv p) b = None ->
+    find_funct_ptr (globalenv tp) b = None.
+Proof.
+  eapply (find_funct_ptr_match_none progmatch).
 Qed.
 
 Theorem find_funct_transf:

@@ -234,13 +234,15 @@ Inductive instruction: Type :=
   | Pxorps_f (rd: freg)	              (**r [xor] with self = set to zero *)
   (** Branches and calls *)
   | Pjmp_l (l: label)
-  | Pjmp_s (symb: ident) (sg: signature)
-  | Pjmp_r (r: ireg) (sg: signature)
+  | Pjmp (ros: ireg + ident) (sg: signature)
+  (* | Pjmp_s (symb: ident) (sg: signature) *)
+  (* | Pjmp_r (r: ireg) (sg: signature) *)
   | Pjcc (c: testcond)(l: label)
   | Pjcc2 (c1 c2: testcond)(l: label)   (**r pseudo *)
   | Pjmptbl (r: ireg) (tbl: list label) (**r pseudo *)
-  | Pcall_s (symb: ident) (sg: signature)
-  | Pcall_r (r: ireg) (sg: signature)
+  (* | Pcall_s (symb: ident) (sg: signature) *)
+  (* | Pcall_r (r: ireg) (sg: signature) *)
+  | Pcall (ros: ireg + ident) (sg: signature)
   | Pret
   (** Saving and restoring registers *)
   | Pmov_rm_a (rd: ireg) (a: addrmode)  (**r like [Pmov_rm], using [Many64] chunk *)
@@ -294,6 +296,8 @@ Inductive instruction: Type :=
 
 Axiom instr_size : instruction -> Z.
 Axiom instr_size_positive : forall i, 0 < instr_size i.
+Axiom instr_size_repr: forall i, 0 <= instr_size i <= Ptrofs.max_unsigned.
+
 
 Definition code := list instruction.
 Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info }.
@@ -402,14 +406,41 @@ Qed.
 
 Global Instance: FindLabels instr_size is_label fn_code.
 
-(* Lemma is_label_correct: *)
-(*   forall lbl instr, *)
-(*   if is_label lbl instr then instr = Plabel lbl else instr <> Plabel lbl. *)
-(* Proof. *)
-(*   intros.  destruct instr; simpl; try discriminate. *)
-(*   case (peq lbl l); intro; congruence. *)
-(* Qed. *)
 
+Lemma find_instr_pos_positive:
+  forall l o i,
+    find_instr o l = Some i -> 0 <= o.
+Proof.
+  induction l; simpl; intros; eauto. congruence.
+  destr_in H. omega. apply IHl in H.
+  generalize (instr_size_positive a). omega.
+Qed.
+
+Lemma find_instr_no_overlap:
+  forall l o1 o2 i1 i2,
+    find_instr o1 l = Some i1 ->
+    find_instr o2 l = Some i2 ->
+    o1 <> o2 ->
+    o1 + instr_size i1 <= o2 \/ o2 + instr_size i2 <= o1.
+Proof.
+  induction l; simpl; intros; eauto. congruence.
+  repeat destr_in H; repeat destr_in H0.
+  - apply find_instr_pos_positive in H2. omega.
+  - apply find_instr_pos_positive in H3. omega.
+  - specialize (IHl _ _ _ _ H3 H2). trim IHl. omega. omega.
+Qed.
+
+Lemma find_instr_no_overlap':
+  forall l o1 o2 i1 i2,
+    find_instr o1 l = Some i1 ->
+    find_instr o2 l = Some i2 ->
+    i1 = i2 \/ o1 + instr_size i1 <= o2 \/ o2 + instr_size i2 <= o1.
+Proof.
+  intros l o1 o2 i1 i2 FI1 FI2.
+  destruct (zeq o1 o2). subst. rewrite FI1 in FI2; inv FI2; auto.
+  right.
+  eapply find_instr_no_overlap; eauto.
+Qed.
 
 Section WITH_FIND_LABELS.
   Context {function instructionx instr_size_fl is_label fn_code}
@@ -425,6 +456,58 @@ Section WITH_FIND_LABELS.
   end.
 
 End WITH_FIND_LABELS.
+
+
+
+Lemma label_pos_rng:
+  forall lbl c pos z,
+    label_pos lbl pos c = Some z ->
+    0 <= pos ->
+    0 <= z - pos <= code_size c.
+Proof.
+  induction c; simpl; intros; eauto. congruence. repeat destr_in H.
+  generalize (code_size_non_neg c) (instr_size_positive a); omega.
+  apply IHc in H2.
+  generalize (instr_size_positive a); omega.
+  generalize (instr_size_positive a); omega.
+Qed.
+
+Lemma label_pos_repr:
+  forall lbl c pos z,
+    code_size c + pos <= Ptrofs.max_unsigned ->
+    0 <= pos ->
+    label_pos lbl pos c = Some z ->
+    Ptrofs.unsigned (Ptrofs.repr (z - pos)) = z - pos.
+Proof.
+  intros.
+  apply Ptrofs.unsigned_repr.
+  generalize (label_pos_rng _ _ _ _ H1 H0). omega.
+Qed.
+
+Lemma find_instr_ofs_pos:
+  forall c o i,
+    find_instr o c = Some i ->
+    0 <= o.
+Proof.
+  induction c; simpl; intros; repeat destr_in H.
+  omega. apply IHc in H1. generalize (instr_size_positive a); omega.
+Qed. 
+
+Lemma label_pos_spec:
+  forall lbl c pos z,
+    code_size c + pos <= Ptrofs.max_unsigned ->
+    0 <= pos ->
+    label_pos lbl pos c = Some z ->
+    find_instr ((z - pos) - instr_size (Plabel lbl)) c = Some (Plabel lbl).
+Proof.
+  induction c; simpl; intros; repeat destr_in H1. 
+  destruct a; simpl in Heqb; try congruence. repeat destr_in Heqb.
+  apply pred_dec_true. omega.
+  eapply IHc in H3. 2: omega. 2: generalize (instr_size_positive a); omega.
+  generalize (find_instr_ofs_pos _ _ _ H3). intro.
+  rewrite pred_dec_false. 2: generalize (instr_size_positive a); omega.
+  rewrite <- H3. f_equal. omega.                  
+Qed.
 
   Section WITHGE.
     Context {F V : Type}.
@@ -752,20 +835,16 @@ Proof.
 Qed.
 
 Inductive is_call: instruction -> Prop :=
-| is_call_s:
-    forall symb sg,
-      is_call (Pcall_s symb sg)
-| is_call_r:
-    forall (r: ireg) sg,
-      is_call (Pcall_r r sg).
+| is_call_into:
+    forall ros sg,
+      is_call (Pcall ros sg).
 
 Lemma is_call_dec:
   forall i,
     {is_call i} + {~ is_call i}.
 Proof.
   destruct i; try now (right; intro A; inv A).
-  - left; econstructor; eauto.
-  - left; econstructor; eauto.
+  left; econstructor; eauto.
 Qed.
 
 Fixpoint offsets_after_call (c: code) (p: Z) : list Z :=
@@ -809,7 +888,11 @@ Proof.
   right; intros (B & A); specialize (A _ _ eq_refl _ FFP). congruence.
 Qed.
 
-
+Definition eval_ros (ge: genv) (ros: ireg + ident) (rs: regset) : val :=
+  match ros with
+  | inl r => rs r
+  | inr symb => Genv.symbol_address ge symb Ptrofs.zero
+  end.
 
 Definition exec_instr
            {exec_load exec_store} `{!MemAccessors exec_load exec_store}
@@ -1110,11 +1193,21 @@ Definition exec_instr
   (** Branches and calls *)
   | Pjmp_l lbl =>
       goto_label ge f lbl rs m
-  | Pjmp_s id sg =>
-      Next (rs#PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
-  | Pjmp_r r sg =>
-    match Genv.find_funct ge (rs r) with
-    | Some _ => Next (rs#PC <- (rs r)) m
+  (* | Pjmp_s id sg => *)
+  (*   match Genv.find_funct ge (Genv.symbol_address ge id Ptrofs.zero) with *)
+  (*   | Some _ => *)
+  (*     Next (rs#PC <- (Genv.symbol_address ge id Ptrofs.zero)) m *)
+  (*   | _ => Stuck *)
+  (*   end *)
+  (* | Pjmp_r r sg => *)
+  (*   match Genv.find_funct ge (rs r) with *)
+  (*   | Some _ => Next (rs#PC <- (rs r)) m *)
+  (*   | _ => Stuck *)
+  (*   end *)
+  | Pjmp ros sg =>
+    let addr := eval_ros ge ros rs in
+    match Genv.find_funct ge addr with
+    | Some _ => Next (rs#PC <- addr) m
     | _ => Stuck
     end
   | Pjcc cond lbl =>
@@ -1138,13 +1231,24 @@ Definition exec_instr
           end
       | _ => Stuck
       end
-  | Pcall_s id sg =>
-    Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m)
-  | Pcall_r r sg =>
-    match Genv.find_funct ge (rs r) with
-    | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) (Mem.push_new_stage m)
+  | Pcall ros sg =>
+    let addr := eval_ros ge ros rs in
+    match Genv.find_funct ge addr with
+    | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- addr) (Mem.push_new_stage m)
     | _ => Stuck
     end
+
+  (* | Pcall_s id sg => *)
+  (*   match Genv.find_funct ge (Genv.symbol_address ge id Ptrofs.zero) with *)
+  (*   | Some _ => *)
+  (*     Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) (Mem.push_new_stage m) *)
+  (*   | _ => Stuck *)
+  (*   end *)
+  (* | Pcall_r r sg => *)
+  (*   match Genv.find_funct ge (rs r) with *)
+  (*   | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC sz) #PC <- (rs r)) (Mem.push_new_stage m) *)
+  (*   | _ => Stuck *)
+  (*   end *)
   | Pret =>
   (** [CompCertX:test-compcert-ra-vundef] We need to erase the value of RA,
       which is actually popped away from the stack in reality. *)
@@ -1361,13 +1465,14 @@ End RELSEM.
 (** Execution of whole programs. *)
 
 Inductive initial_state {F V} (p: AST.program F V): state -> Prop :=
-  | initial_state_intro: forall m0 m2,
+  | initial_state_intro: forall m0 m2 bmain,
       Genv.init_mem p = Some m0 ->
       Mem.record_init_sp m0 = Some m2 ->
       let ge := Genv.globalenv p in
+      Genv.find_symbol ge p.(prog_main) = Some bmain ->
       let rs0 :=
         (Pregmap.init Vundef)
-        # PC <- (Genv.symbol_address ge p.(prog_main) Ptrofs.zero)
+        # PC <- (Vptr bmain Ptrofs.zero)
         # RA <- Vnullptr
         # RSP <- (Vptr (Mem.nextblock m0) Ptrofs.zero) in
       initial_state p (State rs0 (Mem.push_new_stage m2)).
@@ -1441,7 +1546,7 @@ Ltac Equalities :=
   eapply external_call_trace_length; eauto.
 - (* initial states *)
   inv H; inv H0.
-  unfold rs0 , rs1, ge, ge0.
+  unfold rs0 , rs1, ge, ge0 in *. 
   congruence. 
 - (* final no step *)
   assert (NOTNULL: forall b ofs, Vnullptr <> Vptr b ofs).
@@ -1597,13 +1702,11 @@ Definition instr_to_string (i:instruction) : string :=
   | Pxorps_f   rd     => "Pxorps_f"      (**r [xor] with self = set to zero *)
   (* (** Branches and calls *) *)
   | Pjmp_l l  => "Pjmp_l"
-  | Pjmp_s symb sg => "Pjmp_s"
-  | Pjmp_r r sg  => "Pjmp_r"
+  | Pjmp ros sg => "Pjmp"
   | Pjcc c l => "Pjcc"
   | Pjcc2 c1 c2 l => "Pjcc2"  (**r pseudo *)
   | Pjmptbl r tbl => "Pjmptbl"  (**r pseudo *)
-  | Pcall_s symb sg => "Pcall_s"
-  | Pcall_r r sg  => "Pcall_r"
+  | Pcall ros sg => "Pcall"
   | Pret => "Pret"
   (* (** Saving and restoring registers *) *)
   | Pmov_rm_a rd a   => "Pmov_rm_a"  (**r like [Pmov_rm], using [Many64] chunk *)

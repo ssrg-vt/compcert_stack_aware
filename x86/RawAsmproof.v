@@ -13,7 +13,7 @@ Require Import Globalenvs.
 Require Import Events.
 Require Import Values.
 Require Import Conventions1.
-Require Import AsmFacts.
+Require Import AsmFacts AsmRegs.
 Require Import RawAsm.
 
 Section WITHMEMORYMODEL.
@@ -59,8 +59,7 @@ Section WITHMEMORYMODEL.
       Pallocframe _ _
     | Pfreeframe _ _
     | Pload_parent_pointer _ _
-    | Pcall_s _ _
-    | Pcall_r _ _
+    | Pcall _ _
     | Pret => false
     | _ => true
     end.
@@ -916,7 +915,23 @@ Section WITHMEMORYMODEL.
     specialize (IAC _ _ (eq_sym H) _ FFP).
     rewrite Ptrofs.add_zero. auto.
   Qed.
-  
+
+  Lemma eval_ros_match:
+    forall j ostack rs1 m1 rs2 m2
+      (MS : match_states j ostack (State rs1 m1) (State rs2 m2)) ros,
+      Val.inject j (eval_ros ge ros rs1) (eval_ros ge ros rs2).
+  Proof.
+    intros. inv MS.
+    unfold eval_ros.
+    destr.
+    - generalize (RINJ i). intro A; inv A; try congruence; auto.
+      econstructor; eauto.
+    - unfold Genv.symbol_address.
+      destr; auto.
+      econstructor; eauto.
+      destruct GLOBSYMB_INJ. eapply e; eauto. reflexivity.
+  Qed.
+
   Lemma exec_instr_inject':
     forall j ostack m1 m2 rs1 rs2 f i rs1' m1'
       (MS: match_states j ostack (State rs1 m1) (State rs2 m2))
@@ -948,49 +963,26 @@ Section WITHMEMORYMODEL.
         
     - destruct i; simpl in *; try congruence.
       + (* call_s *)
-        inv EI. inv MS. do 4 eexists. split. eauto. split. econstructor; eauto.
+        destr_in EI. inv EI.
+        generalize (eval_ros_match _ _ _ _ _ _ MS ros). inv MS. intro INJ; revert Heqo; inv INJ; simpl; try congruence.
+        destr. subst.
+        intros; erewrite GLOBFUN_INJ in H1; eauto. inv H1. rewrite pred_dec_true, Heqo. 2: reflexivity.
+        do 4 eexists. split. eauto. split. econstructor; eauto.
         * instantiate (1:= _::_). simpl. eapply Mem.inject_push_new_stage_left; eauto.
         * rewrite_stack_blocks. rewrite STK. simpl. reflexivity.
         * intros; apply val_inject_set; auto.
           intros; apply val_inject_set; auto.
           apply Val.offset_ptr_inject; auto.
-          unfold Genv.symbol_address. destr; auto.
-          destruct GLOBSYMB_INJ. apply H in Heqo.
+          destruct GLOBSYMB_INJ.
           econstructor; eauto.
-        * red. rewrite_stack_blocks. simpl.
-          repeat rewrite Pregmap.gso by congruence.
-          rewrite Z.add_0_r. eauto.
-        * red. intros b delta o k p. rewrite_perms. rewrite_stack_blocks. rewrite in_stack_cons.
-          intros. exploit NIB; eauto. tauto.
-        * rewrite_stack_blocks. constructor.
-          eapply inject_stack_more_perm. 2: eauto. intros. rewrite_perms. auto.
-        * red. rewrite_stack_blocks. simpl. intros b fi delta H H0 b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
-        * rewnb. auto.
-        * rewrite_stack_blocks. simpl; auto.
-        * red. auto.
-      + (* call_r *)
-        repeat destr_in EI. inv MS.
-        assert (FFP: Genv.find_funct ge (rs2 r) = Some f0).
-        {
-          revert Heqo. unfold Genv.find_funct.
-          generalize (RINJ r). intro A; inv A; try congruence.
-          destr. subst. intro FFP.
-          erewrite GLOBFUN_INJ in H1; eauto. inv H1. rewrite pred_dec_true. eauto. reflexivity.
-        }
-        rewrite FFP.
-        do 4 eexists. split. eauto. split. econstructor; eauto.
-        * instantiate (1:= (None,nil)::lprog). simpl. eapply Mem.inject_push_new_stage_left; eauto.
-        * rewrite_stack_blocks. rewrite STK; auto. 
-        * intros; apply val_inject_set; auto.
-          intros; apply val_inject_set; auto.
-          apply Val.offset_ptr_inject; auto.
         * red. rewrite_stack_blocks. simpl.
           repeat rewrite Pregmap.gso by congruence.
           rewrite Z.add_0_r. eauto.
         * red. intros bb delta o k p. rewrite_perms. rewrite_stack_blocks. rewrite in_stack_cons.
           intros. exploit NIB; eauto. tauto.
-        * rewrite_stack_blocks. constructor. eapply inject_stack_more_perm. 2: eauto. intros; rewrite_perms; auto.
-        * red. rewrite_stack_blocks. simpl. intros bb fi delta H H0 b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
+        * rewrite_stack_blocks. constructor.
+          eapply inject_stack_more_perm. 2: eauto. intros. rewrite_perms. auto.
+        * red. rewrite_stack_blocks. simpl. intros bb fi delta INS JB b' o delta' k p. rewrite_perms. eapply IP; eauto. tauto.
         * rewnb. auto.
         * rewrite_stack_blocks. simpl; auto.
         * red. auto.
@@ -2151,12 +2143,13 @@ End PRESERVATION.
     - unfold rs0. rewrite Pregmap.gss. eauto.
     - intros. unfold rs0.
       repeat (intros; apply val_inject_set; auto).
-      + unfold ge0. unfold Genv.symbol_address. destr; auto.
-        eapply Genv.genv_symb_range in Heqo.
-        econstructor; eauto.
+      + econstructor; eauto.
+        unfold Genv.find_symbol in H2.
+        exploit Genv.genv_symb_range. eauto. unfold ge0.  intro PLT.
         rewrite F'O.
-        unfold Mem.flat_inj. rewrite pred_dec_true. eauto. rewnb. xomega.
-        exploit Mem.alloc_result; eauto. intro; subst. rewrite H1. rewnb. apply Plt_ne. auto.
+        unfold Mem.flat_inj. rewrite pred_dec_true. eauto. rewnb.
+        xomega.
+        exploit Mem.alloc_result; eauto. intro; subst. rewrite H1. rewnb.  apply Plt_ne. auto.
         reflexivity.
       + unfold Vnullptr; constructor.
       + econstructor. rewnb. eauto. rewrite Ptrofs.add_zero_l. auto.

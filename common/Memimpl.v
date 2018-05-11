@@ -1582,14 +1582,6 @@ Ltac unfold_unrecord :=
     H: unrecord_stack_block ?m = _ |- _ => unfold_unrecord' H m
   end.
 
-Lemma and_dec: forall {A B: Prop},
-    A ->
-    {B} + {~B} ->
-    { A /\ B } + { ~ (A /\ B) }.
-Proof.
-  intros. destruct H0; [left|right]; intuition.
-Qed.
-
 Local Instance memory_model_ops :
   MemoryModelOps mem.
 Proof.

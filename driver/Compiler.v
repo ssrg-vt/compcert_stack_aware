@@ -27,7 +27,7 @@ Require LTL.
 Require Linear.
 Require Mach.
 Require Asm.
-Require RawAsm.
+Require RawAsm RealAsm.
 (** Translation passes. *)
 Require SimplExpr.
 Require SimplLocals.
@@ -50,6 +50,7 @@ Require Debugvar.
 Require Stacking.
 Require Mach2Mach2.
 Require Asmgen.
+Require PseudoInstructions.
 (** Proofs of semantic preservation. *)
 Require SimplExprproof.
 Require SimplLocalsproof.
@@ -72,6 +73,8 @@ Require Debugvarproof.
 Require Stackingproof.
 Require Asmgenproof.
 Require RawAsmproof.
+Require RealAsmproof2.
+Require PseudoInstructionsproof.
 (** Command-line flags. *)
 Require Import Compopts.
 
@@ -170,6 +173,11 @@ Definition transf_c_program (p: Csyntax.program) : res Asm.program :=
   @@@ time "Clight generation" SimplExpr.transl_program
   @@@ transf_clight_program.
 
+Definition transf_c_program_real p : res Asm.program :=
+  transf_c_program p
+  @@@ PseudoInstructions.check_program
+  @@ time "Elimination of pseudo instruction" PseudoInstructions.transf_program.
+
 (** The following lemmas help reason over compositions of passes. *)
 
 Lemma print_identity:
@@ -258,6 +266,30 @@ Definition CompCert's_passes :=
 Definition match_prog: Csyntax.program -> Asm.program -> Prop :=
   pass_match (compose_passes CompCert's_passes).
 
+Fixpoint passes_app {A B C} (l1: Passes A B) (l2: Passes B C) : Passes A C :=
+  match l1 in (Passes AA BB) return (Passes BB C -> Passes AA C) with
+  | pass_nil _ => fun l3 => l3
+  | pass_cons _ _ _ P1 l1 => fun l2 => P1 ::: passes_app l1 l2
+  end l2.
+
+(* Instance transf_check_link: TransfLink PseudoInstructions.match_check_prog. *)
+(* Proof. *)
+(*   red. intros p1 p2 tp1 tp2 p LINK (MP1 & O1) (MP2 & O2). *)
+(*   exploit (fun lv => @TransfPartialLink Asm.function Asm.function unit lv (PseudoInstructions.transf_check_function) p1 p2 tp1 tp2 p); eauto. intros (tp & TLINK & TMP). *)
+(*   exists tp; split; eauto. *)
+(*   split; auto. *)
+
+(*   eauto. eauto. *)
+(* Defined. *)
+
+Definition real_asm_passes :=
+      mkpass PseudoInstructions.match_check_prog
+  ::: mkpass PseudoInstructionsproof.match_prog
+  ::: pass_nil _.
+
+Definition match_prog_real :=
+  pass_match (compose_passes (passes_app CompCert's_passes real_asm_passes)).
+
 (** The [transf_c_program] function, when successful, produces
   assembly code that is in the [match_prog] relation with the source C program. *)
 
@@ -312,8 +344,36 @@ Proof.
   exists p18; split. apply CleanupLabelsproof.transf_program_match; auto.
   exists p19; split. eapply partial_if_match; eauto. apply Debugvarproof.transf_program_match.
   exists p20; split. apply Stackingproof.transf_program_match; auto.
-  exists tp; split. apply Asmgenproof.transf_program_match; auto. 
+  exists tp; split. apply Asmgenproof.transf_program_match; auto.
   reflexivity.
+Qed.
+
+Lemma compose_passes_app:
+  forall {l1 l2} (A: Passes l1 l2) {l3} (B: Passes l2 l3) p tp,
+    compose_passes (passes_app A B) p tp <->
+    exists pi, compose_passes A p pi /\ compose_passes B pi tp.
+Proof.
+  induction A; simpl; intros. split. eexists; split; eauto.
+  intros (pi & EQ & CP); inv EQ; auto.
+  setoid_rewrite IHA. split; intro H; decompose [ex and] H; eauto.
+Qed.
+
+Theorem transf_c_program_real_match:
+  forall p tp,
+    transf_c_program_real p = OK tp ->
+    match_prog_real p tp.
+Proof.
+  intros p tp T. unfold transf_c_program_real in T.
+  destruct (transf_c_program p) as [p1|e] eqn:TP; simpl in T; try discriminate. unfold time in T.
+  destruct (PseudoInstructions.check_program p1) eqn:CHK; simpl in T; try discriminate. inv T.
+  unfold match_prog_real.
+  rewrite compose_passes_app.
+  fold match_prog. exists p1; split.
+  eapply transf_c_program_match; eauto.
+  simpl. eexists; split; eauto.
+  eapply PseudoInstructions.check_program_match; eauto.
+  eexists; split; eauto.
+  apply PseudoInstructionsproof.transf_program_match; auto.
 Qed.
 
 (** * Semantic preservation *)
@@ -550,6 +610,7 @@ Proof.
   eapply Asmgenproof.functions_translated in Heqo. 2: eauto.
   destruct Heqo as (tf & FFP & TF); rewrite FFP in H. inv H.
   destruct f0; simpl in TF; monadInv TF; try congruence.
+  eapply AsmFacts.check_asm_code_no_rsp_correct.
   eapply AsmFacts.asmgen_no_change_rsp; eauto.
   eapply match_program_no_more_functions in Heqo; eauto. congruence.
 Qed.
@@ -585,6 +646,59 @@ Proof.
   exact (proj2 (cstrategy_semantic_preservation_raw' _ _ H)).
 Qed.
 
+Lemma single_events_real_asm p rs:
+  single_events (RealAsm.semantics p rs).
+Proof.
+  red; intros s t s' STEP. inv STEP; simpl; eauto using Events.external_call_trace_length.  
+Qed.
+
+Theorem c_semantic_preservation_real:
+  forall p tp,
+    match_prog_real p tp ->
+    backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RealAsm.semantics tp (Asm.Pregmap.init Values.Vundef)).
+Proof.
+  intros.
+  unfold match_prog_real in H.
+  rewrite compose_passes_app in H.
+  fold match_prog in H.
+  destruct H as (pi & MP & P).
+  simpl in P. destruct P as (p2 & P & p3 & P' & EQ); inv EQ.
+  eapply compose_backward_simulation.
+  apply single_events_real_asm.
+  replace (fn_stack_requirements tp) with (fn_stack_requirements pi).
+  eapply compose_backward_simulation.
+  apply single_events_real_asm.  
+  apply c_semantic_preservation_raw. auto.
+  apply RealAsmproof2.real_asm_correct.
+  eapply PseudoInstructions.check_wf; eauto.
+  red; intros.
+  eapply AsmFacts.check_asm_code_no_rsp_correct.
+  eapply PseudoInstructions.check_no_rsp; eauto.
+  {
+    unfold fn_stack_requirements.
+    apply Axioms.extensionality. intro i.
+    erewrite (PseudoInstructions.globalenv_eq _ _ P); eauto.
+    rewrite (PseudoInstructionsproof.symbols_preserved _ _ P'). destr.
+    destr.
+    erewrite (PseudoInstructionsproof.functions_translated _ _ P'); eauto.
+    destr.
+    erewrite (Globalenvs.Genv.find_funct_ptr_transf_none P'); eauto.
+  }
+  eapply forward_to_backward_simulation.
+  eapply compose_forward_simulations.
+  eapply PseudoInstructions.check_simulation. eauto.
+  eapply PseudoInstructionsproof.pseudo_instructions_correct. eauto.
+  erewrite <- PseudoInstructions.globalenv_eq; eauto.
+  eapply PseudoInstructions.check_wf; eauto.
+  erewrite <- PseudoInstructions.globalenv_eq; eauto.
+  red; intros.
+  eapply AsmFacts.check_asm_code_no_rsp_correct.
+  eapply PseudoInstructions.check_no_rsp; eauto.
+  eapply RealAsm.real_asm_receptive.
+  eapply RealAsm.real_asm_determinate.
+Qed.
+
+
 (** * Correctness of the CompCert compiler *)
 
 (** Combining the results above, we obtain semantic preservation for two
@@ -612,6 +726,14 @@ Theorem transf_c_program_correct_raw:
     backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RawAsm.semantics tp (Asm.Pregmap.init Values.Vundef)).
 Proof.
   intros. apply c_semantic_preservation_raw. apply transf_c_program_match; auto.
+Qed.
+
+Theorem transf_c_program_correct_real:
+  forall p tp,
+    transf_c_program_real p = OK tp ->
+    backward_simulation (Csem.semantics (fn_stack_requirements tp) p) (RealAsm.semantics tp (Asm.Pregmap.init Values.Vundef)).
+Proof.
+  intros. apply c_semantic_preservation_real. apply transf_c_program_real_match; auto.
 Qed.
 
 (** Here is the separate compilation case.  Consider a nonempty list [c_units]
@@ -666,7 +788,26 @@ Proof.
   exists asm_program; split; auto. apply c_semantic_preservation_raw; auto.
 Qed.
 
-
+Theorem separate_transf_c_program_correct_real:
+  forall c_units asm_units c_program,
+  nlist_forall2 (fun cu tcu => transf_c_program_real cu = OK tcu) c_units asm_units ->
+  link_list c_units = Some c_program ->
+  exists asm_program, 
+      link_list asm_units = Some asm_program
+      /\
+      let init_stk := mk_init_stk asm_program in
+      backward_simulation (Csem.semantics (fn_stack_requirements asm_program) c_program) (RealAsm.semantics asm_program
+                                                                                                           (Asm.Pregmap.init Values.Vundef)
+                                                                                         ).
+Proof.
+  intros. 
+  assert (nlist_forall2 match_prog_real c_units asm_units).
+  { eapply nlist_forall2_imply. eauto. simpl; intros. apply transf_c_program_real_match; auto. }
+  assert (exists asm_program, link_list asm_units = Some asm_program /\ match_prog_real c_program asm_program).
+  { eapply link_list_compose_passes; eauto. }
+  destruct H2 as (asm_program & P & Q).
+  exists asm_program; split; auto. apply c_semantic_preservation_real; auto.
+Qed.
 
 End WITHEXTERNALCALLS.
 

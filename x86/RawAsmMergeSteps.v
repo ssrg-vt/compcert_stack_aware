@@ -308,12 +308,6 @@ Section SIMU.
       Genv.find_funct_ptr ge b = Some (Internal f) ->
       wf_asm_function f.
 
-  Ltac rewrite_hyps :=
-    repeat
-      match goal with
-        H1 : ?a = _, H2: ?a = _ |- _ => rewrite H1 in H2; inv H2
-      end.
-
   Lemma pc_at_not_final:
     forall s i r,
       pc_at ge s = Some i ->

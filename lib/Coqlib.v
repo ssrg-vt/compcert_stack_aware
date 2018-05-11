@@ -1483,6 +1483,12 @@ Ltac trim H :=
     ?a -> ?b => let x := fresh in assert a as x; [ clear H | specialize (H x); clear x]
   end.
 
+Ltac rewrite_hyps :=
+  repeat
+    match goal with
+      H1 : ?a = _, H2: ?a = _ |- _ => rewrite H1 in H2; inv H2
+    end.
+
 Lemma and_sumbool:
   forall {A B C D E} (b1: sumbool A B) (b2: sumbool C D) (x y: E),
     (if b1 && b2 then x else y) = if b1 then if b2 then x else y else y.

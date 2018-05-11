@@ -1457,14 +1457,6 @@ Proof.
   apply Axioms.proof_irr.
 Qed.
 
-Lemma frame_info_eq:
-  forall f1 f2,
-    frame_perm f1 = frame_perm f2 ->
-    frame_size f1 = frame_size f2 ->
-    f1 = f2.
-Proof.
-  destruct f1, f2; intros; simpl in *; subst. f_equal. apply Axioms.proof_irr.
-Qed.
 
 Lemma in_stack'_norepet:
   forall m b bi1 bi2,

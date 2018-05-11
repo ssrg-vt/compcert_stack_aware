@@ -44,12 +44,12 @@ Section WITHGE.
     | Pload_parent_pointer rd z =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.repr (align (Z.max 0 z) 8)) in
       Next (nextinstr (rs#rd <- sp) isz) m
-    | Pcall_s id sg =>
-      Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (Genv.symbol_address ge id Ptrofs.zero)) m
-    | Pcall_r r sg =>
-      match Genv.find_funct ge (rs r) with
-      | Some _ => Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- (rs r)) m
-      | _ => Stuck
+    | Pcall ros sg =>
+      let addr := eval_ros ge ros rs in
+      match Genv.find_funct ge addr with
+        | Some _ =>
+          Next (rs#RA <- (Val.offset_ptr rs#PC isz) #PC <- addr) m
+        | _ => Stuck
       end
     | Pret =>
       if check_ra_after_call ge (rs#RA) then Next (rs#PC <- (rs#RA) #RA <- Vundef) m else Stuck
@@ -113,13 +113,14 @@ Qed.
   
   Inductive initial_state_gen (prog: Asm.program) (rs: regset) m: state -> Prop :=
   | initial_state_gen_intro:
-      forall m1 bstack m2 m3
+      forall m1 bstack m2 m3 bmain
         (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit + align (size_chunk Mptr) 8) = (m1,bstack))
         (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit + align (size_chunk Mptr) 8) Writable = Some m2)
         (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
         let ge := Genv.globalenv prog in
+        Genv.find_symbol ge prog.(prog_main) = Some bmain ->
         let rs0 :=
-            rs # PC <- (Genv.symbol_address ge prog.(prog_main) Ptrofs.zero)
+            rs # PC <- (Vptr bmain Ptrofs.zero)
                #RA <- Vnullptr
                #RSP <- (Vptr bstack (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8))) in
         initial_state_gen prog rs m (State rs0 m3).
@@ -172,9 +173,7 @@ Section WITHMEMORYMODEL2.
       eapply Events.external_call_trace_length; eauto.
     - (* initial states *)
       inv H; inv H0.
-      assert (m1 = m0 /\ bstack = bstack0) by intuition congruence. destruct H; subst.
-      assert (m2 = m4) by congruence. subst.
-      f_equal. congruence.
+      unfold ge, ge0, rs0, rs1 in *; rewrite_hyps.  auto.
     - (* final no step *)
       assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
       { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
@@ -206,10 +205,10 @@ Section WITHMEMORYMODEL2.
       eapply Events.external_call_trace_length; eauto.
       eapply Events.external_call_trace_length; eauto.
     - (* initial states *)
-      inv H; inv H0. assert (m = m0) by congruence. subst. inv H2; inv H3.
-      assert (m1 = m4 /\ bstack = bstack0) by intuition congruence. destruct H0; subst.
-      assert (m2 = m5) by congruence. subst.
-      f_equal. congruence.
+      inv H; inv H0.
+      rewrite_hyps.
+      inv H2; inv H3.
+      unfold ge, ge0, rs0, rs1 in *; rewrite_hyps.  auto.
     - (* final no step *)
       assert (NOTNULL: forall b ofs, Values.Vnullptr <> Values.Vptr b ofs).
       { intros; unfold Values.Vnullptr; destruct Archi.ptr64; congruence. }
