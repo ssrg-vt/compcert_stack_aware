@@ -491,7 +491,7 @@ let sz = StackADT.frame_size f in
        if save_regs >= 0 then begin
          (* Save the registers *)
          emit (Pleaq (R10, linear_addr RSP (Z.of_uint save_regs)));
-         emit (Pcall_s (intern_string "__compcert_va_saveregs",
+         emit (Pcall (Datatypes.Coq_inr (intern_string "__compcert_va_saveregs"),
                         {sig_args = []; sig_res = None; sig_cc = cc_default}))
        end;
        (* Stack chaining *)
@@ -531,7 +531,7 @@ let sz = StackADT.frame_size f in
        let sz = sp_adjustment_32 sz in
        emit (Paddl_ri (rd, Z.of_uint sz))
      end
-  | Pjmp_s(_, sg) | Pjmp_r(_, sg) | Pcall_s(_, sg) | Pcall_r(_, sg) ->
+  | Pjmp(_, sg) | Pcall(_, sg) ->
      set_al sg;
      emit instr
   | Pbuiltin (ef,args, res) ->

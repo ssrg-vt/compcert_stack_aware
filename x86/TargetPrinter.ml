@@ -612,9 +612,9 @@ module Target(System: SYSTEM):TARGET =
             (* Branches and calls *)
       | Pjmp_l(l) ->
           fprintf oc "	jmp	%a\n" label (transl_label l)
-      | Pjmp_s(f, sg) ->
+      | Pjmp(Datatypes.Coq_inr f, sg) ->
           fprintf oc "	jmp	%a\n" symbol f
-      | Pjmp_r(r, sg) ->
+      | Pjmp(Datatypes.Coq_inl r, sg) ->
           fprintf oc "	jmp	*%a\n" ireg r
       | Pjcc(c, l) ->
           let l = transl_label l in
@@ -638,11 +638,11 @@ module Target(System: SYSTEM):TARGET =
           end else begin
             fprintf oc "	jmp	*%a(, %a, 4)\n" label l ireg r
           end
-      | Pcall_s(f, sg) ->
+      | Pcall(Datatypes.Coq_inr f, sg) ->
           fprintf oc "	call	%a\n" symbol f;
           if (not Archi.ptr64) && sg.sig_cc.cc_structret then
             fprintf oc "	pushl	%%eax\n"
-      | Pcall_r(r, sg) ->
+      | Pcall(Datatypes.Coq_inl r, sg) ->
           fprintf oc "	call	*%a\n" ireg r;
           if (not Archi.ptr64) && sg.sig_cc.cc_structret then
             fprintf oc "	pushl	%%eax\n"
