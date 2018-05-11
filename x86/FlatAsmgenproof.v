@@ -1261,7 +1261,7 @@ Proof.
     esplit. exists b. esplit. split. auto. split.
     unfold Genv.symbol_address. unfold Genv.label_to_ptr. auto.
     unfold init_meminj.       
-    destruct eq_block. exfalso. subst b. eapply Genv.genv_find_symbol_next_absurd; eauto.    
+    destruct eq_block. exfalso. subst b. eapply Genv.find_symbol_genv_next_absurd; eauto.    
     apply Genv.find_invert_symbol in FIND. subst ge. rewrite FIND. rewrite GMAP.
     unfold Genv.symbol_block_offset. unfold Genv.label_to_block_offset.
     repeat rewrite offset_seglabel_zero. auto.
@@ -1288,7 +1288,7 @@ Proof.
     apply Val.inject_ptr with (Ptrofs.unsigned (snd slbl)).   
     unfold init_meminj. destruct eq_block.
     subst b. exfalso. 
-    eapply Genv.genv_find_symbol_next_absurd; eauto.
+    eapply Genv.find_symbol_genv_next_absurd; eauto.
     erewrite Genv.find_invert_symbol; eauto.
     rewrite offset_seglabel_zero. 
     unfold Genv.symbol_block_offset. unfold Genv.label_to_block_offset.
@@ -1385,7 +1385,7 @@ Proof.
     unfold partial_genv in EQ. rewrite Genv.add_globals_app in EQ. simpl in EQ.
     destruct (ident_eq i i0).
     + subst i0. rewrite find_symbol_add_global_eq in EQ. inv EQ.
-      rewrite invert_symbol_genv_next. rewrite GMAP. auto.
+      rewrite Genv.invert_symbol_genv_next. rewrite GMAP. auto.
     + erewrite find_symbol_add_global_neq in EQ; eauto.
       apply Genv.find_invert_symbol in EQ. setoid_rewrite EQ. auto.
   - unfold partial_genv in EQ. rewrite Genv.add_globals_app in EQ. simpl in EQ.
