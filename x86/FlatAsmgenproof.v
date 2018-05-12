@@ -1464,17 +1464,38 @@ Qed.
 Lemma transl_fun_inversion : forall gmap lmap id f f',
     transl_fun gmap lmap id f = OK f' ->
     exists slbl, gmap id = Some slbl /\ fn_range f' = mkSegBlock (fst slbl) (snd slbl) Ptrofs.one.
-Admitted.
+Proof.
+  intros gmap lmap id f f' H. monadInvX H.
+  destruct zle; monadInv EQ2. simpl. eexists. split; eauto.
+Qed.
 
 Lemma partial_genv_invert_symbol_pres : forall defs id def b,
     b <> Globalenvs.Genv.genv_next (partial_genv defs) ->
     Genv.invert_symbol (partial_genv (defs ++ (id, def) :: nil)) b = Genv.invert_symbol (partial_genv defs) b.
-Admitted.
+Proof.
+  intros defs id def b H.
+  unfold partial_genv. rewrite Genv.add_globals_app. simpl.
+  match goal with
+  | [ |- ?a = _ ] => 
+    let eq := fresh "EQ" in
+    destruct a eqn:eq
+  end.
+  - apply Genv.invert_find_symbol in EQ. symmetry. apply Genv.find_invert_symbol.
+    destruct (ident_eq id i). subst i.
+    rewrite find_symbol_add_global_eq in EQ. inv EQ.
+    contradiction.
+    erewrite find_symbol_add_global_neq in EQ; eauto.
+  - symmetry. eapply invert_symbol_add_global_none in EQ; eauto.
+Qed.
+
 
 Lemma partial_genv_next : forall defs def,
     Globalenvs.Genv.genv_next (partial_genv (defs ++ def :: nil)) =
     Pos.succ (Globalenvs.Genv.genv_next (partial_genv defs)).
-Admitted.
+Proof.
+  intros. unfold partial_genv.
+  rewrite Genv.add_globals_app. simpl. auto.
+Qed.
 
 Lemma defs_names_distinct_not_in : forall (defs:list (ident * option (AST.globdef Asm.fundef unit))) id def gdefs,
     defs_names_distinct (defs ++ (id, def) :: gdefs) -> ~In id (map fst defs).
@@ -1734,9 +1755,24 @@ Qed.
 (*   intros. destruct gdef1. destruct f. simpl in H0. *)
 (*   Admitted. *)
 
-Lemma alloc_globals_ext : forall f1 f2 ge m defs,
+Lemma alloc_global_ext : forall f1 f2 ge m def,
+    (forall x, f1 x = f2 x) -> alloc_global ge f1 m def = alloc_global ge f2 m def.
+Proof.
+  intros f1 f2 ge0 m def H.
+  destruct def. destruct p. destruct o. destruct g.
+  - simpl. rewrite (H (segblock_id s)). auto.
+  - simpl. rewrite (H (segblock_id s)). auto.
+  - simpl. auto.
+Qed.
+
+Lemma alloc_globals_ext : forall defs f1 f2 ge m,
     (forall x, f1 x = f2 x) -> alloc_globals ge f1 m defs = alloc_globals ge f2 m defs.
-Admitted.
+Proof.
+  induction defs. intros.
+  - simpl. auto.
+  - intros f1 f2 ge0 m H. simpl. erewrite alloc_global_ext; eauto. 
+    destr_match. erewrite IHdefs; eauto. auto.
+Qed.
 
 Lemma eq_globs_init_meminj : forall gmap lmap dsize csize efsize,
     update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
@@ -1769,7 +1805,7 @@ Proof.
   apply nodup_defs_distinct_names. auto.
   simpl. intros (m1' & ALLOC' & MINJ). 
   exists m1'. split. 
-  erewrite (alloc_globals_ext (gen_segblocks tprog) (Genv.genv_segblocks tge)). 
+  erewrite (fun defs => alloc_globals_ext defs (gen_segblocks tprog) (Genv.genv_segblocks tge)). 
   subst tprog tge. auto.
   intros x. subst tge. rewrite genv_gen_segblocks. auto.
   erewrite eq_globs_init_meminj in MINJ; eauto.
