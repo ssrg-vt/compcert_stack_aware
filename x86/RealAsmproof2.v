@@ -872,7 +872,7 @@ Section WITHMEMORYMODEL.
         erewrite wf_asm_pc_repr in RNG; eauto.
         rewrite RNG.
         intros [EQ|NOOV]. subst; inv IFREE.
-        generalize (instr_size_positive (Pallocframe f sz)) (instr_size_positive ifree). omega.
+        generalize (instr_size_positive (Pallocframe sz pub ora)) (instr_size_positive ifree). omega.
       }
     - simpl in PC1. repeat destr_in PC1.
       rewrite REQ in Heqv by congruence.

@@ -203,6 +203,23 @@ Qed.
 (*        fe_ofs_callee_save  fe_stack_data. *)
 Opaque bound_local bound_outgoing  size_callee_save_area bound_stack_data.
 
+Lemma fe_size_pos (b: bounds) :
+  let fe := make_env b in
+  0 < fe_size fe.
+Proof.
+  simpl.
+  replace 0 with (0 + 0) by omega.
+  eapply Z.add_le_lt_mono. 2: destr; omega.
+  etransitivity. 2: apply align_le. 2: destr; omega.
+  etransitivity. 2: apply le_add_pos. 2: generalize (bound_stack_data_pos b); omega.
+  etransitivity. 2: apply align_le. 2: omega.
+  etransitivity. 2: apply le_add_pos. 2: generalize (bound_local_pos b); omega.
+  etransitivity. 2: apply align_le. 2: omega.
+  etransitivity. 2: apply size_callee_save_area_incr.
+  etransitivity. 2: apply align_le. 2: destr; omega.
+  generalize (bound_outgoing_pos b); omega.
+Qed.
+
 Program Definition frame_of_frame_env (b: bounds) : frame_info :=
   let fe := make_env b in
   {|

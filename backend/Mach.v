@@ -75,7 +75,7 @@ Record function: Type := mkfunction
     fn_stacksize: Z;
     (* fn_link_ofs: ptrofs; *)
     fn_retaddr_ofs: ptrofs;
-    fn_frame: frame_info;
+    fn_frame_pubrange: Z * Z;
   }.
 
 Definition fundef := AST.fundef function.
@@ -407,14 +407,14 @@ Inductive step: state -> trace -> state -> Prop :=
       step (State s fb (Vptr stk soff) (Mreturn :: c) rs m)
         E0 (Returnstate s rs m'')
   | exec_function_internal:
-      forall s fb rs m f m1 m1_ m3 stk rs',
+      forall s fb rs m f m1 m1_ m3 stk rs' fi,
       Genv.find_funct_ptr ge fb = Some (Internal f) ->
-      check_alloc_frame (fn_frame f) f  ->
+      frame_info_of_size_and_pubrange (fn_stacksize f) (fn_frame_pubrange f) = Some fi ->
       Mem.alloc m 0 f.(fn_stacksize) = (m1, stk) ->
       let sp := Vptr stk Ptrofs.zero in
       (* store_stack m1 sp Tptr f.(fn_link_ofs) (parent_sp s) = Some m2 -> *)
       store_stack m1 sp Tptr f.(fn_retaddr_ofs) (parent_ra s) = Some m3 ->
-      Mem.record_stack_blocks m3 (make_singleton_frame_adt' stk (fn_frame f) (fn_stacksize f)) = Some m1_ ->
+      Mem.record_stack_blocks m3 (make_singleton_frame_adt' stk fi (fn_stacksize f)) = Some m1_ ->
       rs' = undef_regs destroyed_at_function_entry rs ->
       step (Callstate s fb rs m)
         E0 (State s fb sp f.(fn_code) rs' m1_)
@@ -476,7 +476,10 @@ Definition stack_blocks_of_callstack (l : list stackframe) : list (option (block
            Stackframe fb sp _ _ =>
            match Genv.find_funct_ptr ge fb with
              Some (Internal f) =>
-             Some (sp, fn_frame f)
+             match frame_info_of_size_and_pubrange (fn_stacksize f) (fn_frame_pubrange f) with
+             | Some fi => Some (sp, fi)
+             | None => None
+             end
            | _ => None
            end
          end) l.
@@ -551,9 +554,10 @@ Qed.
 
 Inductive call_stack_consistency: state -> Prop :=
 | call_stack_consistency_intro:
-    forall c cs' fb sp' rs m' tf
+    forall c cs' fb sp' rs m' tf fi
       (FIND: Genv.find_funct_ptr ge fb = Some (Internal tf))
-      (CallStackConsistency: list_prefix ((Some (sp', fn_frame tf))::stack_blocks_of_callstack cs') (Mem.stack m'))
+      (FRAME: frame_info_of_size_and_pubrange (fn_stacksize tf) (fn_frame_pubrange tf) = Some fi)
+      (CallStackConsistency: list_prefix ((Some (sp', fi))::stack_blocks_of_callstack cs') (Mem.stack m'))
     ,
       call_stack_consistency (State cs' fb (Vptr sp' Ptrofs.zero) c rs m')
 | call_stack_consistency_call:
@@ -597,19 +601,18 @@ Ltac same_hyps :=
 Lemma csc_step:
   forall s1 t s2,
     step s1 t s2 ->
-    (forall fb f, Genv.find_funct_ptr ge fb = Some (Internal f) ->
-             frame_size (fn_frame f) = fn_stacksize f) ->
+    (forall b f, Genv.find_funct_ptr ge b = Some (Internal f) -> 0 < fn_stacksize f) ->
     has_code s1 ->
     call_stack_consistency s1 ->
     call_stack_consistency s2.
 Proof.
-  destruct 1; simpl; intros SIZECORRECT HC CSC; inv HC; inv CSC;
+  destruct 1; simpl; intros SIZE HC CSC; inv HC; inv CSC;
     same_hyps;
     try now (econstructor; eauto).
   - econstructor; eauto. erewrite store_stack_no_abstract; eauto.
   - econstructor; eauto. destruct a; simpl in *; try discriminate. erewrite Mem.store_no_abstract; eauto.
   - econstructor. rewrite_stack_blocks. simpl. 
-    rewrite H1. auto.
+    rewrite H1. rewrite FRAME. auto.
     red. rewrite_stack_blocks. constructor. reflexivity.
   - econstructor. repeat rewrite_stack_blocks. simpl. intro EQ; rewrite EQ in CallStackConsistency.
     inv CallStackConsistency; simpl; auto.
@@ -621,21 +624,26 @@ Proof.
     eapply invalidate_frame_top_no_perm; eauto.
     inv CallStackConsistency.
     eapply Mem.free_top_tframe_no_perm; eauto.
-    erewrite <- SIZECORRECT; eauto. rewrite Ptrofs.unsigned_zero.
-    simpl. rewrite Z.max_r. auto. apply frame_size_pos.
+    unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. simpl.
+    rewrite Ptrofs.unsigned_zero.
+    simpl. rewrite Z.max_r. auto. omega.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     repeat econstructor; eauto.
     rewrite store_stack_no_abstract in EQ1 by eauto.
     revert EQ1; rewrite_stack_blocks. intro. rewrite EQ1 in CallStackConsistency. simpl in *.
     auto.
     simpl.
-    erewrite <- SIZECORRECT. apply Z.max_r. apply frame_size_pos. eauto.
+    unfold frame_info_of_size_and_pubrange in H0; repeat destr_in H0. simpl.
+    apply Z.max_r. omega.
   - econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
     red; rewrite_stack_blocks.
     inv TTNP.
     constructor. unfold in_frames; rewrite H3; easy.
-  - inv CFD. econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
-    simpl in *; eauto. rewrite FINDF in CallStackConsistency. eauto.
+  - inv CFD. simpl in CallStackConsistency.
+    rewrite FINDF in CallStackConsistency. destr_in CallStackConsistency. eauto.
+    econstructor; eauto; repeat rewrite_stack_blocks; simpl; eauto.
+    unfold frame_info_of_size_and_pubrange in Heqo. repeat destr_in Heqo.
+    exploit SIZE; eauto. omega.
 Qed.
 
 Definition mem_state (s: state) : mem :=

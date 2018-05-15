@@ -316,7 +316,7 @@ Lemma transl_find_label:
 Proof.
   unfold transf_function, transl_code.
   intros. monadInv H. destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x))); inv EQ0.
-  monadInv EQ. simpl. eapply transl_code_label; eauto. rewrite transl_code'_transl_code in EQ0; eauto.
+  monadInv EQ. repeat destr_in EQ1. simpl. eapply transl_code_label; eauto. rewrite transl_code'_transl_code in EQ0; eauto.
 Qed.
 
 End TRANSL_LABEL.
@@ -360,7 +360,7 @@ Proof.
   destruct i; try (intros [A B]; apply A). intros. subst c0. repeat constructor.
 - intros. unfold transf_function in H0. monadInv H0.
   destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x))); inv EQ0.
-  monadInv EQ. rewrite transl_code'_transl_code in EQ0.
+  monadInv EQ. repeat destr_in EQ1. rewrite transl_code'_transl_code in EQ0.
   exists x; exists true; split; auto. unfold fn_code. repeat constructor.
 - exact transf_function_no_overflow.
 Qed.
@@ -514,7 +514,7 @@ Hypothesis init_ra_type: Val.has_type init_ra Tptr.
 Hypothesis frame_size_correct:
   forall fb f,
     Genv.find_funct_ptr ge fb = Some (Internal f) ->
-    frame_size (Mach.fn_frame f) = fn_stacksize f.
+    0 < Mach.fn_stacksize f.
 
 Lemma agree_undef_regs_parallel:
   forall l sp rs rs0,
@@ -620,14 +620,14 @@ Qed.
       (LP: call_stack_consistency ge init_sg init_stk (Mach.State s fb (Vptr sp Ptrofs.zero) c ms1 m1))
       m2 (EQSTK: Mem.stack m1 = Mem.stack m2),
       exists rs2 sp,
-        exec_straight init_stk tge fn ((Pload_parent_pointer rd (frame_size (Mach.fn_frame f))) :: x) rs1 m2 x rs2 m2 /\
+        exec_straight init_stk tge fn ((Pload_parent_pointer rd (Mach.fn_stacksize f)) :: x) rs1 m2 x rs2 m2 /\
         Mem.is_ptr (parent_sp (Mem.stack m1)) = Some sp /\
         rs2 rd = sp /\ forall r, data_preg r = true -> r <> rd -> rs2 r = rs1 r.
   Proof.
     intros.
     destruct PISP_DEF as (bisp & PISP_DEF).
     exists (nextinstr (rs1#rd <- (parent_sp (Mem.stack m1))) 
-                 (Ptrofs.repr (instr_size ((Pload_parent_pointer rd (frame_size (Mach.fn_frame f))))))), (Vptr bisp Ptrofs.zero).
+                 (Ptrofs.repr (instr_size ((Pload_parent_pointer rd (Mach.fn_stacksize f)))))), (Vptr bisp Ptrofs.zero).
     split; [|split].
     - constructor.
       + unfold exec_instr. simpl. destr. destr.
@@ -638,6 +638,8 @@ Qed.
         unfold proj_sumbool.
         destr.
         destr. simpl. congruence.
+        inv f. red in H2. simpl in *. destruct H2; congruence.
+        unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME.
         exfalso; apply n; clear n.
         constructor; auto. red. split; auto.
       + rewrite nextinstr_pc. rewrite Pregmap.gso. auto. congruence.
@@ -769,7 +771,7 @@ Proof.
   red in RAU.
   specialize (fun tc => RAU _ tc EQ).
   monadInv EQ. repeat destr_in EQ1.
-  monadInv EQ0. simpl in *. rewrite pred_dec_false. 2: inversion 1.
+  monadInv EQ0. repeat destr_in EQ1. simpl in *. rewrite pred_dec_false. 2: inversion 1.
   destruct TAIL as (l & sg & ros & CODE). rewrite CODE in EQ.
   rewrite transl_code'_transl_code in EQ.
   edestruct transl_code_app as (ep2 & y & TC1 & TC2); eauto.
@@ -781,7 +783,7 @@ Proof.
     destr_in EQ2; monadInv EQ2; eexists; split; eauto; constructor.
   }
   destruct H as (icall & ICALL & ISCALL). subst.
-  generalize (code_tail_code_size (Pallocframe (Mach.fn_frame trf) (fn_retaddr_ofs trf) :: y ++ icall :: nil) x0).
+  generalize (code_tail_code_size (Pallocframe (Mach.fn_stacksize trf) (fn_frame_pubrange trf) (fn_retaddr_ofs trf) :: y ++ icall :: nil) x0).
   simpl. rewrite app_ass. simpl. intro EQSZ; specialize (EQSZ _ RAU).
   rewrite offsets_after_call_app.
   apply in_app. right. simpl. rewrite pred_dec_true.
@@ -986,23 +988,22 @@ Opaque loadind.
   exploit Mem.tailcall_stage_extends; eauto.
   inv CallStackConsistency. rewrite SAMEADT in H14.
   eapply Mem.free_top_tframe_no_perm'; eauto.
-  erewrite frame_size_correct.
-  assert (tf0 = f) by congruence. subst. rewrite Ptrofs.unsigned_zero. simpl. auto. eauto.
+  assert (tf0 = f) by congruence. subst. rewrite Ptrofs.unsigned_zero. simpl.
+  unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
   intros (m2' & TC & EXT).
     
-  assert (CTF: check_top_frame m'0 (Some stk) (frame_size (Mach.fn_frame f)) = true).
+  assert (CTF: check_top_frame m'0 (Some stk) (Mach.fn_stacksize f) = true).
   {
-    generalize (frame_size_correct _ _ FIND). intros SEQ.
-    rewrite SEQ.
     unfold check_top_frame. rewrite <- SAMEADT.
     inv CallStackConsistency. rewrite FSIZE, BLOCKS.
     unfold proj_sumbool. destr. rewrite H6 in FIND0; inv FIND0.
-    erewrite frame_size_correct; eauto.
-    rewrite zeq_true. reflexivity.
+    rewrite pred_dec_true. reflexivity.
+    unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
     exfalso. apply n.
     constructor; auto.
     red; split; auto.
-    simpl. symmetry. rewrite H6 in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+    simpl.
+    unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. simpl. f_equal. congruence. 
   }
 
 inv CallStackConsistency. simpl.
@@ -1049,7 +1050,7 @@ exploit functions_translated. apply FFPcalled. intros (tf1 & FPPcalled' & TF).
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
   destr.
-  rewrite SEQ, E, TC.
+  rewrite E, TC.
   rewrite pred_dec_true by auto.
   rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl.
   eauto.
@@ -1057,9 +1058,8 @@ exploit functions_translated. apply FFPcalled. intros (tf1 & FPPcalled' & TF).
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
                    (instr_size
-                      ((Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0)))))) in *.
-  transitivity (Val.offset_ptr rs0#PC sz). 
-  apply frame_size_correct in FIND. rewrite <- FIND. auto. 
+                      ((Pfreeframe ((Mach.fn_stacksize tf0)) (fn_retaddr_ofs tf0)))))) in *.
+  transitivity (Val.offset_ptr rs0#PC sz). auto.
   rewrite <- H5. simpl. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
   unfold exec_instr; simpl.
@@ -1086,7 +1086,7 @@ exploit functions_translated. apply FFPcalled. intros (tf1 & FPPcalled' & TF).
   rewrite C. rewrite <- (sp_val _ _ _ AG).
   rewrite Ptrofs.unsigned_zero in E. simpl in E.
   generalize (frame_size_correct _ _ FIND). intros SEQ.
-  rewrite CTF, SEQ, E, TC.
+  rewrite CTF, E, TC.
   destr.
   rewrite <- SAMEADT, <- H14. simpl; rewrite EQsp. simpl.
   apply pred_dec_true. auto.
@@ -1094,9 +1094,9 @@ exploit functions_translated. apply FFPcalled. intros (tf1 & FPPcalled' & TF).
   apply star_one. eapply exec_step_internal.
   set (sz := (Ptrofs.repr
                    (instr_size
-                      (Pfreeframe (frame_size (Mach.fn_frame tf0)) (fn_retaddr_ofs tf0))))) in *.
+                      (Pfreeframe ((Mach.fn_stacksize tf0)) (fn_retaddr_ofs tf0))))) in *.
   transitivity (Val.offset_ptr rs0#PC sz).
-  apply frame_size_correct in FIND. rewrite <- FIND. auto. 
+  auto. 
   rewrite <- H5. simpl. eauto.
   eapply functions_transl; eauto. eapply find_instr_tail; eauto.
   unfold exec_instr; simpl.
@@ -1268,23 +1268,24 @@ Transparent destroyed_by_jumptable.
   exploit Mem.tailcall_stage_extends; eauto.
   inv CallStackConsistency. rewrite SAMEADT in H12.
   eapply Mem.free_top_tframe_no_perm'; eauto.
-  erewrite frame_size_correct; eauto. assert (tf0 = f) by congruence. subst.
-  rewrite Ptrofs.unsigned_zero; reflexivity.
+  assert (tf0 = f) by congruence. subst.
+  unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
   intros (m3' & CS & EXT').
   monadInv H6.
   exploit code_tail_next_int; eauto. intro CT1.
 
-  assert (CTF: check_top_frame m'0 (Some stk) (fn_stacksize f) = true).
+  assert (CTF: check_top_frame m'0 (Some stk) (Mach.fn_stacksize f) = true).
   {
     unfold check_top_frame. rewrite <- SAMEADT.
     inv CallStackConsistency. rewrite FSIZE, BLOCKS.
     unfold proj_sumbool. destr. rewrite H in FIND0; inv FIND0.
-    erewrite frame_size_correct; eauto.
+    unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME.
     rewrite zeq_true. reflexivity.
     exfalso. apply n.
     constructor; auto.
     red; split; auto.
-    simpl. symmetry. rewrite H in FIND0; inv FIND0. eapply frame_size_correct. eauto.
+    simpl. symmetry. rewrite H in FIND0; inv FIND0.
+    unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
   }
 
   inversion CallStackConsistency. subst.
@@ -1321,12 +1322,12 @@ Transparent destroyed_by_jumptable.
     unfold exec_instr; simpl. rewrite C. rewrite <- (sp_val _ _ _ AG).
     rewrite Ptrofs.unsigned_zero in E; simpl in E.
     generalize (frame_size_correct _ _ FIND). intros SEQ.
-    rewrite SEQ, E, CS, CTF. destr.
+    rewrite  E, CS, CTF. destr.
     rewrite <- SAMEADT, <- H11; simpl; rewrite EQsp; simpl; eauto.
     apply pred_dec_true; auto.
 
     apply star_one. eapply exec_step_internal.
-    transitivity (Val.offset_ptr rs0#PC (instr_size_in_ptrofs (Pfreeframe (fn_stacksize tf0) (fn_retaddr_ofs tf0)))). 
+    transitivity (Val.offset_ptr rs0#PC (instr_size_in_ptrofs (Pfreeframe (Mach.fn_stacksize tf0) (fn_retaddr_ofs tf0)))). 
     auto. rewrite <- H3. simpl. eauto.
     eapply functions_transl; eauto. 
     eapply find_instr_tail. unfold instr_size_in_ptrofs. 
@@ -1354,7 +1355,8 @@ Transparent destroyed_by_jumptable.
   exploit functions_translated; eauto. intros [tf [A B]]. monadInv B.
   generalize EQ; intros EQ'. monadInv EQ'.
   destruct (zlt Ptrofs.max_unsigned (code_size (fn_code x0))); inv EQ1.
-  monadInv EQ0. rewrite transl_code'_transl_code in EQ1.
+  monadInv EQ0. repeat destr_in EQ2. rewrite transl_code'_transl_code in EQ1.
+  inv H0.
   unfold store_stack in *.
   exploit Mem.alloc_extends. eauto. eauto. apply Zle_refl. apply Zle_refl.
   intros [m1' [C D]].
@@ -1367,18 +1369,20 @@ Transparent destroyed_by_jumptable.
     eapply Mem.in_frames_valid in IFF. eapply Mem.fresh_block_alloc in C.
     congruence.
   + intros bb ffi o k0 p [AA|[]]; inv AA. repeat rewrite_perms. destr.
+    unfold frame_info_of_size_and_pubrange in Heqo; repeat destr_in Heqo. simpl. auto.
   + repeat rewrite_stack_blocks. inv CSC. congruence.
   + repeat rewrite_stack_blocks. rewrite SAMEADT. omega.
   + intros (m1'' & CC & DD).
     left; econstructor; split.
     apply plus_one. econstructor; eauto.
     simpl. rewrite Ptrofs.unsigned_zero. simpl. eauto.
-    unfold exec_instr; simpl.
+    unfold exec_instr; simpl. rewrite Heqo.
     change Mptr with (chunk_of_type Tptr).
     rewrite ATLR. erewrite agree_sp. 2: eauto.
-  
-  edestruct check_alloc_frame_correct. eauto. rewrite H4.
-  rewrite X. rewrite C.
+    (* edestruct check_alloc_frame_correct. *)
+    (* red. unfold frame_info_of_size_and_pubrange in Heqo; repeat destr_in Heqo.  *)
+    (* eauto. rewrite H4. *)
+    rewrite C.
   simpl in P. rewrite Ptrofs.add_zero_l in P. rewrite P. rewrite CC.
   apply pred_dec_true.
   inv CSC. rewrite <- SAMEADT; auto.
@@ -1398,7 +1402,7 @@ apply agree_undef_regs with rs0; eauto.
   intros EQ0 b o k p.
   intros; repeat rewrite_perms. destr.
   apply SAMEPERM. rewrite EQ0. rewrite in_stack_cons. right.
-  destruct H4 as [IFR|INS]; eauto.
+  destruct H0 as [IFR|INS]; eauto.
   red in IFR. simpl in IFR. intuition congruence.
   repeat rewrite_stack_blocks. rewrite SAMEADT.
   intros EQ5 EQ6; rewrite EQ5 in EQ6; inv EQ6. auto.
@@ -1456,7 +1460,7 @@ apply agree_undef_regs with rs0; eauto.
   right. split. omega. split. auto.
   econstructor; eauto. rewrite ATPC; eauto.
   inv CSC. inv TTNP. rewrite <- H in *. simpl in *.
-  rewrite H3 in CallStackConsistency. inv CallStackConsistency.
+  rewrite H3 in CallStackConsistency. repeat destr_in CallStackConsistency.
   revert AG. simpl. unfold current_frame_sp. simpl. rewrite BLOCKS. auto.
   congruence.
   rewrite_stack_blocks.
@@ -1523,7 +1527,7 @@ Qed.
 Hypothesis frame_correct:
   forall (fb : block) (f : Mach.function),
     Genv.find_funct_ptr ge fb = Some (Internal f) ->
-    frame_size (Mach.fn_frame f) = fn_stacksize f.
+    0 < Mach.fn_stacksize f.
 
 Theorem transf_program_correct:
   forward_simulation (Mach.semantics2 return_address_offset prog)

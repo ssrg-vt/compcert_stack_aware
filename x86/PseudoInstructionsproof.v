@@ -79,8 +79,8 @@ Section WITHMEMORYMODEL.
   Qed.
 
   Axiom instr_size_alloc:
-    forall f ora r i a rr,
-      instr_size (Pallocframe f ora) = instr_size (Plea r a) + (instr_size (Psub rr rr i)).
+    forall sz pub ora r i a rr,
+      instr_size (Pallocframe sz pub ora) = instr_size (Plea r a) + (instr_size (Psub rr rr i)).
 
   Axiom instr_size_free:
     forall sz ora r s,
@@ -168,7 +168,7 @@ Section WITHMEMORYMODEL.
 
   Definition id_instr (i: instruction) : bool :=
     match i with
-    | Pallocframe _ _
+    | Pallocframe _ _ _
     | Pfreeframe _ _
     | Pload_parent_pointer _ _ => false
     | _ => true
@@ -428,9 +428,9 @@ Section WITHMEMORYMODEL.
         econstructor. rewrite Asmgenproof0.nextinstr_pc. repeat rewrite Pregmap.gso by congruence.
         rewrite H. simpl. eauto.
         eauto. erewrite wf_asm_pc_repr'; eauto.
-        erewrite (instr_size_alloc frame ofs_ra RAX (align (frame_size frame) 8 - size_chunk Mptr)
+        erewrite (instr_size_alloc sz pubrange ofs_ra RAX (align sz 8 - size_chunk Mptr)
                                    (linear_addr RSP (size_chunk Mptr)) RSP).
-        generalize (instr_size_positive (Psub RSP RSP (align (frame_size frame) 8 - size_chunk Mptr))).
+        generalize (instr_size_positive (Psub RSP RSP (align sz 8 - size_chunk Mptr))).
         generalize (instr_size_positive (Plea RAX (linear_addr RSP (size_chunk Mptr)))).
         omega.
         unfold Psub, Padd. rewrite exec_instr_Plea. f_equal.
@@ -444,9 +444,9 @@ Section WITHMEMORYMODEL.
           erewrite Ptrofs.unsigned_repr by apply instr_size_repr.
           repeat rewrite ! REPR.
           erewrite instr_size_alloc. unfold Psub, Padd; eauto.
-          generalize (instr_size_positive (Pallocframe frame ofs_ra)); omega.
-          setoid_rewrite <- (instr_size_alloc frame ofs_ra).
-          generalize (instr_size_positive (Pallocframe frame ofs_ra)); omega.
+          generalize (instr_size_positive (Pallocframe sz pubrange ofs_ra)); omega.
+          setoid_rewrite <- (instr_size_alloc sz pubrange ofs_ra).
+          generalize (instr_size_positive (Pallocframe sz pubrange ofs_ra)); omega.
         * simpl_regs. regs_eq. repeat rewrite Asmgenproof0.nextinstr_inv by auto.
           regs_eq. auto.
           apply eval_addrmode_offset_ptr. inv INV. edestruct RSPPTR as ( bb & oo & EQ & _); eauto.

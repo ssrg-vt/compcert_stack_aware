@@ -16,8 +16,8 @@ Definition Psub dst src z := Padd dst src (- z).
 
 Definition transf_instr (i: instruction): list instruction :=
   match i with
-  | Pallocframe fi ofs_ra =>
-    let sz := align (frame_size fi) 8 - size_chunk Mptr in
+  | Pallocframe sz pubrange ofs_ra =>
+    let sz := align sz 8 - size_chunk Mptr in
     let addr1 := linear_addr RSP (size_chunk Mptr) in
     [ Padd RAX RSP (size_chunk Mptr); Psub RSP RSP sz ]
   | Pfreeframe fsz ofs_ra =>
@@ -35,7 +35,8 @@ Definition transf_function (f: function) : function :=
   {|
     fn_sig := fn_sig f;
     fn_code := transf_code (fn_code f);
-    fn_frame := fn_frame f;
+    fn_stacksize := fn_stacksize f;
+    fn_pubrange := fn_pubrange f;
   |}.
 
 Definition transf_fundef := AST.transf_fundef transf_function.

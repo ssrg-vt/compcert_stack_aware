@@ -251,7 +251,7 @@ Inductive instruction: Type :=
   | Pmovsd_mf_a (a: addrmode) (r1: freg) (**r like [Pmovsd_mf], using [Many64] chunk *)
   (** Pseudo-instructions *)
   | Plabel(l: label)
-  | Pallocframe(frame: frame_info)(ofs_ra (* ofs_link *): ptrofs)
+  | Pallocframe (sz: Z) (pubrange: Z * Z) (ofs_ra: ptrofs)
   | Pfreeframe (sz: Z) (ofs_ra (* ofs_link *): ptrofs)
   | Pload_parent_pointer (rd: ireg) (sz:Z)
   | Pbuiltin(ef: external_function)(args: list (builtin_arg preg))(res: builtin_res preg)
@@ -300,7 +300,7 @@ Axiom instr_size_repr: forall i, 0 <= instr_size i <= Ptrofs.max_unsigned.
 
 
 Definition code := list instruction.
-Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_frame: frame_info }.
+Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_stacksize: Z; fn_pubrange: Z * Z }.
 Definition fundef := AST.fundef function.
 Definition program := AST.program fundef unit.
 
@@ -1268,12 +1268,12 @@ Definition exec_instr
   (** Pseudo-instructions *)
   | Plabel lbl =>
       Next (nextinstr rs sz) m
-  | Pallocframe fi ofs_ra (* ofs_link *) =>
-    check (check_alloc_frame fi) ;
+  | Pallocframe size pubrange ofs_ra =>
+    do fi <- frame_info_of_size_and_pubrange size pubrange;
       check (Mem.check_top_tc m) ;
-      let (m1,b) := Mem.alloc m 0 (frame_size fi) in
+      let (m1,b) := Mem.alloc m 0 size in
       do m2 <- Mem.store Mptr m1 b (Ptrofs.unsigned ofs_ra) rs#RA;
-      do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi (frame_size fi));
+      do m3 <- Mem.record_stack_blocks m2 (make_singleton_frame_adt' b fi size);
       Next (nextinstr (rs #RAX <- (rs#RSP) #RSP <- (Vptr b Ptrofs.zero)) sz) m3
   | Pfreeframe sz' ofs_ra =>
       do ra <- Mem.loadbytesv Mptr m (Val.offset_ptr rs#RSP ofs_ra);
@@ -1715,7 +1715,7 @@ Definition instr_to_string (i:instruction) : string :=
   | Pmovsd_mf_a a r1 => "Pmovsd_mf_a" (**r like [Pmovsd_mf], using [Many64] chunk *)
   (* (** Pseudo-instructions *) *)
   | Plabel l => "Plabel"
-  | Pallocframe frame ofs_ra (* ofs_link *) => "Pallocframe"
+  | Pallocframe sz pubrange ofs_ra (* ofs_link *) => "Pallocframe"
   | Pfreeframe sz ofs_ra (* ofs_link *) => "Pfreeframe"
   | Pload_parent_pointer rd sz => "Pload_parent_pointer"
   | Pbuiltin ef args res => "Pbuiltin"

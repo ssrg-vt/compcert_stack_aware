@@ -26,13 +26,13 @@ Section WFASM.
     end.
 
   Inductive is_alloc : instruction -> Prop :=
-    is_alloc_intro f sz:
-      is_alloc (Pallocframe f sz).
+    is_alloc_intro sz pub ora:
+      is_alloc (Pallocframe sz pub ora).
 
-  Definition make_palloc f : instruction :=
-    let sz := frame_size f in 
-    (Pallocframe f (Ptrofs.sub (Ptrofs.repr (align sz 8)) (Ptrofs.repr (size_chunk Mptr)))).
-
+  Definition make_palloc f  : instruction :=
+    let sz := fn_stacksize f in
+    (Pallocframe sz (fn_pubrange f) (Ptrofs.sub (Ptrofs.repr (align sz 8)) (Ptrofs.repr (size_chunk Mptr)))).
+  
   Lemma make_palloc_is_alloc:
     forall f,
       is_alloc (make_palloc f).
@@ -63,12 +63,12 @@ Section WFASM.
     {
 
       wf_asm_alloc_only_at_beginning:
-        forall o fi ora,
-          find_instr o (fn_code f) = Some (Pallocframe fi ora) ->
+        forall o sz pubrange ora,
+          find_instr o (fn_code f) = Some (Pallocframe sz pubrange ora) ->
           o = 0;
 
       wf_asm_alloc_at_beginning:
-        find_instr 0 (fn_code f) = Some (make_palloc (fn_frame f));
+        find_instr 0 (fn_code f) = Some (make_palloc f);
 
       wf_asm_after_freeframe:
         forall i o,
@@ -110,13 +110,13 @@ Section WFASM.
       wf_asm_free_spec:
         forall o sz ora,
           find_instr o (fn_code f) = Some (Pfreeframe sz ora) ->
-          sz = frame_size (fn_frame f) /\ ora = Ptrofs.sub (Ptrofs.repr (align (Z.max 0 sz) 8)) (Ptrofs.repr (size_chunk Mptr));
+          sz = fn_stacksize f /\ ora = Ptrofs.sub (Ptrofs.repr (align (Z.max 0 sz) 8)) (Ptrofs.repr (size_chunk Mptr));
 
       wf_allocframe_repr:
-        forall o ff ora,
-          find_instr o (fn_code f) = Some (Pallocframe ff ora) ->
-          align (frame_size ff) 8 - size_chunk Mptr =
-          Ptrofs.unsigned (Ptrofs.sub (Ptrofs.repr (align (frame_size ff) 8)) (Ptrofs.repr (size_chunk Mptr)));
+        forall o sz pubrange ora,
+          find_instr o (fn_code f) = Some (Pallocframe sz pubrange ora) ->
+          align sz 8 - size_chunk Mptr =
+          Ptrofs.unsigned (Ptrofs.sub (Ptrofs.repr (align sz 8)) (Ptrofs.repr (size_chunk Mptr)));
 
       wf_freeframe_repr:
         forall o sz ora,
@@ -125,22 +125,29 @@ Section WFASM.
       
     }.
 
-  Definition frame_info_dec (f1 f2: frame_info): { f1 = f2 } + { f1 <> f2 }.
-  Proof.
-    (* frame_perm equality is not decidable... use some encoding based on public/private intervals of offsets in Pallocframe... *)
-  Admitted.
-  
+ 
   Definition is_make_palloc a f :=  a = make_palloc f /\
-                                    align (frame_size f) 8 - size_chunk Mptr =
-                                    Ptrofs.unsigned (Ptrofs.sub (Ptrofs.repr (align (frame_size f) 8)) (Ptrofs.repr (size_chunk Mptr))).
+                                    align (fn_stacksize f) 8 - size_chunk Mptr =
+                                    Ptrofs.unsigned (Ptrofs.sub (Ptrofs.repr (align (fn_stacksize f) 8)) (Ptrofs.repr (size_chunk Mptr))).
 
-  Definition pallocframe_dec s s' o o': {Pallocframe s o = Pallocframe s' o'} + {Pallocframe s o <> Pallocframe s' o'}.
+  Lemma pair_eq: forall {A B}
+                   (Adec: forall (a b: A), {a = b} + {a <> b})
+                   (Bdec: forall (a b: B), {a = b} + {a <> b}),
+      forall (a b: A * B), {a = b} + {a <> b}.
   Proof.
-    destruct (frame_info_dec s s'); subst.
-    2: (now right; inversion 1).
-    destruct (Ptrofs.eq_dec o o'); subst.
+    intros.
+    destruct a, b.
+    destruct (Adec a a0), (Bdec b b0); subst;
+      first [ now (right; inversion 1; congruence)
+            | left; reflexivity ].
+  Defined.
+  
+  Definition pallocframe_dec s s' pr pr' o o': {Pallocframe s pr o = Pallocframe s' pr' o'} + {Pallocframe s pr o <> Pallocframe s' pr' o'}.
+  Proof.
+    destruct (zeq s s'); subst. 2: (now right; inversion 1).
+    destruct (pair_eq zeq zeq pr pr'); subst. 2: (now right; inversion 1).
+    destruct (Ptrofs.eq_dec o o'); subst. 2: (now right; inversion 1).
     left; reflexivity.
-    right; inversion 1. congruence.
   Defined.
 
   Lemma and_dec: forall {A B: Prop},
@@ -173,7 +180,7 @@ Section WFASM.
     end.
   
   Definition check_free f sz ora :=
-      sz = frame_size (fn_frame f) /\ ora = Ptrofs.sub (Ptrofs.repr (align (Z.max 0 sz) 8)) (Ptrofs.repr (size_chunk Mptr)) /\
+      sz = fn_stacksize f /\ ora = Ptrofs.sub (Ptrofs.repr (align (Z.max 0 sz) 8)) (Ptrofs.repr (size_chunk Mptr)) /\
       Ptrofs.repr (align sz 8 - size_chunk Mptr) = Ptrofs.sub (Ptrofs.repr (align (Z.max 0 sz) 8)) (Ptrofs.repr (size_chunk Mptr)).
 
   Definition check_free_dec f sz ora : { check_free f sz ora } + { ~ check_free f sz ora }.
@@ -278,7 +285,7 @@ Section WFASM.
         match i with
         | Pfreeframe sz ora =>     (* after a free, ret or jmp *)
           check_free_dec f sz ora
-        | Pallocframe _ _ => false (* no alloc in body *)
+        | Pallocframe _ _ _ => false (* no alloc in body *)
         | Pcall (inl r) sg => negb (preg_eq r RSP)
         | Pbuiltin _ args res => check_builtin_dec args res
         | _ => true
@@ -288,7 +295,7 @@ Section WFASM.
   Definition wf_asm_function_check (f: function) : bool :=
     match fn_code f with
     | nil => false
-    | a::r => is_make_palloc_dec a (fn_frame f) && check_asm_body f false r
+    | a::r => is_make_palloc_dec a f && check_asm_body f false r
     end && zle (code_size (fn_code f)) Ptrofs.max_unsigned.
 
   Lemma check_asm_body_no_alloc:
@@ -470,10 +477,10 @@ Section WFASM.
       intros. destr_in H. inv H. inv H0.
       simpl in SIZE.
       rewrite pred_dec_false.
-      replace (Ptrofs.unsigned (Ptrofs.add o (Ptrofs.repr (instr_size i))) - instr_size (make_palloc (fn_frame f)))
-        with (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (Ptrofs.unsigned o - instr_size (make_palloc (fn_frame f)))) (Ptrofs.repr (instr_size i)))).
+      replace (Ptrofs.unsigned (Ptrofs.add o (Ptrofs.repr (instr_size i))) - instr_size (make_palloc f))
+        with (Ptrofs.unsigned (Ptrofs.add (Ptrofs.repr (Ptrofs.unsigned o - instr_size (make_palloc f))) (Ptrofs.repr (instr_size i)))).
       revert H.
-      generalize (Ptrofs.unsigned o - instr_size (make_palloc (fn_frame f))).
+      generalize (Ptrofs.unsigned o - instr_size (make_palloc f)).
       intros. 
       edestruct find_instr_split as (a & b & EQ & SZ). apply H. subst.
       rewrite find_instr_app'.
@@ -488,50 +495,50 @@ Section WFASM.
       rewrite Ptrofs.unsigned_repr. omega.
       simpl in SIZE. rewrite code_size_app in SIZE. simpl in SIZE.
       generalize (code_size_non_neg a) (instr_size_positive i) (instr_size_positive i0) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       simpl in SIZE. rewrite code_size_app in SIZE. simpl in SIZE.
       generalize (code_size_non_neg a) (instr_size_positive i) (instr_size_positive i0) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       unfold Ptrofs.add.
       rewrite (Ptrofs.unsigned_repr (code_size a)).
       rewrite (Ptrofs.unsigned_repr _ (instr_size_repr i)).
       rewrite Ptrofs.unsigned_repr. generalize (instr_size_positive i); omega.
       simpl in SIZE. rewrite code_size_app in SIZE. simpl in SIZE.
       generalize (code_size_non_neg a) (instr_size_positive i) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       simpl in SIZE. rewrite code_size_app in SIZE. simpl in SIZE.
       generalize (code_size_non_neg a) (instr_size_positive i) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       unfold Ptrofs.add.
       rewrite (Ptrofs.unsigned_repr (code_size a)).
       rewrite (Ptrofs.unsigned_repr _ (instr_size_repr i)).
       rewrite Ptrofs.unsigned_repr. generalize (instr_size_positive i); omega.
       simpl in SIZE. rewrite code_size_app in SIZE. simpl in SIZE.
       generalize (code_size_non_neg a) (instr_size_positive i) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       simpl in SIZE. rewrite code_size_app in SIZE. simpl in SIZE.
       generalize (code_size_non_neg a) (instr_size_positive i) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       unfold Ptrofs.add.
       rewrite (Ptrofs.unsigned_repr _ (instr_size_repr i)).
       rewrite (Ptrofs.unsigned_repr (Ptrofs.unsigned o - _)).
       rewrite ! Ptrofs.unsigned_repr. omega.
       generalize (find_instr_bound _ _ _ H) (find_instr_pos_positive _ _ _ H).
       generalize (instr_size_positive i)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       generalize (find_instr_bound _ _ _ H) (find_instr_pos_positive _ _ _ H).
       generalize (instr_size_positive i)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       generalize (find_instr_bound _ _ _ H) (find_instr_pos_positive _ _ _ H).
       generalize (instr_size_positive i)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       unfold Ptrofs.add.
       rewrite (Ptrofs.unsigned_repr _ (instr_size_repr i)).
       rewrite Ptrofs.unsigned_repr.
       generalize (Ptrofs.unsigned_range o) (instr_size_positive i); omega.
       generalize (find_instr_bound _ _ _ H) (find_instr_pos_positive _ _ _ H).
       generalize (instr_size_positive i)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
     - destruct i0 as (i0 & _). subst. rewrite CODE. simpl.
       intros i o FI ROJ.
       destr_in FI. inv FI. destruct ROJ as [ROJ|ROJ]; inv ROJ.
@@ -540,7 +547,7 @@ Section WFASM.
       subst.
       exists (Ptrofs.sub o (Ptrofs.repr (instr_size i0))), i0.
       rewrite pred_dec_false.
-      replace (Ptrofs.unsigned (Ptrofs.sub o (Ptrofs.repr (instr_size i0))) - instr_size (make_palloc (fn_frame f))) 
+      replace (Ptrofs.unsigned (Ptrofs.sub o (Ptrofs.repr (instr_size i0))) - instr_size (make_palloc f)) 
         with (0 + code_size a0). rewrite app_ass.
       rewrite find_instr_app. simpl. split; auto. split. auto.
       unfold Ptrofs.sub. 
@@ -549,7 +556,7 @@ Section WFASM.
       generalize (find_instr_bound _ _ _ FI) (find_instr_pos_positive _ _ _ FI). intros.
       simpl in *. rewrite ! code_size_app in *. simpl in *.
       generalize (code_size_non_neg a0) (instr_size_positive i) (instr_size_positive i0) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       omega.
       unfold Ptrofs.sub. 
       rewrite (Ptrofs.unsigned_repr _ (instr_size_repr i0)).
@@ -558,7 +565,7 @@ Section WFASM.
       generalize (find_instr_bound _ _ _ FI) (find_instr_pos_positive _ _ _ FI). intros.
       simpl in *. rewrite ! code_size_app in *. simpl in *.
       generalize (code_size_non_neg a0) (instr_size_positive i) (instr_size_positive i0) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       unfold Ptrofs.sub. 
       rewrite (Ptrofs.unsigned_repr _ (instr_size_repr i0)).
       rewrite Ptrofs.unsigned_repr.
@@ -566,11 +573,11 @@ Section WFASM.
       generalize (find_instr_bound _ _ _ FI) (find_instr_pos_positive _ _ _ FI). intros. 
       simpl in *. rewrite ! code_size_app in *. simpl in *.
       generalize (code_size_non_neg a0) (instr_size_positive i) (instr_size_positive i0) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
       generalize (find_instr_bound _ _ _ FI) (find_instr_pos_positive _ _ _ FI). intros. 
       simpl in *. rewrite ! code_size_app in *. simpl in *.
       generalize (code_size_non_neg a0) (instr_size_positive i) (instr_size_positive i0) (code_size_non_neg b)
-                 (instr_size_positive (make_palloc (fn_frame f))). omega.
+                 (instr_size_positive (make_palloc f)). omega.
     - rewrite CODE; split; auto.
       generalize (code_size_non_neg (i::c)). omega.
     - destruct i0 as (i0 & _). subst. rewrite CODE. simpl.
@@ -594,7 +601,7 @@ Section WFASM.
       apply Asmgenproof0.find_instr_in in FI.
       edestruct check_asm_body_free as (A & BB & C); subst; eauto.
     - destruct i0 as (i0 & PA). subst. rewrite CODE. simpl.
-      intros o ff ora FI.
+      intros o sz pubrange ora FI.
       destr_in FI. inv FI; auto.
       apply Asmgenproof0.find_instr_in in FI.
       eapply check_asm_body_no_alloc in FI; eauto. contradict FI; constructor.
@@ -614,9 +621,9 @@ Section WFASM.
   Qed.
 
   Lemma wf_asm_wf_allocframe:
-    forall f (WF: wf_asm_function f) o fi ora
-      (FI: find_instr o (fn_code f) = Some (Pallocframe fi ora)),
-      make_palloc (fn_frame f) = Pallocframe fi ora.
+    forall f (WF: wf_asm_function f) o sz pubrange ora
+      (FI: find_instr o (fn_code f) = Some (Pallocframe sz pubrange ora)),
+      make_palloc f = Pallocframe sz pubrange ora.
   Proof.
     intros.
     exploit wf_asm_alloc_only_at_beginning; eauto. intro; subst.
@@ -638,8 +645,8 @@ Section WITHGE.
   Definition exec_instr f i rs (m: mem) :=
     let sz := Ptrofs.repr (Asm.instr_size i) in 
     match i with
-    | Pallocframe fi ofs_ra =>
-      let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.sub (Ptrofs.repr (align (frame_size fi) 8)) (Ptrofs.repr (size_chunk Mptr)))) in
+    | Pallocframe size _ ofs_ra =>
+      let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.sub (Ptrofs.repr (align size 8)) (Ptrofs.repr (size_chunk Mptr)))) in
       Next (nextinstr (rs #RAX <- (Val.offset_ptr (rs RSP) (Ptrofs.repr (size_chunk Mptr))) #RSP <- sp) sz) m
     | Pfreeframe fsz ofs_ra =>
       let sp := Val.offset_ptr (rs RSP) (Ptrofs.sub (Ptrofs.repr (align (Z.max 0 fsz) 8)) (Ptrofs.repr (size_chunk Mptr))) in

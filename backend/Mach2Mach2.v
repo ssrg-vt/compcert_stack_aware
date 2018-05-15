@@ -93,7 +93,7 @@ Section WITHINITSP.
   Hypothesis frame_correct:
     forall (fb : block) (f : function),
       Genv.find_funct_ptr (Genv.globalenv prog) fb = Some (Internal f) ->
-      frame_size (fn_frame f) = fn_stacksize f.
+      0 < fn_stacksize f.
 
   Lemma lessdef_set_reg:
     forall rs rs'
@@ -297,7 +297,7 @@ Ltac same_hyps :=
       2: apply H2. simpl; auto.
       edestruct Mem.tailcall_stage_extends as (m3' & TC' & EXT'); eauto.
       inv CallStackConsistency0. eapply Mem.free_top_tframe_no_perm'; eauto.
-      erewrite frame_correct; eauto.
+      rewrite Ptrofs.unsigned_zero; simpl. unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
       eexists; split. econstructor; eauto.
       eapply find_function_ptr_lessdef; eauto.
       simpl Val.offset_ptr. rewrite LOADV'.
@@ -327,8 +327,10 @@ Ltac same_hyps :=
       edestruct Mem.loadbytesv_extends as (ra2 & LOADV' & LD). apply MLD. 2: eauto. auto.
       inv H2.
       edestruct Mem.tailcall_stage_right_extends as (m3' & TC & EXT2). apply EXT.
-      inv CallStackConsistency. eapply Mem.free_top_tframe_no_perm'; eauto. eapply frame_correct; eauto.
-      inv CallStackConsistency0. eapply Mem.free_top_tframe_no_perm'; eauto. eapply frame_correct; eauto.
+      inv CallStackConsistency. eapply Mem.free_top_tframe_no_perm'; eauto.
+      rewrite Ptrofs.unsigned_zero; simpl. unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
+      inv CallStackConsistency0. eapply Mem.free_top_tframe_no_perm'; eauto.
+      rewrite Ptrofs.unsigned_zero; simpl. unfold frame_info_of_size_and_pubrange in FRAME; repeat destr_in FRAME. reflexivity.
       eexists; split. econstructor; eauto.
       rewrite LOADV'.
       inv LD. auto. exfalso; eapply parent_ra_not_undef; eauto.
@@ -344,8 +346,9 @@ Ltac same_hyps :=
         eapply Mem.fresh_block_alloc; eauto.
       }
       {
-        red; simpl. intros b fi o k p [A|[]]; inv A. repeat rewrite_perms.
-        destr. erewrite frame_correct; eauto.
+        red; simpl. intros b fi0 o k p [A|[]]; inv A. repeat rewrite_perms.
+        destr.
+        unfold frame_info_of_size_and_pubrange in H0; repeat destr_in H0. simpl. auto.
       }
       {
         repeat rewrite_stack_blocks. auto.
@@ -403,7 +406,7 @@ End WITHINITSP.
     forall rao p,
       (forall (fb : block) (f : function),
           Genv.find_funct_ptr (Genv.globalenv p) fb = Some (Internal f) ->
-          frame_size (fn_frame f) = fn_stacksize f) ->
+          0 < fn_stacksize f) ->
       forward_simulation (Mach.semantics1 rao p) (Mach.semantics2 rao p).
   Proof.
     intros rao p SIZE.

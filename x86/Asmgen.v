@@ -720,7 +720,7 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
         loadind RAX ofs ty dst k
       else
         (do k1 <- loadind RAX ofs ty dst k;
-           OK ((Pload_parent_pointer RAX (StackADT.frame_size (Mach.fn_frame f))) :: k1)
+           OK ((Pload_parent_pointer RAX (Mach.fn_stacksize f)) :: k1)
            (* loadind RSP f.(fn_link_ofs) Tptr AX k1 *))
   | Mop op args res =>
       transl_op op args res k
@@ -734,10 +734,10 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
       OK ((Pcall (inr symb) sig) :: k)
   | Mtailcall sig (inl reg) =>
       do r <- ireg_of reg;
-      OK ((Pfreeframe (StackADT.frame_size (f.(Mach.fn_frame))) f.(fn_retaddr_ofs)) ::
+      OK ((Pfreeframe (Mach.fn_stacksize f) f.(fn_retaddr_ofs)) ::
           (Pjmp (inl r) sig) :: k)
   | Mtailcall sig (inr symb) =>
-      OK ((Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs)) ::
+      OK ((Pfreeframe (Mach.fn_stacksize f) f.(fn_retaddr_ofs)) ::
           (Pjmp (inr symb) sig) :: k)
   | Mlabel lbl =>
       OK((Plabel lbl) :: k)
@@ -748,7 +748,7 @@ Definition transl_instr (f: Mach.function) (i: Mach.instruction)
   | Mjumptable arg tbl =>
       do r <- ireg_of arg; OK ((Pjmptbl r tbl) :: k)
   | Mreturn =>
-      OK ((Pfreeframe (StackADT.frame_size (Mach.fn_frame f)) f.(fn_retaddr_ofs)) ::
+      OK ((Pfreeframe (Mach.fn_stacksize f) f.(fn_retaddr_ofs)) ::
           (Pret) :: k)
   | Mbuiltin ef args res =>
       OK ((Pbuiltin ef (List.map (map_builtin_arg preg_of) args) (map_builtin_res preg_of res)) :: k)
@@ -796,9 +796,13 @@ Definition transl_code' (f: Mach.function) (il: list Mach.instruction) (axp: boo
 
 Definition transl_function (f: Mach.function) :=
   do c <- transl_code' f f.(Mach.fn_code) true;
-  OK (mkfunction f.(Mach.fn_sig)
-                     ((Pallocframe f.(Mach.fn_frame) f.(fn_retaddr_ofs)) :: c)
-                     (f.(Mach.fn_frame))).
+    match StackADT.frame_info_of_size_and_pubrange (Mach.fn_stacksize f) (Mach.fn_frame_pubrange f) with
+      Some fi =>
+      OK (mkfunction (Mach.fn_sig f)
+                     ((Pallocframe (Mach.fn_stacksize f) (Mach.fn_frame_pubrange f) (fn_retaddr_ofs f)) :: c)
+                     (Mach.fn_stacksize f) (Mach.fn_frame_pubrange f))
+    | None => Error (msg "should not happen -- Mach.fn_stacksize <= 0")
+    end.
 
 Definition transf_function (f: Mach.function) : res Asm.function :=
   do tf <- transl_function f;

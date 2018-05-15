@@ -56,7 +56,7 @@ Section WITHMEMORYMODEL.
 
   Definition is_unchanged (i:instruction) :=
     match i with
-      Pallocframe _ _
+      Pallocframe _ _ _
     | Pfreeframe _ _
     | Pload_parent_pointer _ _
     | Pcall _ _
@@ -1036,6 +1036,10 @@ Section WITHMEMORYMODEL.
        unfold Asm.exec_instr in EI; simpl in EI.
        repeat destr_in EI.
        inversion MS; subst.
+       assert (SZ: sz = frame_size f0 /\ 0 < sz).
+       {
+         unfold frame_info_of_size_and_pubrange in Heqo; repeat destr_in Heqo. split. reflexivity. auto.
+       } destruct SZ; subst.
        edestruct alloc_inject as (j' & JSPEC & INCR & m4' & STORE2 & MS') ; eauto.
        apply Ptrofs.unsigned_range_2.
        simpl in *.

@@ -26,7 +26,7 @@ let emit i = current_code := i :: !current_code
 
 (* Generation of fresh labels *)
 
-let dummy_function = { fn_code = []; fn_sig = signature_main; fn_frame = StackADT.empty_frame }
+let dummy_function = { fn_code = []; fn_sig = signature_main; fn_stacksize = Camlcoq.Z.of_uint 0; fn_pubrange = (Camlcoq.Z.of_uint 0,Camlcoq.Z.of_uint 0) }
 let current_function = ref dummy_function
 let next_label = ref (None: label option)
 

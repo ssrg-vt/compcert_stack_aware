@@ -423,7 +423,7 @@ Definition fn_stack_requirements (tp: Asm.program) (id: ident) : Z :=
   match Globalenvs.Genv.find_symbol (Globalenvs.Genv.globalenv tp) id with
   | Some b =>
     match Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv tp) b with
-    | Some (Internal f) => StackADT.frame_size (Asm.fn_frame f)
+    | Some (Internal f) => Asm.fn_stacksize f
     | _ => 0
     end
   | None => 0
@@ -460,11 +460,20 @@ Qed.
 
 
 Lemma fn_stack_requirements_pos:
-  forall p i, 0 <= fn_stack_requirements p i.
+  forall ps p i,
+    Asmgenproof.match_prog ps p ->
+    0 <= fn_stack_requirements p i.
 Proof.
   unfold fn_stack_requirements.
   intros. repeat destr; try omega.
-  simpl. apply StackADT.frame_size_pos.
+  destruct (Globalenvs.Genv.find_funct_ptr (Globalenvs.Genv.globalenv ps) b) eqn:FFPMACH.
+  - edestruct (Asmgenproof.functions_translated _ _ H _ _ FFPMACH) as (if0 & FFPASM & EQ). rewrite Heqo0 in FFPASM. inv FFPASM.
+    unfold Asmgen.transf_fundef, transf_partial_fundef in EQ.
+    destr_in EQ. monadInv EQ.
+    unfold Asmgen.transf_function in EQ0. monadInv EQ0. repeat destr_in EQ1. unfold Asmgen.transl_function in EQ.
+    monadInv EQ. repeat destr_in EQ1. simpl.
+    unfold StackADT.frame_info_of_size_and_pubrange in Heqo1. destr_in Heqo1.
+  - eapply match_program_no_more_functions in FFPMACH; eauto. congruence.
 Qed.
 
 Definition mk_init_stk {F V} (p: AST.program F V) : StackADT.stack :=
@@ -490,7 +499,7 @@ Ltac DestructM :=
   assert (F: forward_simulation (Cstrategy.semantics (fn_stack_requirements tp) p) (Asm.semantics tp init_stk)).
   {
   eapply compose_forward_simulations.
-    eapply SimplExprproof.transl_program_correct; try eassumption. apply fn_stack_requirements_pos.
+    eapply SimplExprproof.transl_program_correct; try eassumption. intros; eapply fn_stack_requirements_pos. subst; eauto.
   eapply compose_forward_simulations.
     eapply SimplLocalsproof.transf_program_correct; eassumption.
   eapply compose_forward_simulations.
@@ -545,7 +554,7 @@ Ltac DestructM :=
       destruct Heqo0 as (tf & FFP & TF); rewrite FFP.
       destruct f; simpl in *; monadInv TF; auto.
       unfold Asmgen.transf_function in EQ. monadInv EQ. destr_in EQ1. inv EQ1.
-      unfold Asmgen.transl_function in EQ0. monadInv EQ0. simpl. auto.
+      unfold Asmgen.transl_function in EQ0. monadInv EQ0. repeat destr_in EQ1. simpl. auto.
       eapply match_program_no_more_functions in Heqo0; eauto. rewrite Heqo0. auto.
     }
   eapply compose_forward_simulations.

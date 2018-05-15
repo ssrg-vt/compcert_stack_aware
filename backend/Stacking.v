@@ -176,16 +176,16 @@ Definition transf_function (f: Linear.function) : res Mach.function :=
   if negb (wt_function f) then
     Error (msg "Ill-formed Linear code")
   else if zlt Ptrofs.max_unsigned fe.(fe_size) then
-    Error (msg "Too many spilled variables, stack size exceeded")
-  else
-    OK (Mach.mkfunction
-         f.(Linear.fn_sig)
-         (transl_body f fe)
-         fe.(fe_size)
-         (* (Ptrofs.repr fe.(fe_ofs_link)) *)
-         (Ptrofs.repr fe.(fe_ofs_retaddr))
-         (frame_of_frame_env (function_bounds f))
-       ).
+         Error (msg "Too many spilled variables, stack size exceeded")
+       else
+         let b := (function_bounds f) in
+         let fe := make_env b in
+         OK (Mach.mkfunction
+               (Linear.fn_sig f)
+               (transl_body f fe)
+               (fe_size fe)
+               (Ptrofs.repr (fe_ofs_retaddr fe))
+               (fe_stack_data fe, fe_stack_data fe + bound_stack_data b)).
 
 Definition transf_fundef (f: Linear.fundef) : res Mach.fundef :=
   AST.transf_partial_fundef transf_function f.

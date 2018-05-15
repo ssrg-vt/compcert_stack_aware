@@ -82,6 +82,16 @@ Definition public_frame_info sz : frame_info :=
     frame_size_pos := Z.le_max_l _ _;
   |}.
 
+Program Definition frame_info_of_size_and_pubrange (size: Z) (pubrange: Z * Z) : option frame_info :=
+  if zlt 0 size
+  then
+    let '(lo,hi) := pubrange in
+    Some {| frame_size := size; frame_perm := fun o => if zle lo o && zlt o hi then Public else Private; |}
+  else None.
+Next Obligation.
+  omega.
+Qed.
+
 Definition frame_public f o := frame_perm f o = Public.
 
 Definition frame_private f o := frame_perm f o = Private.

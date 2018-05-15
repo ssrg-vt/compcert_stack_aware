@@ -732,7 +732,7 @@ module Target(System: SYSTEM):TARGET =
       (* Pseudo-instructions *)
       | Plabel(l) ->
           fprintf oc "%a:\n" label (transl_label l)
-      | Pallocframe(_, _)
+      | Pallocframe(_, _, _)
       | Pload_parent_pointer(_, _)
       | Pfreeframe(_, _) ->
 	 assert false

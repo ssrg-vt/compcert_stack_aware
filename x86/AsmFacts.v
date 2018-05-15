@@ -28,7 +28,7 @@ Section WITHMEMORYMODEL.
 
   Definition stack_invar (i: instruction) :=
     match i with
-      Pallocframe _ _  
+      Pallocframe _ _ _
     | Pfreeframe _ _
     | Pcall _ _
     | Pret => false
@@ -191,7 +191,7 @@ Section WITHMEMORYMODEL.
 
     (* (** Pseudo-instructions *) *)
     | Plabel l => nil
-    | Pallocframe frame ofs_ra (* ofs_link *) => IR RAX :: IR RSP :: nil
+    | Pallocframe _ _ _ => IR RAX :: IR RSP :: nil
     | Pfreeframe sz ofs_ra (* ofs_link *) => IR RSP :: nil
     | Pload_parent_pointer rd _ => IR rd :: nil
     | Pbuiltin ef args res => nil
@@ -459,7 +459,7 @@ Section WITHMEMORYMODEL.
     intros. destruct (stack_invar x) eqn:INV. simpl.
     destr. exfalso.
     monadInv H. repeat destr_in EQ0.
-    monadInv EQ. simpl in *.
+    monadInv EQ. repeat destr_in EQ1. simpl in *.
     destruct H0. subst. simpl in *. congruence.
     rewrite Asmgenproof0.transl_code'_transl_code in EQ0.
     eapply transl_code_no_rsp in EQ0; eauto. simpl. auto.

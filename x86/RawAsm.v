@@ -27,8 +27,8 @@ Section WITHGE.
   Definition exec_instr f i rs (m: mem) :=
     let isz := Ptrofs.repr (Asm.instr_size i) in
     match i with
-    | Pallocframe fi ofs_ra =>
-      let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (align (frame_size fi) 8))) in
+    | Pallocframe sz pubrange ofs_ra =>
+      let sp := Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (align sz 8))) in
       match Mem.storev Mptr m (Val.offset_ptr sp ofs_ra) rs#RA with
       | None => Stuck
       | Some m2 =>
