@@ -759,10 +759,22 @@ Fixpoint defs_no_duplicated_labels (defs: list (ident * option (AST.globdef Asm.
     (defs_no_duplicated_labels defs')
   end. 
 
+Fixpoint funs_non_empty (defs: list (ident * option (AST.globdef Asm.fundef unit))) : bool :=
+  match defs with
+  | nil => true
+  | (id, Some (AST.Gfun (Internal f)))::defs' =>
+    andb (0 <? (length (Asm.fn_code f)))%nat
+         (funs_non_empty defs')
+  | _ :: defs' =>
+    (funs_non_empty defs')
+  end. 
+  
 
 Definition check_wellformedness (p:Asm.program) : bool :=
-  andb (no_duplicated_defs Asm.fundef unit (AST.prog_defs p))
-       (defs_no_duplicated_labels (AST.prog_defs p)).
+  andb (funs_non_empty (AST.prog_defs p))
+  (andb (no_duplicated_defs Asm.fundef unit (AST.prog_defs p))
+        (defs_no_duplicated_labels (AST.prog_defs p))).
+
 
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=

@@ -293,6 +293,103 @@ Proof.
 Qed.
 
 
+Lemma update_funs_map_no_effect_gmap : 
+  forall defs cinfo' cinfo id def
+    (DEFSNAMES: defs_names_distinct defs)
+    (UPDATE: cinfo' = update_funs_map cinfo defs)
+    (IN: In (id, def) defs)
+    (NOTIF: forall f, def <> Some (Gfun (Internal f))),
+    ci_map cinfo' id = ci_map cinfo id.
+Proof.
+  induction defs. intros.
+  - inv IN.
+  - intros. inv IN.
+    + simpl. inv DEFSNAMES. destruct def. destruct g. destruct f.
+      specialize (NOTIF f). contradiction.
+      eapply update_funs_map_pre_gmap; eauto.
+      eapply update_funs_map_pre_gmap; eauto.
+      eapply update_funs_map_pre_gmap; eauto.
+    + inv DEFSNAMES. 
+      generalize (in_map fst defs (id, def) H); eauto. simpl. intros H0.
+      destruct a. simpl in H2. destruct o. destruct g. destruct f.
+      * match goal with
+        | [ |- ci_map (update_funs_map ?ci ?instrs) _ = _ ] 
+            => exploit (IHdefs (update_funs_map ci instrs) ci); eauto
+        end.
+        intros CIMAP. rewrite CIMAP.
+        erewrite update_instrs_pres_gmap; eauto. simpl.
+        unfold update_gid_map. destruct peq. subst. congruence.
+        auto.
+      * eapply IHdefs; eauto.
+      * eapply IHdefs; eauto.
+      * eapply IHdefs; eauto.
+Qed.
+
+Lemma update_extfuns_map_no_effect_gmap :
+  forall defs dinfo' dinfo id def
+    (DEFSNAMES: defs_names_distinct defs)
+    (UPDATE: dinfo' = update_extfuns_map dinfo defs)
+    (IN: In (id, def) defs)
+    (NOTEF: forall f, def <> Some (Gfun (External f))),
+    di_map dinfo' id = di_map dinfo id.
+Proof.
+  induction defs. intros.
+  - inv IN.
+  - intros.
+    inv IN.
+    + simpl. inv DEFSNAMES. destruct def. destruct g. destruct f.
+      eapply update_extfuns_map_pre_gmap; eauto.
+      specialize (NOTEF e). contradiction.
+      eapply update_extfuns_map_pre_gmap; eauto.
+      eapply update_extfuns_map_pre_gmap; eauto.
+    + inv DEFSNAMES.
+      generalize (in_map fst defs (id, def) H); eauto. simpl. intros H0.
+      destruct a. simpl in H2. destruct o. destruct g. destruct f.
+      * eapply IHdefs; eauto.
+      * match goal with
+        | [ |- di_map (update_extfuns_map ?di ?dfs) _ = _ ]
+            => exploit (IHdefs (update_extfuns_map di dfs) di); eauto
+        end.
+        intros DIMAP. rewrite DIMAP.
+        simpl. unfold update_gid_map. destruct peq. subst. congruence.
+        auto.
+      * eapply IHdefs; eauto.
+      * eapply IHdefs; eauto.
+Qed.
+
+Lemma update_gvars_map_no_effect_gmap : 
+  forall defs dinfo' dinfo id def
+    (DEFSNAMES: defs_names_distinct defs)
+    (UPDATE: dinfo' = update_gvars_map dinfo defs)
+    (IN: In (id, def) defs)
+    (NOTVAR: forall v, def <> Some (Gvar v)),
+    di_map dinfo' id = di_map dinfo id.
+Proof.
+  induction defs. intros.
+  - inv IN.
+  - intros.
+    inv IN.
+    + simpl. inv DEFSNAMES. destruct def. destruct g. destruct f.
+      eapply update_gvars_map_pre_gmap; eauto.
+      eapply update_gvars_map_pre_gmap; eauto.
+      specialize (NOTVAR v). contradiction.
+      eapply update_gvars_map_pre_gmap; eauto.
+    + inv DEFSNAMES.
+      generalize (in_map fst defs (id, def) H); eauto. simpl. intros H0.
+      destruct a. simpl in H2. destruct o. destruct g. destruct f.
+      * eapply IHdefs; eauto.
+      * eapply IHdefs; eauto.
+      * match goal with
+        | [ |- di_map (update_gvars_map ?di ?dfs) _ = _ ]
+            => exploit (IHdefs (update_gvars_map di dfs) di); eauto
+        end.
+        intros DIMAP. rewrite DIMAP.
+        simpl. unfold update_gid_map. destruct peq. subst. congruence.
+        auto.
+      * eapply IHdefs; eauto.
+Qed.
+
+
 Lemma transl_fun_exists : forall gmap lmap defs gdefs code f id,
     transl_globdefs gmap lmap defs = OK (gdefs, code) ->
     In (id, Some (Gfun (Internal f))) defs ->
@@ -1332,11 +1429,11 @@ Proof.
     exploit AGREE_SMINJ_LBL.update_map_lmap_inversion; eauto. 
 
     unfold check_wellformedness in WF.
-    rewrite andb_true_iff in WF. destruct WF as [NODUPDEFS NODUPLBLS].
+    repeat rewrite andb_true_iff in WF. destruct WF as (FNONEMPTY & NODUPDEFS & NODUPLBLS).
     apply nodup_defs_distinct_names. auto.
 
     unfold check_wellformedness in WF.
-    rewrite andb_true_iff in WF. destruct WF as [NODUPDEFS NODUPLBLS].    
+    repeat rewrite andb_true_iff in WF. destruct WF as (FNONEMPTY & NODUPDEFS & NODUPLBLS).
     eapply AGREE_SMINJ_LBL.defs_nodup_labels; eauto.
 
     intros (slbl & GMAP & LEQ & OFSEQ).
@@ -1455,33 +1552,15 @@ Proof.
     apply invert_symbol_add_global_none in EQ. setoid_rewrite EQ. auto.
 Qed.
 
-Lemma update_funs_map_none : 
+Lemma update_funs_map_none :
   forall defs cinfo' cinfo id
     (DEFSNAMES: defs_names_distinct defs)
     (UPDATE: cinfo' = update_funs_map cinfo defs)
     (IN: In (id, None) defs),
     ci_map cinfo' id = ci_map cinfo id.
 Proof.
-  induction defs. intros.
-  - inv IN.
-  - intros cinfo' cinfo id DEFSNAMES UPDATE IN.
-    inv IN.
-    + simpl. inv DEFSNAMES.
-      eapply update_funs_map_pre_gmap; eauto.
-    + inv DEFSNAMES. 
-      generalize (in_map fst defs (id, None) H); eauto. simpl. intros H0.
-      destruct a. simpl in H2. destruct o. destruct g. destruct f.
-      * match goal with
-        | [ |- ci_map (update_funs_map ?ci ?instrs) _ = _ ] 
-            => exploit (IHdefs (update_funs_map ci instrs) ci); eauto
-        end.
-        intros CIMAP. rewrite CIMAP.
-        erewrite update_instrs_pres_gmap; eauto. simpl.
-        unfold update_gid_map. destruct peq. subst. congruence.
-        auto.
-      * apply IHdefs; auto.
-      * apply IHdefs; auto.
-      * apply IHdefs; auto.
+  intros. eapply update_funs_map_no_effect_gmap; eauto.
+  intros. intro. discriminate.
 Qed.
     
 
@@ -1492,25 +1571,8 @@ Lemma update_extfuns_map_none :
     (IN: In (id, None) defs),
     di_map dinfo' id = di_map dinfo id.
 Proof.
-  induction defs. intros.
-  - inv IN.
-  - intros dinfo' dinfo id DEFSNAMES UPDATE IN.
-    inv IN.
-    + simpl. inv DEFSNAMES.
-      eapply update_extfuns_map_pre_gmap; eauto.
-    + inv DEFSNAMES.
-      generalize (in_map fst defs (id, None) H); eauto. simpl. intros H0.
-      destruct a. simpl in H2. destruct o. destruct g. destruct f.
-      * apply IHdefs; auto.
-      * match goal with
-        | [ |- di_map (update_extfuns_map ?di ?dfs) _ = _ ]
-            => exploit (IHdefs (update_extfuns_map di dfs) di); eauto
-        end.
-        intros DIMAP. rewrite DIMAP.
-        simpl. unfold update_gid_map. destruct peq. subst. congruence.
-        auto.
-      * apply IHdefs; auto.
-      * apply IHdefs; auto.
+  intros. eapply update_extfuns_map_no_effect_gmap; eauto.
+  intros. intro. discriminate.
 Qed.
 
 Lemma update_gvars_map_none : 
@@ -1520,27 +1582,10 @@ Lemma update_gvars_map_none :
     (IN: In (id, None) defs),
     di_map dinfo' id = di_map dinfo id.
 Proof.
-  induction defs. intros.
-  - inv IN.
-  - intros dinfo' dinfo id DEFSNAMES UPDATE IN.
-    inv IN.
-    + simpl. inv DEFSNAMES.
-      eapply update_gvars_map_pre_gmap; eauto.
-    + inv DEFSNAMES.
-      generalize (in_map fst defs (id, None) H); eauto. simpl. intros H0.
-      destruct a. simpl in H2. destruct o. destruct g. destruct f.
-      * apply IHdefs; auto.
-      * apply IHdefs; auto.
-      * match goal with
-        | [ |- di_map (update_gvars_map ?di ?dfs) _ = _ ]
-            => exploit (IHdefs (update_gvars_map di dfs) di); eauto
-        end.
-        intros DIMAP. rewrite DIMAP.
-        simpl. unfold update_gid_map. destruct peq. subst. congruence.
-        auto.
-      * apply IHdefs; auto.
+  intros. eapply update_gvars_map_no_effect_gmap; eauto.
+  intros. intro. discriminate.
 Qed.
-
+  
 
 Lemma update_map_gmap_none :
   forall (prog : Asm.program) (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
@@ -1600,15 +1645,159 @@ Lemma partial_genv_find_symbol_inversion : forall defs x b,
 Admitted.
 
 
+Lemma update_funs_map_app : forall defs1 defs2 cinfo cinfo'
+    (UPDATE: cinfo' = update_funs_map cinfo (defs1 ++ defs2)),
+    exists cinfo1, cinfo1 = update_funs_map cinfo defs1 /\
+              cinfo' = update_funs_map cinfo1 defs2.
+Proof.
+  induction defs1; intros.
+  - simpl in UPDATE. eexists. split. eauto. auto.
+  - simpl in UPDATE. destruct a. destruct o. destruct g. destruct f.
+    + apply IHdefs1 in UPDATE. 
+      destruct UPDATE as [cinfo1 [CINFO1 CINFO']].
+      exists cinfo1. split; auto.
+    + apply IHdefs1 in UPDATE.       
+      destruct UPDATE as [cinfo1 [CINFO1 CINFO']].
+      exists cinfo1. split; auto.
+    + apply IHdefs1 in UPDATE.       
+      destruct UPDATE as [cinfo1 [CINFO1 CINFO']].
+      exists cinfo1. split; auto.
+    + apply IHdefs1 in UPDATE.       
+      destruct UPDATE as [cinfo1 [CINFO1 CINFO']].
+      exists cinfo1. split; auto.
+Qed.
+
+Definition seglabel_bound (ci: cinfo) (sid: segid_type) : Prop :=
+  forall id slbl, (ci_map ci id = Some slbl) -> fst slbl = sid
+               -> Ptrofs.unsigned (snd slbl) < ci_size ci.
+
+
+Lemma update_funs_map_bound :
+  forall defs cinfo cinfo' 
+    (DEFSNAMES: defs_names_distinct defs)
+    (SLBOUND : seglabel_bound cinfo code_segid)
+    (UPDATE: cinfo' = update_funs_map cinfo defs),
+    seglabel_bound cinfo' code_segid.
+Proof.
+  induction defs; simpl; intros.
+  - subst. auto.
+  - inv DEFSNAMES. destruct a. destruct o. destruct g. destruct f.
+    + match goal with 
+      | [ |- context[ update_funs_map ?ci _ ] ] =>
+        eapply (IHdefs ci); eauto
+      end.
+      red. intros id slbl CIMAP FST.
+      erewrite update_instrs_pres_gmap in CIMAP; eauto. simpl in CIMAP.
+      unfold update_gid_map in CIMAP. destruct peq.
+      * subst. inv CIMAP. unfold code_label. simpl.
+        rewrite Ptrofs.unsigned_repr.
+Admitted.
+      
+
+Lemma update_map_gmap_some_internal :
+  forall defs1 cinfo cinfo' id f defs defs2
+    (DEFSNAMES: defs_names_distinct defs)
+    (* (SLBOUND : seglabel_bound cinfo code_segid) *)
+    (UPDATE: cinfo' = update_funs_map cinfo defs)
+    (DEFS: (defs1 ++ (id, Some (Gfun (Internal f))) :: defs2) = defs),
+    exists slbl, ci_map cinfo' id = Some slbl 
+           /\ (forall id' slbl', In id' (map fst defs1) -> (ci_map cinfo' id' = Some slbl') ->
+              fst slbl' = fst slbl -> Ptrofs.unsigned (snd slbl') < Ptrofs.unsigned (snd slbl)).
+Proof.
+  induction defs1; intros.
+  - subst. simpl in *. inv DEFSNAMES.
+    erewrite update_funs_map_pre_gmap; eauto.
+    erewrite update_instrs_pres_gmap; eauto. simpl.
+    unfold update_gid_map. rewrite peq_true. eexists. split. eauto.
+    intros. contradiction.
+  - destruct a.
+    assert (defs_names_distinct (defs1 ++ (id, Some (Gfun (Internal f))) :: defs2)) as DEFSNAMES'.
+    { subst. inv DEFSNAMES. auto. }
+    rewrite <- DEFS in UPDATE. simpl in UPDATE. destruct o. destruct g. destruct f0.
+    (* internal function *)
+    match type of UPDATE with
+    | _ = update_funs_map ?ci _ =>
+      exploit (IHdefs1 ci); eauto
+    end.
+    (* red. intros id' slbl' CIMAP LBL.     *)
+    (* erewrite update_instrs_pres_gmap in CIMAP; eauto.  simpl in CIMAP. *)
+    (* unfold update_gid_map in CIMAP. *)
+    (* destruct peq.  *)
+    (* subst id'. unfold code_label in CIMAP. destruct slbl'. inv CIMAP. simpl. admit. *)
+    Admitted.
+
+
+    
+    
+
 Lemma update_map_gmap_some :
   forall (prog : Asm.program) (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
     defs gdefs def
+    (DEFSNAMES: defs_names_distinct (AST.prog_defs prog))
     (UPDATE: update_map prog = OK (gmap, lmap, dsize, csize, efsize))
     (DEFS: (defs ++ (id, Some def) :: gdefs) = AST.prog_defs prog),
     exists slbl, gmap id = Some slbl 
            /\ (forall id' slbl', In id' (map fst defs) -> (gmap id' = Some slbl') ->
               fst slbl' = fst slbl -> Ptrofs.unsigned (snd slbl') < Ptrofs.unsigned (snd slbl)).
+Proof.
+  intros. monadInv UPDATE.
+  set (gvmap := (update_gvars_map {| di_size := 0; di_map := default_gid_map |} (AST.prog_defs prog0))) in *.
+  set (efmap := (update_extfuns_map {| di_size := 0; di_map := di_map gvmap |} (AST.prog_defs prog0))) in *.
+  set (fmap := (update_funs_map {| ci_size := 0; ci_map := di_map efmap; ci_lmap := default_label_map |} (AST.prog_defs prog0))) in *.
+
+  destruct def. destruct f.
+  (* def is an internal function *)
+
+
+  (* exploit (update_map_gmap_some_internal defs {| ci_size := 0; ci_map := di_map efmap; ci_lmap := default_label_map |}); eauto.  *)
+
+
+  (* rewrite FMAPEQ. unfold fmap'. simpl. *)
+
+  (* Lemma update_funs_map_gmap_shrink : forall defs2 defs1 defs id cinfo, *)
+  (*     defs1 ++ defs2 = defs ->   *)
+  (*     defs_names_distinct defs -> *)
+  (*     In id (map fst defs1) -> *)
+  (*     ci_map (update_funs_map cinfo defs) id = ci_map (update_funs_map cinfo defs1) id. *)
+  (* Admitted. *)
+
+  (* assert (((defs ++ (id, Some def) :: nil) ++ gdefs) = AST.prog_defs prog0) as DEFS'. *)
+  (* { rewrite <- app_assoc. simpl. auto. } *)
+  (* assert (In (id, Some def) (defs ++ (id, Some def) :: nil)) as IN. *)
+  (* { apply in_app. right. apply in_eq. } *)
+  (* assert (In id (map fst (defs ++ (id, Some def) :: nil))) as INID. *)
+  (* { replace id with (fst ((id, Some def))) by auto. apply in_map. auto. } *)
+  (* exploit (fun a b c d => update_funs_map_gmap_shrink a b c d *)
+  (*              {| ci_size := 0; ci_map := di_map efmap; ci_lmap := default_label_map |}); eauto using DEFS', INID. *)
+  (* fold fmap. intros FMAPEQ. *)
+  (* set (fmap' := (update_funs_map {| ci_size := 0; ci_map := di_map efmap; ci_lmap := default_label_map |} (defs ++ (id, Some def) :: nil))) in *. *)
+
+  (* Lemma update_extfuns_map_gmap_shrink : forall defs2 defs1 defs id dinfo, *)
+  (*     defs1 ++ defs2 = defs ->   *)
+  (*     defs_names_distinct defs -> *)
+  (*     In id (map fst defs1) -> *)
+  (*     di_map (update_extfuns_map dinfo defs) id = di_map (update_extfuns_map dinfo defs1) id. *)
+  (* Admitted. *)
+
+  (* exploit (fun a b c d => update_extfuns_map_gmap_shrink a b c d *)
+  (*              {| di_size := 0; di_map := di_map gvmap |}); eauto using DEFS', INID. *)
+  (* fold efmap. intros EFMAPEQ. *)
+  (* set (efmap' := (update_extfuns_map {| di_size := 0; di_map := di_map gvmap |} (defs ++ (id, Some def) :: nil))) in *. *)
+  
+  (* Lemma update_gvars_map_gmap_shrink : forall defs2 defs1 defs id dinfo, *)
+  (*     defs1 ++ defs2 = defs ->   *)
+  (*     defs_names_distinct defs -> *)
+  (*     In id (map fst defs1) -> *)
+  (*     di_map (update_gvars_map dinfo defs) id = di_map (update_gvars_map dinfo defs1) id. *)
+  (* Admitted. *)
+  
+  (* exploit (fun a b c d => update_gvars_map_gmap_shrink a b c d *)
+  (*              {| di_size := 0; di_map := default_gid_map |}); eauto using DEFS', INID. *)
+  (* fold gvmap. intros GVMAPEQ. *)
+  (* set (gvmap' := (update_gvars_map {| di_size := 0; di_map := default_gid_map |} (defs ++ (id, Some def) :: nil))) in *. *)
 Admitted.
+  
+
 
 Lemma drop_perm_pres_def_frame_inj : forall m1 lo hi m1' b p,
     Mem.drop_perm m1 b lo hi p = Some m1' ->
@@ -1958,7 +2147,7 @@ Proof.
   rewrite UPDATE in EQ. inversion EQ. subst g l z1 z0 z.
   exploit alloc_all_globals_inject; eauto using INITMEM, SINJ, Mem.inject_ext, globs_meminj_empty.
   unfold check_wellformedness in WF.
-  rewrite andb_true_iff in WF. destruct WF as [NODUPDEFS NODUPLBLS].
+  repeat rewrite andb_true_iff in WF. destruct WF as (FNONEMPTY & NODUPDEFS & NODUPLBLS).
   apply nodup_defs_distinct_names. auto.
   simpl. intros (m1' & ALLOC' & MINJ). 
   exists m1'. split. 
