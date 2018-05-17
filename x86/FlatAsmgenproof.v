@@ -1671,9 +1671,31 @@ Definition seglabel_bound (ci: cinfo) (sid: segid_type) : Prop :=
   forall id slbl, (ci_map ci id = Some slbl) -> fst slbl = sid
                -> Ptrofs.unsigned (snd slbl) < ci_size ci.
 
+Definition fun_non_empty (def: AST.globdef Asm.fundef unit) : Prop :=
+  match def with
+  | Gfun (Internal f) =>
+    (0 < length (Asm.fn_code f))%nat
+  | _ => True
+  end.
+
+Definition defs_funs_non_empty (defs: list (ident * option (AST.globdef Asm.fundef unit))) : Prop :=
+  Forall (fun '(id, def) =>
+            match def with
+            | None => True
+            | Some def' => fun_non_empty def'
+            end
+         ) defs.
+
+Lemma defs_funs_non_empty_cons_inv : forall a l,
+  defs_funs_non_empty (a::l) -> defs_funs_non_empty l.
+Proof.
+  unfold defs_funs_non_empty. intros a l H.
+  inv H. auto.
+Qed.
 
 Lemma update_funs_map_bound :
   forall defs cinfo cinfo' 
+    (DEFSNONEMPTY : defs_funs_non_empty defs)
     (DEFSNAMES: defs_names_distinct defs)
     (SLBOUND : seglabel_bound cinfo code_segid)
     (UPDATE: cinfo' = update_funs_map cinfo defs),
@@ -1686,6 +1708,7 @@ Proof.
       | [ |- context[ update_funs_map ?ci _ ] ] =>
         eapply (IHdefs ci); eauto
       end.
+      eapply defs_funs_non_empty_cons_inv; eauto.
       red. intros id slbl CIMAP FST.
       erewrite update_instrs_pres_gmap in CIMAP; eauto. simpl in CIMAP.
       unfold update_gid_map in CIMAP. destruct peq.
