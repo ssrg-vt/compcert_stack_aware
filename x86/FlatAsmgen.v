@@ -540,7 +540,7 @@ Definition transl_globdef (id:ident) (def: option (AST.globdef Asm.fundef unit))
       match gid_map id with
       | None => Error (MSG "Translation of an external function fails: no address for the function" :: nil)
       | Some (sid, ofs) => 
-        let sblk := mkSegBlock extfuns_segid ofs Ptrofs.one in
+        let sblk := mkSegBlock sid ofs Ptrofs.one in
         OK (Some ((id, Some (Gfun (External f)), sblk), nil))
       end
     | Internal fd =>

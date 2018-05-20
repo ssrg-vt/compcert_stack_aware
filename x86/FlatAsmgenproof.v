@@ -1904,109 +1904,205 @@ Proof.
     simpl. eexists; split; eauto.
   - destruct a. destruct o. 
     + destruct g. destruct f.
-      (** the head of gdefs is an internal function **)
-      monadInv TRANSG. destruct x; monadInv EQ. inv EQ2.
-      simpl in ALLOCG. destr_match_in ALLOCG; try now inversion ALLOCG.
-      destruct (Mem.alloc m1 0 1) eqn:ALLOCF.
-      exploit Mem.alloc_result; eauto using ALLOCF. intros.
-      exploit update_map_gmap_some; eauto. 
-      intros (slbl & GMAP & OFSRANGE).
+      * (** the head of gdefs is an internal function **)
+        monadInv TRANSG. destruct x; monadInv EQ. inv EQ2.
+        simpl in ALLOCG. destr_match_in ALLOCG; try now inversion ALLOCG.
+        destruct (Mem.alloc m1 0 1) eqn:ALLOCF.
+        exploit Mem.alloc_result; eauto using ALLOCF. intros.
+        exploit update_map_gmap_some; eauto. 
+        intros (slbl & GMAP & OFSRANGE).
 
-      (* alloc mapped injection *)
-      exploit (Mem.alloc_left_mapped_inject 
-                 (globs_meminj defs gmap) (def_frame_inj m1) m1 m1' 0 1 m0
-                 b (gen_segblocks tprog (fst slbl)) (Ptrofs.unsigned (snd slbl))
-                 MINJ ALLOCF); eauto.
-      (* valid block *)
-      admit.
-      (* valid offset *)
-      admit.
-      (* the offset of a location with permission is valid *)
-      admit.
-      (* preservation of permission *)
-      admit.
-      (* correct alignment *)
-      admit.
-      (* alloced memory has not been injected before *)
-      intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
-      apply PERMS in PERM'. destruct PERM' as (id' & slbl' & FINDSYM' & GMAP' & OFS').
-      unfold globs_meminj in GINJ. apply Genv.find_invert_symbol in FINDSYM'.
-      rewrite FINDSYM' in GINJ. rewrite GMAP' in GINJ. inversion GINJ.
-      assert (fst slbl' = fst slbl).
-      { 
-        eapply gen_segblocks_injective; eauto. 
-        apply gen_segblocks_in_valid; eauto. 
-        eapply AGREE_SMINJ_INSTR.update_map_gmap_range; eauto.
-      }
-      apply Genv.invert_find_symbol in FINDSYM'.
-      exploit OFSRANGE; eauto. 
-      eapply partial_genv_find_symbol_inversion; eauto.
-      intros VALIDOFS. rewrite H2 in VALIDOFS. omega.
-      (* allocated memory is public *)
-      admit.
-      intros (f' & MINJ' & INJINCR & FNB & FINV).
-      erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
+        (* alloc mapped injection *)
+        exploit (Mem.alloc_left_mapped_inject 
+                   (globs_meminj defs gmap) (def_frame_inj m1) m1 m1' 0 1 m0
+                   b (gen_segblocks tprog (fst slbl)) (Ptrofs.unsigned (snd slbl))
+                   MINJ ALLOCF); eauto.
+        (* valid block *)
+        admit.
+        (* valid offset *)
+        admit.
+        (* the offset of a location with permission is valid *)
+        admit.
+        (* preservation of permission *)
+        admit.
+        (* correct alignment *)
+        admit.
+        (* alloced memory has not been injected before *)
+        intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
+        apply PERMS in PERM'. destruct PERM' as (id' & slbl' & FINDSYM' & GMAP' & OFS').
+        unfold globs_meminj in GINJ. apply Genv.find_invert_symbol in FINDSYM'.
+        rewrite FINDSYM' in GINJ. rewrite GMAP' in GINJ. inversion GINJ.
+        assert (fst slbl' = fst slbl).
+        { 
+          eapply gen_segblocks_injective; eauto. 
+          apply gen_segblocks_in_valid; eauto. 
+          eapply AGREE_SMINJ_INSTR.update_map_gmap_range; eauto.
+        }
+        apply Genv.invert_find_symbol in FINDSYM'.
+        exploit OFSRANGE; eauto. 
+        eapply partial_genv_find_symbol_inversion; eauto.
+        intros VALIDOFS. rewrite H2 in VALIDOFS. omega.
+        (* allocated memory is public *)
+        admit.
+        intros (f' & MINJ' & INJINCR & FNB & FINV).
+        erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
 
-      (* normalize the resulting inject of alloc *)
-      assert (forall x, f' x = (globs_meminj (defs ++ (i, Some (Gfun (Internal f))) :: nil) gmap) x) as INJEQ.
-      {
-        intros x2. destruct (eq_block x2 b).
-        (* x = b *)
-        subst x2. unfold globs_meminj.
-        generalize (partial_genv_invert_symbol defs i (Some (Gfun (Internal f)))).
-        intros INVSYM. subst b. rewrite BLOCKEQ. 
-        setoid_rewrite INVSYM. rewrite GMAP. rewrite <- BLOCKEQ. rewrite FNB.
-        auto.
-        (* x <> b *)
-        subst b. exploit FINV; eauto. intros FB. rewrite FB.
-        rewrite BLOCKEQ in n. unfold globs_meminj.
-        erewrite partial_genv_invert_symbol_pres; eauto.
-      }
-      exploit (Mem.inject_ext f' (globs_meminj (defs ++ (i, Some (Gfun (Internal f))) :: nil) gmap)); eauto.
-      intros MINJ''.
+        (* normalize the resulting inject of alloc *)
+        assert (forall x, f' x = (globs_meminj (defs ++ (i, Some (Gfun (Internal f))) :: nil) gmap) x) as INJEQ.
+        {
+          intros x2. destruct (eq_block x2 b).
+          (* x = b *)
+          subst x2. unfold globs_meminj.
+          generalize (partial_genv_invert_symbol defs i (Some (Gfun (Internal f)))).
+          intros INVSYM. subst b. rewrite BLOCKEQ. 
+          setoid_rewrite INVSYM. rewrite GMAP. rewrite <- BLOCKEQ. rewrite FNB.
+          auto.
+          (* x <> b *)
+          subst b. exploit FINV; eauto. intros FB. rewrite FB.
+          rewrite BLOCKEQ in n. unfold globs_meminj.
+          erewrite partial_genv_invert_symbol_pres; eauto.
+        }
+        exploit (Mem.inject_ext f' (globs_meminj (defs ++ (i, Some (Gfun (Internal f))) :: nil) gmap)); eauto.
+        intros MINJ''.
 
-      (* drop_perm injection *)
-      exploit Mem.drop_parallel_inject; eauto using MINJ''. 
-      red. simpl. auto. rewrite <- INJEQ. eauto.
-      intros (m2' & DROP & MINJ''').
-      erewrite drop_perm_pres_def_frame_inj in MINJ'''; eauto.
+        (* drop_perm injection *)
+        exploit Mem.drop_parallel_inject; eauto using MINJ''. 
+        red. simpl. auto. rewrite <- INJEQ. eauto.
+        intros (m2' & DROP & MINJ''').
+        erewrite drop_perm_pres_def_frame_inj in MINJ'''; eauto.
 
-      (* apply the induction hypothesis *)
-      assert ((defs ++ (i, Some (Gfun (Internal f))) :: nil) ++ gdefs = AST.prog_defs prog) as DEFSTAIL'.
-      rewrite <- DEFSTAIL. rewrite <- app_assoc. simpl. auto.
-      exploit (IHgdefs x0 (defs ++ (i, Some (Gfun (Internal f))) :: nil) m); eauto using MINJ''', DEFSTAIL'.
-      (* nextblock *)
-      erewrite Mem.nextblock_drop; eauto.
-      erewrite Mem.nextblock_alloc; eauto. rewrite BLOCKEQ.      
-      rewrite partial_genv_next. auto.
-      (* perm *)
-      intros b0 ofs k p PERM'.
-      erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
-      exploit Mem.perm_alloc_inv; eauto using ALLOCF. intros PERM1.
-      destruct eq_block. 
-      subst b0. exists i, slbl. split. rewrite partial_genv_find_symbol_eq. congruence. 
-      split; auto. omega.
-      apply PERMS in PERM1. destruct PERM1 as (id & slbl' & FINDSYM & GMAP' & OFS).
-      exists id, slbl'. split.       
-      rewrite <- DEFSTAIL in DEFNAMES. apply defs_names_distinct_not_in in DEFNAMES.
-      destruct (ident_eq i id). 
-      subst i. apply partial_genv_find_symbol_inversion in FINDSYM. congruence.
-      erewrite partial_genv_find_symbol_neq; eauto.
-      split; auto.
+        (* apply the induction hypothesis *)
+        assert ((defs ++ (i, Some (Gfun (Internal f))) :: nil) ++ gdefs = AST.prog_defs prog) as DEFSTAIL'.
+        rewrite <- DEFSTAIL. rewrite <- app_assoc. simpl. auto.
+        exploit (IHgdefs x0 (defs ++ (i, Some (Gfun (Internal f))) :: nil) m); eauto using MINJ''', DEFSTAIL'.
+        (* nextblock *)
+        erewrite Mem.nextblock_drop; eauto.
+        erewrite Mem.nextblock_alloc; eauto. rewrite BLOCKEQ.      
+        rewrite partial_genv_next. auto.
+        (* perm *)
+        intros b0 ofs k p PERM'.
+        erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
+        exploit Mem.perm_alloc_inv; eauto using ALLOCF. intros PERM1.
+        destruct eq_block. 
+        subst b0. exists i, slbl. split. rewrite partial_genv_find_symbol_eq. congruence. 
+        split; auto. omega.
+        apply PERMS in PERM1. destruct PERM1 as (id & slbl' & FINDSYM & GMAP' & OFS).
+        exists id, slbl'. split.       
+        rewrite <- DEFSTAIL in DEFNAMES. apply defs_names_distinct_not_in in DEFNAMES.
+        destruct (ident_eq i id). 
+        subst i. apply partial_genv_find_symbol_inversion in FINDSYM. congruence.
+        erewrite partial_genv_find_symbol_neq; eauto.
+        split; auto.
 
-      (* finish this case *)
-      intros (m3' & ALLOCG' & MINJ_FINAL).
-      exists m3'. split; auto. simpl. 
-      exploit transl_fun_inversion; eauto.
-      intros (slbl' & GMAP' & FRANGE).
-      rewrite GMAP in GMAP'. inv GMAP'. rewrite FRANGE. simpl.
-      unfold tge. rewrite genv_gen_segblocks. setoid_rewrite Ptrofs.unsigned_repr.
-      rewrite Z.add_comm. setoid_rewrite DROP. auto. admit.
+        (* finish this case *)
+        intros (m3' & ALLOCG' & MINJ_FINAL).
+        exists m3'. split; auto. simpl. 
+        exploit transl_fun_inversion; eauto.
+        intros (slbl' & GMAP' & FRANGE).
+        rewrite GMAP in GMAP'. inv GMAP'. rewrite FRANGE. simpl.
+        unfold tge. rewrite genv_gen_segblocks. setoid_rewrite Ptrofs.unsigned_repr.
+        rewrite Z.add_comm. setoid_rewrite DROP. auto. admit.
 
-      (** the head of gdefs is an external function **)
-      admit.
-      (** the head of gdefs is a global variable **)
-      admit.
+      * (** the head of gdefs is an external function **)
+        monadInv TRANSG. destruct (gmap i) eqn:ILBL; try now inversion EQ.
+        destruct s. monadInv EQ. monadInv EQ2.
+        simpl in ALLOCG. destr_match_in ALLOCG; try now inversion ALLOCG.
+        destruct (Mem.alloc m1 0 1) eqn:ALLOCF.
+        exploit Mem.alloc_result; eauto using ALLOCF. intros.
+        exploit update_map_gmap_some; eauto. 
+        intros (slbl & GMAP & OFSRANGE).
+
+        (* alloc mapped injection *)
+        exploit (Mem.alloc_left_mapped_inject 
+                   (globs_meminj defs gmap) (def_frame_inj m1) m1 m1' 0 1 m0
+                   b (gen_segblocks tprog (fst slbl)) (Ptrofs.unsigned (snd slbl))
+                   MINJ ALLOCF); eauto.
+        (* valid block *)
+        admit.
+        (* valid offset *)
+        admit.
+        (* the offset of a location with permission is valid *)
+        admit.
+        (* preservation of permission *)
+        admit.
+        (* correct alignment *)
+        admit.
+        (* alloced memory has not been injected before *)
+        intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
+        apply PERMS in PERM'. destruct PERM' as (id' & slbl' & FINDSYM' & GMAP' & OFS').
+        unfold globs_meminj in GINJ. apply Genv.find_invert_symbol in FINDSYM'.
+        rewrite FINDSYM' in GINJ. rewrite GMAP' in GINJ. inversion GINJ.
+        assert (fst slbl' = fst slbl).
+        { 
+          eapply gen_segblocks_injective; eauto. 
+          apply gen_segblocks_in_valid; eauto. 
+          eapply AGREE_SMINJ_INSTR.update_map_gmap_range; eauto.
+        }
+        apply Genv.invert_find_symbol in FINDSYM'.
+        exploit OFSRANGE; eauto. 
+        eapply partial_genv_find_symbol_inversion; eauto.
+        intros VALIDOFS. rewrite H2 in VALIDOFS. omega.
+        (* allocated memory is public *)
+        admit.
+        intros (f' & MINJ' & INJINCR & FNB & FINV).
+        erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
+
+        (* normalize the resulting inject of alloc *)
+        assert (forall x, f' x = (globs_meminj (defs ++ (i, Some (Gfun (External e))) :: nil) gmap) x) as INJEQ.
+        {
+          intros x2. destruct (eq_block x2 b).
+          (* x = b *)
+          subst x2. unfold globs_meminj.
+          generalize (partial_genv_invert_symbol defs i (Some (Gfun (External e)))).
+          intros INVSYM. subst b. rewrite BLOCKEQ. 
+          setoid_rewrite INVSYM. rewrite GMAP. rewrite <- BLOCKEQ. rewrite FNB.
+          auto.
+          (* x <> b *)
+          subst b. exploit FINV; eauto. intros FB. rewrite FB.
+          rewrite BLOCKEQ in n. unfold globs_meminj.
+          erewrite partial_genv_invert_symbol_pres; eauto.
+        }
+        exploit (Mem.inject_ext f' (globs_meminj (defs ++ (i, Some (Gfun (External e))) :: nil) gmap)); eauto.
+        intros MINJ''.
+
+        (* drop_perm injection *)
+        exploit Mem.drop_parallel_inject; eauto using MINJ''. 
+        red. simpl. auto. rewrite <- INJEQ. eauto.
+        intros (m2' & DROP & MINJ''').
+        erewrite drop_perm_pres_def_frame_inj in MINJ'''; eauto.
+
+        (* apply the induction hypothesis *)
+        assert ((defs ++ (i, Some (Gfun (External e))) :: nil) ++ gdefs = AST.prog_defs prog) as DEFSTAIL'.
+        rewrite <- DEFSTAIL. rewrite <- app_assoc. simpl. auto.
+        exploit (IHgdefs x0 (defs ++ (i, Some (Gfun (External e))) :: nil) m); eauto using MINJ''', DEFSTAIL'.
+        (* nextblock *)
+        erewrite Mem.nextblock_drop; eauto.
+        erewrite Mem.nextblock_alloc; eauto. rewrite BLOCKEQ.      
+        rewrite partial_genv_next. auto.
+        (* perm *)
+        intros b0 ofs k p PERM'.
+        erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
+        exploit Mem.perm_alloc_inv; eauto using ALLOCF. intros PERM1.
+        destruct eq_block. 
+        subst b0. exists i, slbl. split. rewrite partial_genv_find_symbol_eq. congruence. 
+        split; auto. omega.
+        apply PERMS in PERM1. destruct PERM1 as (id & slbl' & FINDSYM & GMAP' & OFS).
+        exists id, slbl'. split.       
+        rewrite <- DEFSTAIL in DEFNAMES. apply defs_names_distinct_not_in in DEFNAMES.
+        destruct (ident_eq i id). 
+        subst i. apply partial_genv_find_symbol_inversion in FINDSYM. congruence.
+        erewrite partial_genv_find_symbol_neq; eauto.
+        split; auto.
+
+        (* finish this case *)
+        intros (m3' & ALLOCG' & MINJ_FINAL).
+        exists m3'. split; auto. simpl.
+        rewrite GMAP in ILBL. inv ILBL.
+        unfold tge. rewrite genv_gen_segblocks. setoid_rewrite Ptrofs.unsigned_repr.
+        rewrite Z.add_comm. setoid_rewrite DROP. auto. admit.
+
+      * (** the head of gdefs is a global variable **)
+        admit.
         
     + (* the head of gdefs is None *)
       monadInv TRANSG. simpl in ALLOCG.
