@@ -1549,6 +1549,29 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
       drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
    /\ inject f g m1' m2';
 
+ drop_extended_parallel_inject {InjectPerm: InjectPerm}:
+  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
+  inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  lo2 <= lo1 -> hi1 <= hi2 ->
+  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
+  (* no source memory location with non-empty permision 
+     injects into the following region in b2 in the target memory: 
+     [lo2, lo1)
+     and
+     [hi1, hi2)
+  *)
+  (forall b' delta' ofs' k p,
+    f b' = Some(b2, delta') ->
+    perm m1 b' ofs' k p ->
+    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
+     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
+  exists m2',
+      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
+   /\ inject f g m1' m2';
+
  drop_outside_inject {injperm: InjectPerm}:
   forall f g m1 m2 b lo hi p m2',
     inject f g m1 m2 ->
