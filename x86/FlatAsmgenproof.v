@@ -2482,16 +2482,11 @@ Proof.
     destr_match. erewrite IHdefs; eauto. auto.
 Qed.
 
-Lemma eq_globs_init_meminj : forall gmap lmap dsize csize efsize,
-    update_map prog = OK (gmap, lmap, dsize, csize, efsize) ->
-    (globs_meminj (AST.prog_defs prog) gmap) = (init_meminj gmap).
-Admitted.
-
 Lemma init_mem_pres_inject : forall m gmap lmap dsize csize efsize
     (UPDATE: update_map prog = OK (gmap, lmap, dsize, csize, efsize))
     (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
     (INITMEM: Genv.init_mem prog = Some m),
-    exists m', init_mem tprog = Some m' /\ Mem.inject (init_meminj gmap) (def_frame_inj m) m m'. 
+    exists m', init_mem tprog = Some m' /\ Mem.inject (globs_meminj (AST.prog_defs prog) gmap) (def_frame_inj m) m m'. 
 Proof. 
   unfold Genv.init_mem, init_mem. intros.
   generalize initial_inject. intros INITINJ.
@@ -2516,7 +2511,7 @@ Proof.
   erewrite (fun defs => alloc_globals_ext defs (gen_segblocks tprog) (Genv.genv_segblocks tge)). 
   subst tprog tge. auto.
   intros x. subst tge. rewrite genv_gen_segblocks. auto.
-  erewrite eq_globs_init_meminj in MINJ; eauto.
+  auto.
 Qed.
 
 
@@ -2607,7 +2602,7 @@ Proof.
   inversion H1.
   (* push_new stage *)
   exploit Mem.push_new_stage_inject; eauto. intros NSTGINJ.
-  exploit (Mem.alloc_parallel_inject (init_meminj gmap) (1%nat :: def_frame_inj m)
+  exploit (Mem.alloc_parallel_inject (globs_meminj (AST.prog_defs prog) gmap) (1%nat :: def_frame_inj m)
           (Mem.push_new_stage m) (Mem.push_new_stage m')
           0 Mem.stack_limit m1 bstack 0 Mem.stack_limit); eauto. omega. omega.
   intros (j' & m1' & bstack' & MALLOC' & AINJ & INCR & FBSTACK & NOTBSTK).
@@ -2617,19 +2612,36 @@ Proof.
     apply Mem.alloc_result in MALLOC; eauto.
     subst bstack. apply Mem.push_new_stage_nextblock.
   }
-  assert (match_sminj gmap lmap j') by (subst bstack; eapply match_sminj_incr; eauto).
-  erewrite <- push_new_stage_def_frame_inj in AINJ.
+  assert (bstack' = Genv.genv_next tge). admit.
+  assert (forall x, j' x = init_meminj gmap x).
+  {
+    intros. destruct (eq_block x bstack).
+    subst x. rewrite FBSTACK. unfold init_meminj. subst.
+    rewrite dec_eq_true; auto.
+    erewrite NOTBSTK; eauto.
+    unfold init_meminj. subst. 
+    rewrite dec_eq_false; auto.
+    Lemma genv_partial_genv_eq : forall prog,
+      partial_genv (AST.prog_defs prog) = Genv.globalenv prog.
+    Admitted.
+    unfold globs_meminj. rewrite genv_partial_genv_eq. 
+    unfold Genv.symbol_block_offset, Genv.label_to_block_offset.
+    destruct (Genv.invert_symbol (Genv.globalenv prog) x) eqn:INVSYM; try auto.
+    destruct (gmap i) eqn:GMAP; try auto.
+    rewrite genv_gen_segblocks. auto.
+  }
+  exploit Mem.inject_ext; eauto. intros MINJ'.
+  erewrite <- push_new_stage_def_frame_inj in MINJ'.
   erewrite alloc_pres_def_frame_inj in AINJ; eauto.
   exploit Mem.drop_parallel_inject; eauto. red. simpl. auto.
   intros (m2' & MDROP' & DMINJ). simpl in MDROP'. rewrite Z.add_0_r in MDROP'.
   erewrite (drop_perm_pres_def_frame_inj m1) in DMINJ; eauto.
   
   assert (exists m3', Mem.record_stack_blocks m2' (make_singleton_frame_adt' bstack' frame_info_mono 0) = Some m3'
-                 /\ Mem.inject j' (def_frame_inj m3) m3 m3') as RCD.
+                 /\ Mem.inject (init_meminj gmap) (def_frame_inj m3) m3 m3') as RCD.
   {
     unfold def_frame_inj. unfold def_frame_inj in DMINJ.
-    eapply (Mem.record_stack_block_inject_flat m2 m3 m2' j'
-             (make_singleton_frame_adt' bstack frame_info_mono 0)); eauto.
+    eapply (Mem.record_stack_block_inject_flat m2 m3 m2' j'); eauto.
     (* frame inject *)
     red. unfold make_singleton_frame_adt'. simpl. constructor. 
     simpl. intros b2 delta FINJ. rewrite FBSTACK in FINJ. inv FINJ.
