@@ -2606,13 +2606,21 @@ Proof.
           (Mem.push_new_stage m) (Mem.push_new_stage m')
           0 Mem.stack_limit m1 bstack 0 Mem.stack_limit); eauto. omega. omega.
   intros (j' & m1' & bstack' & MALLOC' & AINJ & INCR & FBSTACK & NOTBSTK).
+  rewrite <- push_new_stage_def_frame_inj in AINJ.
+  erewrite alloc_pres_def_frame_inj in AINJ; eauto.
   assert (bstack = Globalenvs.Genv.genv_next ge). 
   { 
     exploit (Genv.init_mem_genv_next prog m); eauto. intros BEQ. unfold ge. rewrite BEQ.
     apply Mem.alloc_result in MALLOC; eauto.
     subst bstack. apply Mem.push_new_stage_nextblock.
   }
-  assert (bstack' = Genv.genv_next tge). admit.
+  assert (bstack' = Genv.genv_next tge). 
+  {
+    exploit init_mem_genv_next; eauto. intros BEQ.
+    unfold tge. rewrite BEQ.
+    exploit Mem.alloc_result; eauto.
+    intros. subst. apply Mem.push_new_stage_nextblock.
+  }
   assert (forall x, j' x = init_meminj gmap x).
   {
     intros. destruct (eq_block x bstack).
@@ -2631,9 +2639,8 @@ Proof.
     rewrite genv_gen_segblocks. auto.
   }
   exploit Mem.inject_ext; eauto. intros MINJ'.
-  erewrite <- push_new_stage_def_frame_inj in MINJ'.
-  erewrite alloc_pres_def_frame_inj in AINJ; eauto.
   exploit Mem.drop_parallel_inject; eauto. red. simpl. auto.
+  rewrite <- H5. rewrite FBSTACK. eauto.
   intros (m2' & MDROP' & DMINJ). simpl in MDROP'. rewrite Z.add_0_r in MDROP'.
   erewrite (drop_perm_pres_def_frame_inj m1) in DMINJ; eauto.
   
@@ -2641,10 +2648,12 @@ Proof.
                  /\ Mem.inject (init_meminj gmap) (def_frame_inj m3) m3 m3') as RCD.
   {
     unfold def_frame_inj. unfold def_frame_inj in DMINJ.
-    eapply (Mem.record_stack_block_inject_flat m2 m3 m2' j'); eauto.
+    eapply (Mem.record_stack_block_inject_flat m2 m3 m2' (init_meminj gmap)
+           (make_singleton_frame_adt' bstack frame_info_mono 0)); eauto.
     (* frame inject *)
     red. unfold make_singleton_frame_adt'. simpl. constructor. 
-    simpl. intros b2 delta FINJ. rewrite FBSTACK in FINJ. inv FINJ.
+    simpl. intros b2 delta FINJ. rewrite <- H5 in FINJ. 
+    rewrite FBSTACK in FINJ. inv FINJ.
     exists frame_info_mono. split. auto. apply inject_frame_info_id.
     constructor.
     (* in frame *)
@@ -2658,16 +2667,17 @@ Proof.
     eapply Mem.valid_new_block; eauto.
     (* frame_agree_perms *)
     red. unfold make_singleton_frame_adt'. simpl. 
-    intros b fi o k p H5 H6. inv H5; try contradiction.
-    inv H7. unfold frame_info_mono. simpl.
-    erewrite drop_perm_perm in H6; eauto. destruct H6.
+    intros b fi o k p BEQ PERM. inv BEQ; try contradiction.
+    inv H6. unfold frame_info_mono. simpl.
+    erewrite drop_perm_perm in PERM; eauto. destruct PERM.
     eapply Mem.perm_alloc_3; eauto.
     (* in frame iff *)
     unfold make_singleton_frame_adt'. unfold in_frame. simpl.
-    intros b1 b2 delta H5. split.
-    intros H6. destruct H6; try contradiction. subst b1. 
-    rewrite H5 in FBSTACK; inv FBSTACK; auto.
-    intros H6. destruct H6; try contradiction. subst b2. 
+    intros b1 b2 delta INJB. split.
+    intros BEQ. destruct BEQ; try contradiction. subst b1. 
+    rewrite <- H5 in INJB.
+    rewrite INJB in FBSTACK; inv FBSTACK; auto.
+    intros BEQ. destruct BEQ; try contradiction. subst b2. 
     assert (bstack' = Mem.nextblock (Mem.push_new_stage m')) as BEQ. 
     eapply Mem.alloc_result; eauto using MALLOC'.
     rewrite Mem.push_new_stage_nextblock in BEQ.
@@ -2675,7 +2685,7 @@ Proof.
     subst bstack'.     
     destruct (eq_block bstack b1); auto.
     assert (b1 <> bstack) by congruence.
-    apply NOTBSTK in H6. rewrite H6 in H5.     
+    apply NOTBSTK in H4. rewrite H5 in H4. 
     left. symmetry. subst bstack. eapply init_meminj_genv_next_inv; eauto.
 
     (* top frame *)
