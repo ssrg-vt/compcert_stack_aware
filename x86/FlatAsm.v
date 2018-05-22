@@ -1277,17 +1277,14 @@ Definition alloc_global (smap:segid_type -> block) (m: mem) (idg: ident * option
   | Some (Gvar v) =>
     let init := gvar_init unit v in
     let isz := init_data_list_size init in
-    if zeq isz sz then  
-      match Globalenvs.store_zeros m b ofs sz with
+    match Globalenvs.store_zeros m b ofs sz with
+    | None => None
+    | Some m1 =>
+      match store_init_data_list m1 b ofs init with
       | None => None
-      | Some m1 =>
-        match store_init_data_list m1 b ofs init with
-        | None => None
-        | Some m2 => Mem.drop_perm m2 b ofs (ofs+sz) (perm_globvar v)
-        end
+      | Some m2 => Mem.drop_perm m2 b ofs (ofs+sz) (perm_globvar v)
       end
-    else
-      None
+    end
   end.
 
 Fixpoint alloc_globals (smap:segid_type->block) (m: mem) (gl: list (ident * option gdef * segblock))

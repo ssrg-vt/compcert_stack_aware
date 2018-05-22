@@ -4478,6 +4478,93 @@ Proof.
   intros. eapply perm_drop_4; eauto.
 Qed.
 
+Lemma drop_partial_mapped_inj:
+  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
+  mem_inj f g m1 m2 ->
+  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  lo2 <= lo1 -> hi1 <= hi2 ->
+  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
+  meminj_no_overlap f m1 ->
+  (* no source memory location with non-empty permision 
+     injects into the following region in b2 in the target memory: 
+     [lo2, lo1)
+     and
+     [hi1, hi2)
+  *)
+  (forall b' delta' ofs' k p,
+    f b' = Some(b2, delta') ->
+    perm m1 b' ofs' k p ->
+    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
+     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
+  exists m2',
+      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
+   /\ mem_inj f g m1' m2'.
+Proof.
+  intros.
+  assert (exists m2', drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2' ) as X.
+  apply range_perm_drop_2'. auto. 
+  destruct X as [m2' DROP]. exists m2'; split; auto.
+  inv H.
+  constructor.
+(* perm *)
+  intros.
+  assert (perm m2 b3 (ofs + delta0) k p0).
+    eapply mi_perm0; eauto. eapply perm_drop_4; eauto.
+  destruct (eq_block b1 b0).
+  (* b1 = b0 *)
+  subst b0. rewrite H1 in H; inv H.
+  destruct (zlt (ofs + delta0) (lo1 + delta0)). 
+  destruct (zlt (ofs + delta0) (lo2 + delta0)).
+  eapply perm_drop_3; eauto.
+  exfalso. apply H6 with b1 delta0 ofs k p0; auto.
+  eapply perm_drop_4; eauto.
+  left. omega.
+  destruct (zle (hi1 + delta0) (ofs + delta0)). 
+  destruct (zle (hi2 + delta0) (ofs + delta0)).
+  eapply perm_drop_3; eauto.
+  exfalso. apply H6 with b1 delta0 ofs k p0; auto.
+  eapply perm_drop_4; eauto.
+  right. omega.
+  assert (perm_order p p0).
+    eapply perm_drop_2.  eexact H0. instantiate (1 := ofs). omega. eauto.
+  apply perm_implies with p; auto.
+  eapply perm_drop_1. eauto. omega.
+  (* b1 <> b0 *)
+  eapply perm_drop_3; eauto.
+  destruct (eq_block b3 b2); auto. subst.
+  destruct (zlt (ofs + delta0) (lo2 + delta)); auto.
+  destruct (zle (hi2 + delta) (ofs + delta0)); auto.
+  destruct (zlt (ofs + delta0) (lo1 + delta)).
+  exfalso. apply H6 with b0 delta0 ofs k p0; auto. eapply perm_drop_4; eauto. left. omega.
+  destruct (zle (hi1 + delta) (ofs + delta0)).
+  exfalso. apply H6 with b0 delta0 ofs k p0; auto. eapply perm_drop_4; eauto. right. omega.
+  exploit H5; eauto.
+  instantiate (1 := ofs + delta0 - delta).
+  apply perm_cur_max. apply perm_implies with Freeable.
+  eapply range_perm_drop_1; eauto. omega. auto with mem.
+  eapply perm_drop_4; eauto. eapply perm_max. apply perm_implies with p0. eauto.
+  eauto with mem.
+  intuition.
+
+(* align *)
+  intros. eapply mi_align0 with (ofs := ofs) (p := p0); eauto.
+  red; intros; eapply perm_drop_4; eauto.
+(* memval *)
+  intros.
+  replace (m1'.(mem_contents)#b0) with (m1.(mem_contents)#b0).
+  replace (m2'.(mem_contents)#b3) with (m2.(mem_contents)#b3).
+  apply mi_memval0; auto. eapply perm_drop_4; eauto.
+  unfold drop_perm in DROP; destruct (range_perm_dec m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable); inv DROP; auto.
+  unfold drop_perm in H0; destruct (range_perm_dec m1 b1 lo1 hi1 Cur Freeable); inv H0; auto.
+(* stack *)
+  rewrite (drop_perm_stack _ _ _ _ _ _ H0).
+  rewrite (drop_perm_stack _ _ _ _ _ _ DROP).
+  eapply stack_inject_invariant_strong. 2: eauto.
+  intros. eapply perm_drop_4; eauto.
+Qed.
+
+
 Lemma drop_outside_inj: forall f g m1 m2 b lo hi p m2',
   mem_inj f g m1 m2 ->
   drop_perm m2 b lo hi p = Some m2' ->
@@ -6186,6 +6273,59 @@ Proof.
   left. eapply perm_drop_3; eauto. right. right. omega.
   left. eapply perm_drop_3; eauto. right. left. omega.
   left. eapply perm_drop_3; eauto. 
+Qed.
+
+Lemma drop_extended_parallel_inject:
+  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
+  inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  lo2 <= lo1 -> hi1 <= hi2 ->
+  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
+  (* no source memory location with non-empty permision 
+     injects into the following region in b2 in the target memory: 
+     [lo2, lo1)
+     and
+     [hi1, hi2)
+  *)
+  (forall b' delta' ofs' k p,
+    f b' = Some(b2, delta') ->
+    perm m1 b' ofs' k p ->
+    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
+     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
+  exists m2',
+      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
+   /\ inject f g m1' m2'.
+Proof.
+  intros. inversion H. 
+  exploit drop_partial_mapped_inj; eauto.
+  intros (m2' & DPERM & MEMINJ).
+  exists m2'. split. auto. constructor.
+(* inj *)
+  auto.
+(* freeblocks *)
+  eauto with mem.
+(* mappedblocks *)
+  eauto with mem.
+(* no overlap *)
+  red; intros. eauto with mem.
+(* representable *)
+  intros. exploit mi_representable; try eassumption.
+  intros [A B]; split; eauto. intros ofs0 P. eapply B.
+  destruct P; eauto with mem.
+(* perm inv *)
+  intros. exploit mi_perm_inv0; eauto using perm_drop_4. 
+  intuition eauto using perm_drop_4.
+  destruct (eq_block b0 b1). subst b0.
+  destruct (zle lo1 ofs). destruct (zlt ofs hi1). 
+  rewrite H2 in H7. inv H7.
+  assert (perm_order p p0). eapply perm_drop_2; eauto. omega.
+  assert (perm m1' b1 ofs k p). eapply perm_drop_1; eauto.
+  left. eauto with mem.
+  left. eapply perm_drop_3; eauto. right. right. omega.
+  left. eapply perm_drop_3; eauto. right. left. omega.
+  left. eapply perm_drop_3; eauto.
 Qed.
 
 Lemma drop_outside_inject: forall f g m1 m2 b lo hi p m2',
@@ -9261,6 +9401,7 @@ Proof.
   intros; eapply free_right_inject; eauto.
   intros; eapply free_parallel_inject; eauto.
   intros; eapply drop_parallel_inject; eauto.
+  intros; eapply drop_extended_parallel_inject; eauto.
   intros; eapply drop_outside_inject; eauto.
   intros; eapply drop_right_inject; eauto.
   intros; eapply self_inject; eauto.

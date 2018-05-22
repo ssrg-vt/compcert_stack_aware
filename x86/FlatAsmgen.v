@@ -497,7 +497,7 @@ Definition transl_globdef (id:ident) (def: option (AST.globdef Asm.fundef unit))
       match gid_map id with
       | None => Error (MSG "Translation of an external function fails: no address for the function" :: nil)
       | Some (sid, ofs) => 
-        let sblk := mkSegBlock extfuns_segid ofs Ptrofs.one in
+        let sblk := mkSegBlock sid ofs Ptrofs.one in
         OK (Some ((id, Some (Gfun (External f)), sblk), nil))
       end
     | Internal fd =>
@@ -747,11 +747,23 @@ Definition globdef_no_duplicated_labels (def: option (AST.globdef Asm.fundef uni
   | _ => true
   end.
 
-Definition defs_no_duplicated_labels (defs: list (ident * option (AST.globdef Asm.fundef unit))) : bool :=
-  forallb (fun id => globdef_no_duplicated_labels (snd id)) defs.
+Definition defs_no_duplicated_labels (defs: list (ident * _)) : bool :=
+  forallb globdef_no_duplicated_labels (map snd defs).
+
+Fixpoint funs_non_empty (defs: list (ident * option (AST.globdef Asm.fundef unit))) : bool :=
+  match defs with
+  | nil => true
+  | (id, Some (AST.Gfun (Internal f)))::defs' =>
+    andb (0 <? (length (Asm.fn_code f)))%nat
+         (funs_non_empty defs')
+  | _ :: defs' =>
+    (funs_non_empty defs')
+  end. 
 
 Definition check_wellformedness (p:Asm.program) : bool :=
-  no_duplicated_defs (AST.prog_defs p) && defs_no_duplicated_labels (AST.prog_defs p).
+  andb (funs_non_empty (AST.prog_defs p))
+  (andb (no_duplicated_defs (AST.prog_defs p))
+        (defs_no_duplicated_labels (AST.prog_defs p))).
 
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=
