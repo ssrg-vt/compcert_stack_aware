@@ -2002,9 +2002,21 @@ Proof.
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
 
-        assert (i <> id). admit.
+        assert (i <> id). 
+        {
+          rewrite <- DEFSTAIL in DEFNAMES.
+          assert (~ In i (map fst defs)). eapply defs_names_distinct_not_in; eauto.
+          unfold not. intros. subst.
+          exploit (in_map fst defs); eauto.
+        }
         erewrite partial_genv_find_symbol_neq in FINDSYM; eauto.
-        assert (b <> b0). admit.
+        assert (b <> b0). 
+        {
+          subst b. rewrite BLOCKEQ.
+          unfold not. intros. subst.
+          apply Genv.find_invert_symbol in FINDSYM.
+          rewrite Genv.invert_symbol_genv_next in FINDSYM. congruence.
+        }
         erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
         exploit Mem.perm_alloc_inv; eauto using ALLOCF. 
         rewrite dec_eq_false; auto. intros. eapply PERMS; eauto.
@@ -2118,9 +2130,21 @@ Proof.
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
 
-        assert (i <> id). admit.
+        assert (i <> id). 
+        {
+          rewrite <- DEFSTAIL in DEFNAMES.
+          assert (~ In i (map fst defs)). eapply defs_names_distinct_not_in; eauto.
+          unfold not. intros. subst.
+          exploit (in_map fst defs); eauto.
+        }
         erewrite partial_genv_find_symbol_neq in FINDSYM; eauto.
-        assert (b <> b0). admit.
+        assert (b <> b0). 
+        {
+          subst b. rewrite BLOCKEQ.
+          unfold not. intros. subst.
+          apply Genv.find_invert_symbol in FINDSYM.
+          rewrite Genv.invert_symbol_genv_next in FINDSYM. congruence.
+        }
         erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
         exploit Mem.perm_alloc_inv; eauto using ALLOCF. 
         rewrite dec_eq_false; auto. intros. eapply PERMS; eauto.
@@ -2296,9 +2320,21 @@ Proof.
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
 
-        assert (i <> id). admit.
+        assert (i <> id). 
+        {
+          rewrite <- DEFSTAIL in DEFNAMES.
+          assert (~ In i (map fst defs)). eapply defs_names_distinct_not_in; eauto.
+          unfold not. intros. subst.
+          exploit (in_map fst defs); eauto.
+        }
         erewrite partial_genv_find_symbol_neq in FINDSYM; eauto.
-        assert (b <> b0). admit.
+        assert (b <> b0). 
+        {
+          subst b. rewrite BLOCKEQ.
+          unfold not. intros. subst.
+          apply Genv.find_invert_symbol in FINDSYM.
+          rewrite Genv.invert_symbol_genv_next in FINDSYM. congruence.
+        }
         erewrite (drop_perm_perm _ _ _ _ _ _ DROP) in PERM'. destruct PERM' as [PERM' PIN].
         erewrite <- (Genv.store_init_data_list_perm _ _ _ _ _ _ _ _ _ STOREINIT) in PERM'; eauto.
         erewrite <- (Genv.store_zeros_perm _ _ _ _ _ _ _ _ STOREZERO) in PERM'; eauto.
@@ -2371,9 +2407,22 @@ Proof.
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
 
-        assert (i <> id). admit.
+        assert (i <> id). 
+        {
+          rewrite <- DEFSTAIL in DEFNAMES.
+          assert (~ In i (map fst defs)). eapply defs_names_distinct_not_in; eauto.
+          unfold not. intros. subst.
+          exploit (in_map fst defs); eauto.
+        }
         erewrite partial_genv_find_symbol_neq in FINDSYM; eauto.
-        assert (b <> b0). admit.
+        assert (b <> b0). 
+        {
+          exploit Mem.alloc_result; eauto. intros. subst.
+          rewrite BLOCKEQ.
+          unfold not. intros. subst.
+          apply Genv.find_invert_symbol in FINDSYM.
+          rewrite Genv.invert_symbol_genv_next in FINDSYM. congruence.
+        }
         exploit Mem.perm_alloc_inv; eauto using ALLOCZ. 
         rewrite dec_eq_false; auto. intros. eapply PERMS; eauto.
 
@@ -2382,7 +2431,6 @@ Proof.
         inv H.
 
 Admitted.
-
 
 
 
