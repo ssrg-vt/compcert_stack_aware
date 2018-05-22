@@ -203,6 +203,11 @@ that we now axiomatize. *)
 
  inject: forall {injperm: InjectPerm}, meminj -> frameinj -> mem -> mem -> Prop;
 
+(** ** Weak Memory injections *)
+
+ weak_inject: forall {injperm: InjectPerm}, meminj -> frameinj -> mem -> mem -> Prop;
+
+
 (** Memory states that inject into themselves. *)
 
  inject_neutral: forall {injperm: InjectPerm} (thr: block) (m: mem), Prop;

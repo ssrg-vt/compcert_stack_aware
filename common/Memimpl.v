@@ -952,6 +952,34 @@ Definition inject {injperm: InjectPerm} := inject'.
 
 Local Hint Resolve mi_mappedblocks: mem.
 
+(** * Weak Memory injections *)
+
+(** A weak memory injection is a memory injection whose
+    domain may contain invalid blocks *)
+    
+Record weak_inject {injperm: InjectPerm} (f: meminj) (g: frameinj) (m1 m2: mem) : Prop :=
+  mk_weak_inject {
+    mwi_inj:
+      mem_inj f g m1 m2;
+    mwi_mappedblocks:
+      forall b b' delta, f b = Some(b', delta) -> valid_block m2 b';
+    mwi_no_overlap:
+      meminj_no_overlap f m1;
+    mwi_representable:
+      forall b b' delta,
+      f b = Some(b', delta) ->
+      delta >= 0
+      /\
+      forall ofs,
+        perm m1 b (Ptrofs.unsigned ofs) Max Nonempty
+        \/ perm m1 b (Ptrofs.unsigned ofs - 1) Max Nonempty ->
+        0 <= Ptrofs.unsigned ofs + delta <= Ptrofs.max_unsigned;
+    mwi_perm_inv:
+      forall b1 ofs b2 delta k p,
+      f b1 = Some(b2, delta) ->
+      perm m2 b2 (ofs + delta) k p ->
+      perm m1 b1 ofs k p \/ ~perm m1 b1 ofs Max Nonempty
+  }.
 
 (** The [magree] predicate is a variant of [extends] where we
   allow the contents of the two memory states to differ arbitrarily
