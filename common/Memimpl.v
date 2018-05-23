@@ -981,6 +981,7 @@ Record weak_inject {injperm: InjectPerm} (f: meminj) (g: frameinj) (m1 m2: mem) 
       perm m1 b1 ofs k p \/ ~perm m1 b1 ofs Max Nonempty
   }.
 
+
 (** The [magree] predicate is a variant of [extends] where we
   allow the contents of the two memory states to differ arbitrarily
   on some locations.  The predicate [P] is true on the locations whose
@@ -1640,6 +1641,52 @@ Proof.
   intros. red; intros. elim (perm_empty b ofs Cur p). apply H.
   generalize (size_chunk_pos chunk); omega.
 Qed.
+
+Theorem empty_weak_inject : forall f m, 
+  stack m = nil ->
+  (forall b b' delta, f b = Some(b', delta) -> delta >= 0) ->
+  (forall b b' delta, f b = Some(b', delta) -> valid_block m b') ->
+  weak_inject f nil Mem.empty m.
+Proof.
+  intros f m STK DELTA MAPPED. constructor. constructor.
+  - (* perm *)
+    intros b1 b2 delta ofs k p F PERM INJP.
+    exploit perm_empty; eauto. contradiction.
+  - (* align *)
+    intros b1 b2 delta chunk ofs p F RNGP.
+    red in RNGP. specialize (RNGP ofs).
+    exploit RNGP. generalize (size_chunk_pos chunk). omega.
+    intros. exploit perm_empty; eauto. contradiction.
+  - (* memval *)
+    intros b1 ofs b2 delta F PERM.
+    exploit perm_empty; eauto. contradiction.
+  - (* stack inject *)
+    constructor. simpl. rewrite STK. constructor.
+    intros. rewrite STK in *. simpl in *. contradiction.
+  - (* mapped *)
+    auto.
+  - (* no overlap *)
+    red. intros.
+    exploit perm_empty; eauto. 
+  - (* representable *)
+    intros b b' delta F. split.
+    eapply DELTA; eauto.
+    intros ofs [PERM | PERM]; exploit perm_empty; eauto; contradiction. 
+  - (* inv *)
+    intros b1 ofs b2 delta k p F PERM.
+    right. unfold not. intros.
+    exploit perm_empty; eauto; contradiction. 
+Qed.
+
+Theorem weak_inject_to_inject : forall f g m1 m2,
+  weak_inject f g m1 m2 -> 
+  (forall b, ~(valid_block m1 b) -> f b = None) ->
+  inject f g m1 m2.
+Proof.
+  intros f g m1 m2 WINJ VB.
+  inv WINJ. constructor; auto.
+Qed.
+
 
 (** ** Properties related to [load] *)
 
@@ -6006,6 +6053,38 @@ Proof.
     intros; unfold f'; apply dec_eq_false; auto.
 Qed.
 
+Theorem alloc_left_unmapped_weak_inject:
+  forall f g m1 m2 lo hi m1' b1,
+  f b1 = None ->
+  weak_inject f g m1 m2 ->
+  alloc m1 lo hi = (m1', b1) ->
+  weak_inject f g m1' m2.
+Proof.
+  intros. inversion H0.
+  - constructor.
+    + (* inj *)
+      eapply alloc_left_unmapped_inj; eauto. 
+    + (* mappedblocks *)
+      intros. destruct (eq_block b b1). congruence. eauto.
+    + (* no overlap *)
+      red; intros.
+      destruct (eq_block b0 b1); destruct (eq_block b2 b1); try congruence.
+      eapply mwi_no_overlap0. eexact H2. eauto. eauto.
+      exploit perm_alloc_inv. eauto. eexact H5. rewrite dec_eq_false; auto.
+      exploit perm_alloc_inv. eauto. eexact H6. rewrite dec_eq_false; auto.
+    + (* representable *)
+      intros.
+      destruct (eq_block b b1). subst. rewrite H in H2. congruence.
+      exploit mwi_representable0; try eassumption.
+      intros [A B]; split; auto.
+      intros; eapply B; eauto.
+      destruct H3; eauto using perm_alloc_4.
+    + (* perm inv *)
+      intros. destruct (eq_block b0 b1). subst. rewrite H in H2. congruence.
+      exploit mwi_perm_inv0; eauto. 
+      intuition eauto using perm_alloc_1, perm_alloc_4.
+Qed.
+
 Theorem alloc_left_mapped_inject:
   forall f g m1 m2 lo hi m1' b1 b2 delta,
   inject f g m1 m2 ->
@@ -9553,6 +9632,13 @@ Proof.
   exact perm_drop_4.
   exact loadbytes_drop.
   exact load_drop.
+  intros; eapply empty_weak_inject; eauto.
+  intros; eapply weak_inject_to_inject; eauto.
+  intros; eapply store_mapped_weak_inject; eauto.
+  intros; eapply alloc_left_mapped_weak_inject; eauto.
+  intros; eapply alloc_left_unmapped_weak_inject; eauto.
+  intros; eapply drop_parallel_weak_inject; eauto.
+  intros; eapply drop_extended_parallel_weak_inject; eauto.
   intros; eapply extends_refl; eauto.
   intros; eapply load_extends; eauto.
   intros; eapply loadv_extends; eauto.
@@ -9607,7 +9693,6 @@ Proof.
   intros; eapply loadv_inject; eauto.
   intros; eapply loadbytes_inject; eauto.
   intros; eapply store_mapped_inject; eauto.
-  intros; eapply store_mapped_weak_inject; eauto.
   intros; eapply store_unmapped_inject; eauto.
   intros; eapply store_outside_inject; eauto.
   intros; eapply store_right_inject; eauto.
@@ -9619,7 +9704,6 @@ Proof.
   intros; eapply alloc_right_inject; eauto.
   intros; eapply alloc_left_unmapped_inject; eauto.
   intros; eapply alloc_left_mapped_inject; eauto.
-  intros; eapply alloc_left_mapped_weak_inject; eauto.
   intros; eapply alloc_parallel_inject; eauto.
   intros; eapply free_inject; eauto.
   intros; eapply free_left_inject; eauto.
@@ -9627,9 +9711,7 @@ Proof.
   intros; eapply free_right_inject; eauto.
   intros; eapply free_parallel_inject; eauto.
   intros; eapply drop_parallel_inject; eauto.
-  intros; eapply drop_parallel_weak_inject; eauto.
   intros; eapply drop_extended_parallel_inject; eauto.
-  intros; eapply drop_extended_parallel_weak_inject; eauto.
   intros; eapply drop_outside_inject; eauto.
   intros; eapply drop_right_inject; eauto.
   intros; eapply self_inject; eauto.

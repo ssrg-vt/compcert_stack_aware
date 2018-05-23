@@ -980,6 +980,89 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   b' <> b \/ ofs + size_chunk chunk <= lo \/ hi <= ofs \/ perm_order p Readable ->
   load chunk m' b' ofs = load chunk m b' ofs;
 
+(** ** Properties of [weak_inject]. *)
+ empty_weak_inject {injperm: InjectPerm}: forall f m, 
+  stack m = nil ->
+  (forall b b' delta, f b = Some(b', delta) -> delta >= 0) ->
+  (forall b b' delta, f b = Some(b', delta) -> valid_block m b') ->
+  weak_inject f nil Mem.empty m;
+
+ weak_inject_to_inject {injperm: InjectPerm}: forall f g m1 m2,
+  weak_inject f g m1 m2 -> 
+  (forall b, ~(valid_block m1 b) -> f b = None) ->
+  inject f g m1 m2;
+
+ store_mapped_weak_inject {injperm: InjectPerm}:
+  forall f g chunk m1 b1 ofs v1 n1 m2 b2 delta v2,
+  weak_inject f g m1 m2 ->
+  store chunk m1 b1 ofs v1 = Some n1 ->
+  f b1 = Some (b2, delta) ->
+  Val.inject f v1 v2 ->
+  exists n2,
+    store chunk m2 b2 (ofs + delta) v2 = Some n2
+    /\ weak_inject f g n1 n2;
+
+ alloc_left_mapped_weak_inject {injperm: InjectPerm}:
+  forall f g m1 m2 lo hi m1' b1 b2 delta,
+  f b1 = Some(b2, delta) ->
+  weak_inject f g m1 m2 ->
+  alloc m1 lo hi = (m1', b1) ->
+  valid_block m2 b2 ->
+  0 <= delta <= Ptrofs.max_unsigned ->
+  (forall ofs k p, perm m2 b2 ofs k p -> delta = 0 \/ 0 <= ofs < Ptrofs.max_unsigned) ->
+  (forall ofs k p, lo <= ofs < hi -> inject_perm_condition p -> perm m2 b2 (ofs + delta) k p) ->
+  inj_offset_aligned delta (hi-lo) ->
+  (forall b delta' ofs k p,
+   f b = Some (b2, delta') ->
+   perm m1 b ofs k p ->
+   lo + delta <= ofs + delta' < hi + delta -> False) ->
+  (forall fi,
+      in_stack' (stack m2) (b2,fi) ->
+      forall o k pp,
+        perm m1' b1 o k pp ->
+        inject_perm_condition pp ->
+        frame_public fi (o + delta)) ->
+  weak_inject f g m1' m2;
+
+ alloc_left_unmapped_weak_inject {injperm: InjectPerm}:
+  forall f g m1 m2 lo hi m1' b1,
+  f b1 = None ->
+  weak_inject f g m1 m2 ->
+  alloc m1 lo hi = (m1', b1) ->
+  weak_inject f g m1' m2;
+
+ drop_parallel_weak_inject {InjectPerm: InjectPerm}:
+  forall f g m1 m2 b1 b2 delta lo hi p m1',
+  weak_inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo hi p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  exists m2',
+      drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
+   /\ weak_inject f g m1' m2';
+
+ drop_extended_parallel_weak_inject {injperm: InjectPerm}:
+  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
+  weak_inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  lo2 <= lo1 -> hi1 <= hi2 ->
+  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
+  (* no source memory location with non-empty permision 
+     injects into the following region in b2 in the target memory: 
+     [lo2, lo1)
+     and
+     [hi1, hi2)
+  *)
+  (forall b' delta' ofs' k p,
+    f b' = Some(b2, delta') ->
+    perm m1 b' ofs' k p ->
+    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
+     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
+  exists m2',
+      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
+   /\ weak_inject f g m1' m2';
 
 (** ** Properties of [extends]. *)
 
@@ -1373,16 +1456,6 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
     store chunk m2 b2 (ofs + delta) v2 = Some n2
     /\ inject f g n1 n2;
 
- store_mapped_weak_inject {injperm: InjectPerm}:
-  forall f g chunk m1 b1 ofs v1 n1 m2 b2 delta v2,
-  weak_inject f g m1 m2 ->
-  store chunk m1 b1 ofs v1 = Some n1 ->
-  f b1 = Some (b2, delta) ->
-  Val.inject f v1 v2 ->
-  exists n2,
-    store chunk m2 b2 (ofs + delta) v2 = Some n2
-    /\ weak_inject f g n1 n2;
-
  store_unmapped_inject {injperm: InjectPerm}:
   forall f g chunk m1 b1 ofs v1 n1 m2,
   inject f g m1 m2 ->
@@ -1502,28 +1575,6 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   /\ f' b1 = Some(b2, delta)
   /\ (forall b, b <> b1 -> f' b = f b);
 
- alloc_left_mapped_weak_inject {injperm: InjectPerm}:
-  forall f g m1 m2 lo hi m1' b1 b2 delta,
-  f b1 = Some(b2, delta) ->
-  weak_inject f g m1 m2 ->
-  alloc m1 lo hi = (m1', b1) ->
-  valid_block m2 b2 ->
-  0 <= delta <= Ptrofs.max_unsigned ->
-  (forall ofs k p, perm m2 b2 ofs k p -> delta = 0 \/ 0 <= ofs < Ptrofs.max_unsigned) ->
-  (forall ofs k p, lo <= ofs < hi -> inject_perm_condition p -> perm m2 b2 (ofs + delta) k p) ->
-  inj_offset_aligned delta (hi-lo) ->
-  (forall b delta' ofs k p,
-   f b = Some (b2, delta') ->
-   perm m1 b ofs k p ->
-   lo + delta <= ofs + delta' < hi + delta -> False) ->
-  (forall fi,
-      in_stack' (stack m2) (b2,fi) ->
-      forall o k pp,
-        perm m1' b1 o k pp ->
-        inject_perm_condition pp ->
-        frame_public fi (o + delta)) ->
-  weak_inject f g m1' m2;
-
  alloc_parallel_inject {injperm: InjectPerm}:
   forall f g m1 m2 lo1 hi1 m1' b1 lo2 hi2,
   inject f g m1 m2 ->
@@ -1586,15 +1637,6 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
       drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
    /\ inject f g m1' m2';
 
- drop_parallel_weak_inject {InjectPerm: InjectPerm}:
-  forall f g m1 m2 b1 b2 delta lo hi p m1',
-  weak_inject f g m1 m2 ->
-  inject_perm_condition Freeable ->
-  drop_perm m1 b1 lo hi p = Some m1' ->
-  f b1 = Some(b2, delta) ->
-  exists m2',
-      drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
-   /\ weak_inject f g m1' m2';
 
  drop_extended_parallel_inject {InjectPerm: InjectPerm}:
   forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
@@ -1618,29 +1660,6 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   exists m2',
       drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
    /\ inject f g m1' m2';
-
- drop_extended_parallel_weak_inject {injperm: InjectPerm}:
-  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
-  weak_inject f g m1 m2 ->
-  inject_perm_condition Freeable ->
-  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
-  f b1 = Some(b2, delta) ->
-  lo2 <= lo1 -> hi1 <= hi2 ->
-  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
-  (* no source memory location with non-empty permision 
-     injects into the following region in b2 in the target memory: 
-     [lo2, lo1)
-     and
-     [hi1, hi2)
-  *)
-  (forall b' delta' ofs' k p,
-    f b' = Some(b2, delta') ->
-    perm m1 b' ofs' k p ->
-    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
-     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
-  exists m2',
-      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
-   /\ weak_inject f g m1' m2';
 
  drop_outside_inject {injperm: InjectPerm}:
   forall f g m1 m2 b lo hi p m2',
