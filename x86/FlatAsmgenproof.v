@@ -3019,18 +3019,49 @@ Qed.
 (*   destruct (Mem.alloc Mem.empty 0 0). simpl. auto. *)
 (* Qed. *)
 
+Lemma alloc_segments_stack: forall l m m',
+    m' = alloc_segments m l -> Mem.stack m' = Mem.stack m.
+Proof.
+  induction l; intros.
+  - simpl in H. subst. auto.
+  - inv H. simpl. destruct (Mem.alloc m 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC.
+    exploit Mem.alloc_stack_blocks; eauto. intros H. rewrite <- H.
+    erewrite IHl; eauto.
+Qed.
+
+Lemma globs_meminj_ofs_pos : forall gmap b b' delta,
+    globs_meminj gmap b = Some (b', delta) -> delta >= 0.
+Proof.
+  unfold globs_meminj. intros. destr_match_in H; inv H.
+  destr_match_in H1; inv H1. generalize (Ptrofs.unsigned_range (snd s)).
+  omega.
+Qed.
+
+
 Lemma alloc_segments_weak_inject: forall gmap lmap dsize csize efsize m
     (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
     (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
-    (NEXTBLOCK: Mem.nextblock m = init_block),
+    (NEXTBLOCK: Mem.nextblock m = init_block)
+    (STACK: Mem.stack m = nil),
     Mem.weak_inject (globs_meminj gmap) (def_frame_inj Mem.empty) 
                     Mem.empty (alloc_segments m (list_of_segments tprog)).
-(* Proof. *)
-(*   induction sl; simpl; intros. *)
-(*   - auto. *)
-(*   - destruct (Mem.alloc m' 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC. *)
-(*     exploit Mem.alloc_right_inject; eauto. *)
-(* Qed. *)
+Proof.
+  intros. unfold def_frame_inj. erewrite Mem.empty_stack; eauto.
+  eapply Mem.empty_weak_inject; eauto.
+  - erewrite  alloc_segments_stack; eauto.
+  - intros b b' delta H. eapply globs_meminj_ofs_pos; eauto.
+  - intros b b' delta H. unfold globs_meminj in H.
+    destr_match_in H; inv H.
+    destr_match_in H1; inv H1. 
+    exploit AGREE_SMINJ_INSTR.update_map_gmap_range; eauto.
+    red in TRANSF. unfold transf_program in TRANSF. repeat destr_in TRANSF. inv UPDATE.
+    unfold check_wellformedness in Heqb0. apply andb_true_iff in Heqb0; destruct Heqb0.
+    apply andb_true_iff in H1; destruct H1.
+    unfold no_duplicated_defs in H1. unfold proj_sumbool in H1. destr_in H1.
+    intros IN.
+    exploit gen_segblocks_in_valid; eauto. intros SEGBVALID.
+    red in SEGBVALID. destruct SEGBVALID.
+    red. rewrite genv_gen_segblocks.
 Admitted.
 
 (* Lemma alloc_segments_inject: forall sl f g m m', *)
