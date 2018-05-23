@@ -2352,10 +2352,10 @@ Admitted.
 Lemma store_zeros_mapped_inject:
   forall (f : meminj) (g : frameinj) (m1 : mem) (b1 : block) (ofs n : Z) 
     (n1 m2 : mem) (b2 : block) (delta : Z),
-    Mem.mem_inj f g m1 m2 ->
+    Mem.weak_inject f g m1 m2 ->
     store_zeros m1 b1 ofs n = Some n1 ->
     f b1 = Some (b2, delta) ->
-    exists n2 : mem, store_zeros m2  b2 (ofs+delta) n = Some n2 /\ Mem.mem_inj f g n1 n2.
+    exists n2 : mem, store_zeros m2  b2 (ofs+delta) n = Some n2 /\ Mem.weak_inject f g n1 n2.
 Admitted.
 
 Lemma store_zeros_pres_def_frame_inj : forall m1 b lo hi m1',
@@ -2364,12 +2364,12 @@ Lemma store_zeros_pres_def_frame_inj : forall m1 b lo hi m1',
 Admitted.
 
 Lemma store_init_data_list_mapped_inject : forall gmap g m1 m1' m2 v v' b1 b2 delta ofs,
-    Mem.mem_inj (globs_meminj gmap) g m1 m1' ->
+    Mem.weak_inject (globs_meminj gmap) g m1 m1' ->
     transl_gvar gmap v = OK v' -> 
     (globs_meminj gmap) b1 = Some (b2, delta) ->
     Genv.store_init_data_list ge m1 b1 ofs (gvar_init v) = Some m2 ->
     exists m2', store_init_data_list tge m1' b2 (ofs+delta) (FlatAsmGlobdef.gvar_init unit v') = Some m2'
-           /\ Mem.mem_inj (globs_meminj  gmap) g m2 m2'.
+           /\ Mem.weak_inject (globs_meminj  gmap) g m2 m2'.
 Admitted.
 
 Lemma store_init_data_list_pres_def_frame_inj : forall m1 b1 ofs gv m1',
@@ -2408,16 +2408,27 @@ Lemma alloc_globals_inject :
     (NE: Forall def_not_empty (map snd (AST.prog_defs prog)))
     (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
     (TRANSG: transl_globdefs gmap lmap gdefs = OK (tgdefs, code))
-    (MINJ: Mem.mem_inj (globs_meminj gmap) (def_frame_inj m1) m1 m1')
-    (NOOVERLAP: Mem.meminj_no_overlap (globs_meminj gmap) m1)
+    (MINJ: Mem.weak_inject (globs_meminj gmap) (def_frame_inj m1) m1 m1')
     (ALLOCG: Genv.alloc_globals ge m1 gdefs = Some m2)
     (BLOCKEQ : Mem.nextblock m1 = Globalenvs.Genv.genv_next (partial_genv defs))
-    (PERMS: forall id b def ofs k p, 
-        Genv.find_symbol ge id = Some b -> 
-        In (id, (Some def)) (AST.prog_defs prog) -> Mem.perm m1 b ofs k p ->
-        In (id, (Some def)) defs /\ ofs < def_size def),
+    (OFSBOUND: forall id b def ofs k p, 
+        Genv.find_symbol (partial_genv defs) id = Some b -> 
+        In (id, (Some def)) defs -> Mem.perm m1 b ofs k p ->
+        ofs < def_size def)
+    (FINDVALIDSYM: forall id b ofs k p,
+       Genv.find_symbol ge id = Some b ->
+       Mem.perm m1 b ofs k p ->
+       Genv.find_symbol (partial_genv defs) id = Some b),
+    (* (OFSBOUND: forall id b def ofs k p,  *)
+    (*     Genv.find_symbol ge id = Some b ->  *)
+    (*     In (id, (Some def)) defs -> Mem.perm m1 b ofs k p -> *)
+    (*     ofs < def_size def) *)
+    (* (VALIDDEFS: forall id b ofs k p, *)
+    (*   Genv.find_symbol ge id = Some b ->  *)
+    (*   Mem.perm m1 b ofs k p -> *)
+    (*   exists def, In (id, (Some def)) defs), *)
     exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
-           /\ Mem.mem_inj (globs_meminj gmap) (def_frame_inj m2) m2 m2'.
+           /\ Mem.weak_inject (globs_meminj gmap) (def_frame_inj m2) m2 m2'.
 Proof.
   induction gdefs; intros.
   - monadInv TRANSG. inv ALLOCG. rewrite app_nil_r in DEFSTAIL. subst defs.
@@ -2443,40 +2454,20 @@ Proof.
         }
 
         (* alloc mapped injection *)
-        exploit (Mem.alloc_left_mapped_inj 
+        exploit (Mem.alloc_left_mapped_weak_inject 
                    (globs_meminj gmap) (def_frame_inj m1) m1 m1' 0 1 m0
                    b (gen_segblocks tprog (fst slbl)) (Ptrofs.unsigned (snd slbl))
-                   MINJ ALLOCF); eauto.
+                   BINJ MINJ ALLOCF); eauto.
         (* valid block *)
         admit.
-        (* correct alignment *)
+        (* valid offset *)
+        admit.
+        (* the offset of a location with permission is valid *)
         admit.
         (* preservation of permission *)
         admit.
-        (* allocated memory is public *)
+        (* correct alignment *)
         admit.
-        intros MINJ'.
-        erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
-
-        (* drop_perm injection *)
-        exploit (fun f g m1 m2 b1 b2 => Mem.drop_mapped_inj f g m1 m2 b1 b2 (Ptrofs.unsigned (snd slbl)) 0 1); eauto.
-        eapply Mem.range_perm_inj; eauto. eapply Mem.range_perm_drop_1; eauto.
-        red. unfold inject_perm_all. auto.
-
-
-        Lemma alloc_pres_meminj_no_verlap : forall f m1 m1' lo hi b1 b2 delta,
-          Mem.meminj_no_overlap f m1 ->
-          Mem.alloc m1 lo hi = (m1', b1) ->
-          f b1 = Some(b2, delta) ->
-          (forall b delta' ofs k p,
-              f b = Some (b2, delta') ->
-              Mem.perm m1 b ofs k p ->
-              lo + delta <= ofs + delta' < hi + delta -> False) ->
-          Mem.meminj_no_overlap f m1'.
-        Admitted.
- 
-        eapply alloc_pres_meminj_no_verlap; eauto.
-
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
         unfold globs_meminj in GINJ.
@@ -2486,33 +2477,44 @@ Proof.
         rewrite genv_gen_segblocks in GINJ.
         inv GINJ.
         assert (fst s = fst slbl).
-        {
-          eapply gen_segblocks_injective; eauto.
-          apply gen_segblocks_in_valid; eauto.
+        { 
+          eapply gen_segblocks_injective; eauto. 
+          apply gen_segblocks_in_valid; eauto. 
           eapply AGREE_SMINJ_INSTR.update_map_gmap_range; eauto.
         }
         apply Genv.invert_find_symbol in EQ2.
+        exploit FINDVALIDSYM; eauto. intros.
         exploit find_symbol_inversion_1; eauto. intros (def' & IN).
         destruct def'.
-        exploit PERMS; eauto. intros (IN' & OFSBOUND).
+        exploit OFSBOUND; eauto. intros.
         assert (Ptrofs.unsigned (snd s) + def_size g <= Ptrofs.unsigned (snd slbl)).
-        { eapply (fun sl => OFSRANGE _ _ sl IN'); eauto. }
+        { eapply (fun sl => OFSRANGE _ _ sl  IN); eauto. } 
         omega.
 
+        assert (In (i0, None) (AST.prog_defs prog)).
+        { rewrite <- DEFSTAIL. rewrite in_app. auto. }
         exploit update_map_gmap_none; eauto. congruence.
 
-        intros (m2' & DROP & MINJ''').
-        erewrite drop_perm_pres_def_frame_inj in MINJ'''; eauto.
+        (* allocated memory is public *)
+        admit.
+        intros MINJ'.
+        erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
+
+        (* drop_perm injection *)
+        exploit Mem.drop_parallel_weak_inject; eauto using MINJ'. 
+        red. simpl. auto. 
+        intros (m2' & DROP & MINJ'').
+        erewrite drop_perm_pres_def_frame_inj in MINJ''; eauto.
 
         (* apply the induction hypothesis *)
         assert ((defs ++ (i, Some (Gfun (Internal f))) :: nil) ++ gdefs = AST.prog_defs prog) as DEFSTAIL'.
         rewrite <- DEFSTAIL. rewrite <- app_assoc. simpl. auto.
-        exploit (IHgdefs x0 (defs ++ (i, Some (Gfun (Internal f))) :: nil) m); eauto using MINJ''', DEFSTAIL'.
+        exploit (IHgdefs x0 (defs ++ (i, Some (Gfun (Internal f))) :: nil) m); eauto using MINJ'', DEFSTAIL'.
         (* nextblock *)
         erewrite Mem.nextblock_drop; eauto.
         erewrite Mem.nextblock_alloc; eauto. rewrite BLOCKEQ.      
         rewrite partial_genv_next. auto.
-        (* perms *)
+        (* ofsbound *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
 
@@ -2533,7 +2535,7 @@ Proof.
         }
         erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
         exploit Mem.perm_alloc_inv; eauto using ALLOCF. 
-        rewrite dec_eq_false; auto. intros. eapply PERMS; eauto.
+        rewrite dec_eq_false; auto. intros. eapply OFSBOUND; eauto.
 
         inv IN. inv H0. 
         rewrite partial_genv_find_symbol_eq in FINDSYM. inv FINDSYM.
@@ -2545,6 +2547,8 @@ Proof.
         admit.
 
         inv H0.
+        (* findvalidsym *)
+        admit.
 
         (* finish this case *)
         intros (m3' & ALLOCG' & MINJ_FINAL).
