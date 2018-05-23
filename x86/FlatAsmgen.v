@@ -725,8 +725,8 @@ Definition make_maps (p:Asm.program) : (GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * 
 
 
 (** Check if the source program is well-formed **)
-Definition no_duplicated_defs {F V: Type} (defs: list (ident * option (AST.globdef F V))) : bool :=
-  proj_sumbool (list_norepet_dec ident_eq (map fst defs)).
+Definition no_duplicated_defs {F V: Type} (defs: list (ident * option (AST.globdef F V))) :=
+  list_norepet (map fst defs).
 
 Fixpoint labels (c: Asm.code) : list Asm.label :=
   match c with
@@ -738,32 +738,85 @@ Fixpoint labels (c: Asm.code) : list Asm.label :=
     end
   end.
 
-Definition no_duplicated_labels (c: Asm.code) : bool :=
-  proj_sumbool (list_norepet_dec ident_eq (labels c)).
+Definition no_duplicated_labels (c: Asm.code)  :=
+  list_norepet (labels c).
 
-Definition globdef_no_duplicated_labels (def: option (AST.globdef Asm.fundef unit)) : bool :=
+Definition globdef_no_duplicated_labels (def: option (AST.globdef Asm.fundef unit)) :=
   match def with
   | Some (AST.Gfun (Internal f)) => no_duplicated_labels (Asm.fn_code f)
-  | _ => true
+  | _ => True
   end.
 
-Definition defs_no_duplicated_labels (defs: list (ident * _)) : bool :=
-  forallb globdef_no_duplicated_labels (map snd defs).
+Definition globdef_no_duplicated_labels_dec def : { globdef_no_duplicated_labels def } + { ~ globdef_no_duplicated_labels def }.
+Proof.
+  unfold globdef_no_duplicated_labels.
+  repeat destr.
+  apply list_norepet_dec. apply ident_eq.
+Defined.
 
-Fixpoint funs_non_empty (defs: list (ident * option (AST.globdef Asm.fundef unit))) : bool :=
-  match defs with
-  | nil => true
-  | (id, Some (AST.Gfun (Internal f)))::defs' =>
-    andb (0 <? (length (Asm.fn_code f)))%nat
-         (funs_non_empty defs')
-  | _ :: defs' =>
-    (funs_non_empty defs')
-  end. 
+Definition defs_no_duplicated_labels (defs: list (ident * _)) :=
+  Forall globdef_no_duplicated_labels (map snd defs).
 
-Definition check_wellformedness (p:Asm.program) : bool :=
-  andb (funs_non_empty (AST.prog_defs p))
-  (andb (no_duplicated_defs (AST.prog_defs p))
-        (defs_no_duplicated_labels (AST.prog_defs p))).
+Definition def_size (def: AST.globdef Asm.fundef unit) : Z :=
+  match def with
+  | AST.Gfun (External e) => 1
+  | AST.Gfun (Internal f) => Asm.code_size (Asm.fn_code f)
+  | AST.Gvar v => AST.init_data_list_size (AST.gvar_init v)
+  end.
+
+Definition odef_size (def: option (AST.globdef Asm.fundef unit)) : Z :=
+  match def with
+  | Some def => def_size def
+  | _ => 0
+  end.
+
+Lemma def_size_pos:
+  forall d,
+    0 <= def_size d.
+Proof.
+  unfold def_size. intros.
+  destr.
+  destr. generalize (code_size_non_neg (Asm.fn_code f0)); omega.
+  omega.
+  generalize (AST.init_data_list_size_pos (AST.gvar_init v)); omega.
+Qed.
+
+Lemma odef_size_pos:
+  forall d,
+    0 <= odef_size d.
+Proof.
+  unfold odef_size. intros.
+  destr. apply def_size_pos. omega.
+Qed.
+
+Definition def_not_empty def : Prop :=
+  0 < odef_size def.
+
+Definition defs_not_empty defs :=
+  Forall def_not_empty defs.
+
+Definition defs_not_empty_dec defs : { defs_not_empty defs } + { ~ defs_not_empty defs }.
+Proof.
+  apply Forall_dec. intros. apply zlt.
+Defined.
+
+Record wf_prog (p:Asm.program) : Prop :=
+  {
+    wf_prog_not_empty: defs_not_empty (map snd (AST.prog_defs p));
+    wf_prog_norepet_defs: list_norepet (map fst (AST.prog_defs p));
+    wf_prog_norepet_labels: defs_no_duplicated_labels (AST.prog_defs p);
+  }.
+
+Definition check_wellformedness p : { wf_prog p } + { ~ wf_prog p }.
+Proof.
+  destruct (defs_not_empty_dec (map snd (AST.prog_defs p))).
+  destruct (list_norepet_dec ident_eq (map fst (AST.prog_defs p))).
+  destruct (Forall_dec _ globdef_no_duplicated_labels_dec (map snd (AST.prog_defs p))).
+  left; constructor; auto.
+  right; inversion 1. apply n. apply wf_prog_norepet_labels0.
+  right; inversion 1. apply n. apply wf_prog_norepet_defs0.
+  right; inversion 1. apply n. apply wf_prog_not_empty0.
+Qed.
 
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=
