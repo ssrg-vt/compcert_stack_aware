@@ -1680,11 +1680,13 @@ Qed.
 
 Theorem weak_inject_to_inject : forall f g m1 m2,
   weak_inject f g m1 m2 -> 
-  (forall b, ~(valid_block m1 b) -> f b = None) ->
+  (forall b p, f b = Some p -> valid_block m1 b) ->
   inject f g m1 m2.
 Proof.
   intros f g m1 m2 WINJ VB.
   inv WINJ. constructor; auto.
+  intros. destruct (f b) eqn:EQ; auto.
+  exploit VB; eauto. congruence.
 Qed.
 
 

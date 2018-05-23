@@ -2957,11 +2957,18 @@ Proof.
 
 Admitted.
 
-Lemma globs_meminj_empty : forall gmap b,
-    globs_meminj nil gmap b = None.
-Proof. 
-  intros gmap b. unfold globs_meminj.
-  destruct (Genv.invert_symbol (Genv.globalenv prog) b); auto.
+Lemma globs_meminj_domain_valid : forall gmap lmap dsize csize efsize m2 b p
+    (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
+    (ALLOCG: Genv.alloc_globals ge Mem.empty (AST.prog_defs prog) = Some m2)
+    (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
+    (INJ: globs_meminj gmap b = Some p),
+    Mem.valid_block m2 b. 
+Proof.
+  intros. unfold globs_meminj in INJ. 
+  destr_match_in INJ; inv INJ. destr_match_in H0; inv H0.
+  assert (Genv.init_mem prog = Some m2) as INITM by auto.
+  apply Genv.invert_find_symbol in EQ.
+  eapply Genv.find_symbol_not_fresh; eauto.
 Qed.
 
 Lemma alloc_all_globals_inject : 
@@ -2972,17 +2979,19 @@ Lemma alloc_all_globals_inject :
     (TRANSG: transl_globdefs gmap lmap (AST.prog_defs prog) = OK (tgdefs, code))
     (BOUND: dsize + csize + efsize <= Ptrofs.max_unsigned)
     (NE: Forall def_not_empty (map snd (AST.prog_defs prog)))
-    (MINJ: Mem.inject (fun _ => None) (def_frame_inj Mem.empty) Mem.empty m1')
+    (MINJ: Mem.weak_inject (globs_meminj gmap) (def_frame_inj Mem.empty) Mem.empty m1')
     (ALLOCG: Genv.alloc_globals ge Mem.empty (AST.prog_defs prog) = Some m2),
     exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
-           /\ Mem.inject (globs_meminj (AST.prog_defs prog) gmap) (def_frame_inj m2) m2 m2'.
+           /\ Mem.inject (globs_meminj gmap) (def_frame_inj m2) m2 m2'.
 Proof.
-  intros. eapply alloc_globals_inject; eauto.
-  instantiate (1:=nil). auto. apply Mem.inject_ext with (fun _ => None). auto.
-  symmetry. apply globs_meminj_empty.
-  simpl. rewrite Mem.nextblock_empty; eauto.
-  intros id b def ofs k p FINDSYM IN PERM.
-  inv IN.
+  intros. exploit (alloc_globals_inject (AST.prog_defs prog) tgdefs nil); eauto.
+  rewrite Mem.nextblock_empty; eauto.
+  intros id b def ofs k p FINDSYM IN PERM. inv IN.
+  intros id b ofs k p FINDSYM PERM.
+  exploit Mem.perm_empty; eauto. contradiction.
+  intros (m2' & ALLOCG' & WINJ). exists m2'. split; auto.
+  eapply Mem.weak_inject_to_inject; eauto.
+  intros. eapply globs_meminj_domain_valid; eauto.
 Qed.
 
 (* Lemma init_mem_pres_inject : forall m m1 m1' f g code gmap lmap dsize csize efsize defs tdefs, *)
@@ -2995,30 +3004,44 @@ Qed.
 (* Proof. *)
 
 
-Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty.
-Proof.
-  unfold def_frame_inj. apply Mem.self_inject; auto.
-  intros. congruence.
-Qed.
+(* Lemma mem_empty_inject: Mem.inject (fun _ : block => None) (def_frame_inj Mem.empty) Mem.empty Mem.empty. *)
+(* Proof. *)
+(*   unfold def_frame_inj. apply Mem.self_inject; auto. *)
+(*   intros. congruence. *)
+(* Qed. *)
 
-Lemma initial_inject: (Mem.inject (fun b => None) (def_frame_inj Mem.empty) Mem.empty (fst (Mem.alloc Mem.empty 0 0))).
-Proof.
-  apply Mem.alloc_right_inject with 
-      (m2 := Mem.empty) (lo:=0) (hi:=0) 
-      (b2 := snd (Mem.alloc Mem.empty 0 0)).
-  apply mem_empty_inject. 
-  destruct (Mem.alloc Mem.empty 0 0). simpl. auto.
-Qed.
+(* Lemma initial_inject: (Mem.inject (fun b => None) (def_frame_inj Mem.empty) Mem.empty (fst (Mem.alloc Mem.empty 0 0))). *)
+(* Proof. *)
+(*   apply Mem.alloc_right_inject with  *)
+(*       (m2 := Mem.empty) (lo:=0) (hi:=0)  *)
+(*       (b2 := snd (Mem.alloc Mem.empty 0 0)). *)
+(*   apply mem_empty_inject.  *)
+(*   destruct (Mem.alloc Mem.empty 0 0). simpl. auto. *)
+(* Qed. *)
 
-Lemma alloc_segments_inject: forall sl f g m m',
-    Mem.inject f g m m' ->
-    Mem.inject f g m (alloc_segments m' sl).
-Proof.
-  induction sl; simpl; intros.
-  - auto.
-  - destruct (Mem.alloc m' 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC.
-    exploit Mem.alloc_right_inject; eauto.
-Qed.
+Lemma alloc_segments_weak_inject: forall gmap lmap dsize csize efsize m
+    (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
+    (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
+    (NEXTBLOCK: Mem.nextblock m = init_block),
+    Mem.weak_inject (globs_meminj gmap) (def_frame_inj Mem.empty) 
+                    Mem.empty (alloc_segments m (list_of_segments tprog)).
+(* Proof. *)
+(*   induction sl; simpl; intros. *)
+(*   - auto. *)
+(*   - destruct (Mem.alloc m' 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC. *)
+(*     exploit Mem.alloc_right_inject; eauto. *)
+(* Qed. *)
+Admitted.
+
+(* Lemma alloc_segments_inject: forall sl f g m m', *)
+(*     Mem.inject f g m m' -> *)
+(*     Mem.inject f g m (alloc_segments m' sl). *)
+(* Proof. *)
+(*   induction sl; simpl; intros. *)
+(*   - auto. *)
+(*   - destruct (Mem.alloc m' 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC. *)
+(*     exploit Mem.alloc_right_inject; eauto. *)
+(* Qed. *)
 
 (* Lemma alloc_globvar_inject : forall gmap gvar1 gvar2 j m1 m2 m1' smap gdef1 gdef2 sb id, *)
 (*     transl_gvar gmap gvar1 = OK gvar2 -> *)
@@ -3059,12 +3082,13 @@ Lemma init_mem_pres_inject : forall m gmap lmap dsize csize efsize
     (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
     (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
     (INITMEM: Genv.init_mem prog = Some m),
-    exists m', init_mem tprog = Some m' /\ Mem.inject (globs_meminj (AST.prog_defs prog) gmap) (def_frame_inj m) m m'. 
+    exists m', init_mem tprog = Some m' /\ Mem.inject (globs_meminj gmap) (def_frame_inj m) m m'. 
 Proof. 
   unfold Genv.init_mem, init_mem. intros.
-  generalize initial_inject. intros INITINJ.
-  destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. simpl in INITINJ.
-  exploit (alloc_segments_inject (list_of_segments tprog) (fun _ => None)); eauto.
+  destruct (Mem.alloc Mem.empty 0 0) eqn:IALLOC. 
+  exploit Mem.nextblock_alloc; eauto. intros NEXTBLOCK. 
+  rewrite Mem.nextblock_empty in NEXTBLOCK. simpl in NEXTBLOCK.
+  exploit alloc_segments_weak_inject; eauto.
   intros SINJ.
   set (m1 := alloc_segments m0 (list_of_segments tprog)) in *.
   generalize (alloc_all_globals_inject). intro AAGI.
@@ -3074,7 +3098,7 @@ Proof.
   unfold transl_prog_with_map in H0. monadInv H0.
   rename EQ into TRANSGLOBS.
   rewrite H0 in *. inv UPDATE.
-  exploit AAGI; eauto using INITMEM, SINJ, Mem.inject_ext, globs_meminj_empty.
+  exploit AAGI; eauto using INITMEM, SINJ.
   unfold check_wellformedness in WF.
   repeat rewrite andb_true_iff in WF. destruct WF as (FNONEMPTY & NODUPDEFS & NODUPLBLS).
   apply nodup_defs_distinct_names. auto.
@@ -3505,7 +3529,7 @@ Proof.
   inversion H1.
   (* push_new stage *)
   exploit Mem.push_new_stage_inject; eauto. intros NSTGINJ.
-  exploit (Mem.alloc_parallel_inject (globs_meminj (AST.prog_defs prog) gmap) (1%nat :: def_frame_inj m)
+  exploit (Mem.alloc_parallel_inject (globs_meminj gmap) (1%nat :: def_frame_inj m)
           (Mem.push_new_stage m) (Mem.push_new_stage m')
           0 Mem.stack_limit m1 bstack 0 Mem.stack_limit); eauto. omega. omega.
   intros (j' & m1' & bstack' & MALLOC' & AINJ & INCR & FBSTACK & NOTBSTK).
@@ -3532,14 +3556,6 @@ Proof.
     erewrite NOTBSTK; eauto.
     unfold init_meminj. subst. 
     rewrite dec_eq_false; auto.
-    Lemma genv_partial_genv_eq : forall prog,
-      partial_genv (AST.prog_defs prog) = Genv.globalenv prog.
-    Admitted.
-    unfold globs_meminj. rewrite genv_partial_genv_eq. 
-    unfold Genv.symbol_block_offset, Genv.label_to_block_offset.
-    destruct (Genv.invert_symbol (Genv.globalenv prog) x) eqn:INVSYM; try auto.
-    destruct (gmap i) eqn:GMAP; try auto.
-    rewrite genv_gen_segblocks. auto.
   }
   exploit Mem.inject_ext; eauto. intros MINJ'.
   exploit Mem.drop_parallel_inject; eauto. red. simpl. auto.

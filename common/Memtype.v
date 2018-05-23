@@ -989,7 +989,7 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
 
  weak_inject_to_inject {injperm: InjectPerm}: forall f g m1 m2,
   weak_inject f g m1 m2 -> 
-  (forall b, ~(valid_block m1 b) -> f b = None) ->
+  (forall b p, f b = Some p -> valid_block m1 b) ->
   inject f g m1 m2;
 
  store_mapped_weak_inject {injperm: InjectPerm}:
