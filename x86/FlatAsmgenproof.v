@@ -2329,7 +2329,7 @@ Proof.
   rewrite Genv.add_globals_app. simpl. auto.
 Qed.
 
-Lemma defs_names_distinct_not_in : forall (defs:list (ident * option (AST.globdef Asm.fundef unit))) id def gdefs,
+Lemma defs_names_distinct_not_in : forall {F V:Type} (defs: list (ident * option (AST.globdef F V))) id def gdefs,
     defs_names_distinct (defs ++ (id, def) :: gdefs) -> ~In id (map fst defs).
 Proof.
   induction defs. intros.
@@ -2494,7 +2494,6 @@ Proof.
         assert (In (i0, None) (AST.prog_defs prog)).
         { rewrite <- DEFSTAIL. rewrite in_app. auto. }
         exploit update_map_gmap_none; eauto. congruence.
-
         (* allocated memory is public *)
         admit.
         intros MINJ'.
@@ -2518,20 +2517,28 @@ Proof.
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
 
+        
+        Lemma defs_names_distinct_prefix_neq : forall {F V:Type} (defs1: list (ident * option (AST.globdef F V))) 
+                                                 id def defs2 id' def',
+          defs_names_distinct (defs1 ++ (id, def) :: defs2) ->
+          In (id', def') defs1 -> id <> id'.
+        Proof.
+          intros F V defs1 id def defs2 id' def' DISTINCT IN.
+          assert (~ In id (map fst defs1)). eapply defs_names_distinct_not_in; eauto.
+          unfold not. intros. subst.
+          exploit (in_map fst defs1); eauto.
+        Qed.
+
         assert (i <> id). 
         {
-          rewrite <- DEFSTAIL in DEFNAMES.
-          assert (~ In i (map fst defs)). eapply defs_names_distinct_not_in; eauto.
-          unfold not. intros. subst.
-          exploit (in_map fst defs); eauto.
+          eapply defs_names_distinct_prefix_neq; eauto.
+          rewrite <- DEFSTAIL in DEFNAMES. eauto.
         }
         erewrite partial_genv_find_symbol_neq in FINDSYM; eauto.
         assert (b <> b0). 
         {
-          subst b. rewrite BLOCKEQ.
-          unfold not. intros. subst.
-          apply Genv.find_invert_symbol in FINDSYM.
-          rewrite Genv.invert_symbol_genv_next in FINDSYM. congruence.
+          unfold not. subst. rewrite BLOCKEQ. intros. subst. 
+          eapply Genv.find_symbol_genv_next_absurd; eauto.
         }
         erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
         exploit Mem.perm_alloc_inv; eauto using ALLOCF. 
@@ -2548,7 +2555,21 @@ Proof.
 
         inv H0.
         (* findvalidsym *)
-        admit.
+        intros id b0 ofs k p FINDSYM PERM.
+        erewrite drop_perm_perm in PERM; eauto. destruct PERM as [PERM COND].
+        erewrite alloc_perm in PERM; eauto. destruct peq.
+        subst. rewrite BLOCKEQ.
+        rewrite BLOCKEQ in FINDSYM. apply Genv.find_invert_symbol in FINDSYM.
+        unfold ge in FINDSYM. erewrite genv_invert_symbol_next in FINDSYM; eauto. inv FINDSYM.
+        erewrite partial_genv_find_symbol_eq; eauto.
+        exploit FINDVALIDSYM; eauto. intros FINDSYM'.
+        apply find_symbol_inversion_1 in FINDSYM'. destruct FINDSYM' as [DEF' FINDSYM'].
+        assert (i <> id). 
+        {
+          eapply defs_names_distinct_prefix_neq; eauto.
+          rewrite <- DEFSTAIL in DEFNAMES. eauto.
+        }
+        erewrite partial_genv_find_symbol_neq; eauto.
 
         (* finish this case *)
         intros (m3' & ALLOCG' & MINJ_FINAL).
