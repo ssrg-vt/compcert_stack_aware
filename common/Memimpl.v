@@ -1609,6 +1609,7 @@ Proof.
   exact @extends.
   exact @magree.
   exact @inject.
+  exact @weak_inject.
   exact @inject_neutral.
   exact unchanged_on.
   exact unchanged_on.
@@ -5673,6 +5674,34 @@ Proof.
   intuition eauto using perm_store_1, perm_store_2.
 Qed.
 
+Theorem store_mapped_weak_inject:
+  forall f g chunk m1 b1 ofs v1 n1 m2 b2 delta v2,
+  weak_inject f g m1 m2 ->
+  store chunk m1 b1 ofs v1 = Some n1 ->
+  f b1 = Some (b2, delta) ->
+  Val.inject f v1 v2 ->
+  exists n2,
+    store chunk m2 b2 (ofs + delta) v2 = Some n2
+    /\ weak_inject f g n1 n2.
+Proof.
+  intros. inversion H.
+  exploit store_mapped_inj; eauto. intros [n2 [STORE MI]].
+  exists n2; split. eauto. constructor.
+(* inj *)
+  auto.
+(* mappedblocks *)
+  eauto with mem.
+(* no overlap *)
+  red; intros. eauto with mem.
+(* representable *)
+  intros. exploit mwi_representable; try eassumption.
+  intros [A B]; split; eauto. intros ofs0 P. eapply B.
+  destruct P; eauto with mem.
+(* perm inv *)
+  intros. exploit mwi_perm_inv0; eauto using perm_store_2. 
+  intuition eauto using perm_store_1, perm_store_2.
+Qed.
+
 Theorem store_unmapped_inject:
   forall f g chunk m1 b1 ofs v1 n1 m2,
   inject f g m1 m2 ->
@@ -6133,6 +6162,82 @@ Proof.
   exists f'; exists m2'; exists b2; auto.
 Qed.
 
+Theorem alloc_left_mapped_weak_inject:
+  forall f g m1 m2 lo hi m1' b1 b2 delta,
+  f b1 = Some(b2, delta) ->
+  weak_inject f g m1 m2 ->
+  alloc m1 lo hi = (m1', b1) ->
+  valid_block m2 b2 ->
+  0 <= delta <= Ptrofs.max_unsigned ->
+  (forall ofs k p, perm m2 b2 ofs k p -> delta = 0 \/ 0 <= ofs < Ptrofs.max_unsigned) ->
+  (forall ofs k p, lo <= ofs < hi -> inject_perm_condition p -> perm m2 b2 (ofs + delta) k p) ->
+  inj_offset_aligned delta (hi-lo) ->
+  (forall b delta' ofs k p,
+   f b = Some (b2, delta') ->
+   perm m1 b ofs k p ->
+   lo + delta <= ofs + delta' < hi + delta -> False) ->
+  (forall fi,
+      in_stack' (stack m2) (b2,fi) ->
+      forall o k pp,
+        perm m1' b1 o k pp ->
+        inject_perm_condition pp ->
+        frame_public fi (o + delta)) ->
+  weak_inject f g m1' m2.
+Proof.
+  intros f g m1 m2 lo hi m1' b1 b2 delta BINJ INJ ALLOC VB RNG PERMREPR PERMPRES IOA NOOV NIF.
+  inversion INJ.
+  - constructor.
+    + (* inj *)
+      eapply alloc_left_mapped_inj; eauto.
+    + (* mappedblocks *)
+      intros. destruct (eq_block b b1). congruence. eauto.
+    + (* overlap *)
+      red. intros b0 b1' delta1 b3 b2' delta2 ofs1 ofs2 DIFF FB1 FB2 PE1 PE2.
+      exploit perm_alloc_inv. eauto. eexact PE1. intros P1.
+      exploit perm_alloc_inv. eauto. eexact PE2. intros P2.
+      destruct (eq_block b0 b1); destruct (eq_block b3 b1).
+      congruence.
+      subst. rewrite BINJ in FB1.
+      inversion FB1; subst.
+      destruct (eq_block b1' b2'); auto. subst b2'. right; red; intros.
+      eapply NOOV; eauto. omega.
+      subst. rewrite BINJ in FB2.
+      inversion FB2; subst.
+      destruct (eq_block b1' b2'); auto. subst b1'. right; red; intros.
+      eapply NOOV; eauto. omega.
+      eauto.
+    + (* representable *)
+      {
+        intros b b' delta0 FB.
+        destruct (eq_block b b1).
+        - subst. rewrite BINJ in FB. injection FB; intros; subst b' delta0.
+          split. omega.
+          intros.
+          destruct H.
+          exploit perm_alloc_inv; eauto; rewrite dec_eq_true; intro.
+          exploit PERMREPR. apply PERMPRES with (k := Max) (p := Nonempty); eauto.
+          eapply inject_perm_condition_writable; constructor.
+          generalize (Ptrofs.unsigned_range_2 ofs). omega.
+          exploit perm_alloc_inv; eauto; rewrite dec_eq_true; intro.
+          exploit PERMREPR. apply PERMPRES with (k := Max) (p := Nonempty); eauto.
+          eapply inject_perm_condition_writable; constructor.
+          generalize (Ptrofs.unsigned_range_2 ofs). omega.
+        - exploit mwi_representable0; try eassumption.
+          intros [A B]; split; auto.
+          intros; eapply B; eauto.
+          destruct H; eauto using perm_alloc_4.
+      }
+    + (* perm inv *)
+      intros b0 ofs b3 delta0 k p FB PERM.
+      intros. destruct (eq_block b0 b1). subst.
+      rewrite BINJ in FB. inversion FB; clear FB; subst.
+      assert (EITHER: lo <= ofs < hi \/ ~(lo <= ofs < hi)) by omega.
+      destruct EITHER.
+      left. apply perm_implies with Freeable; auto with mem. eapply perm_alloc_2; eauto.
+      right; intros A. eapply perm_alloc_inv in A; eauto. rewrite dec_eq_true in A. tauto.
+      exploit mwi_perm_inv0; eauto. intuition eauto using perm_alloc_1, perm_alloc_4.
+Qed.
+
 (** Preservation of [free] operations *)
 
 Lemma free_left_inject:
@@ -6303,6 +6408,45 @@ Proof.
   left. eapply perm_drop_3; eauto. 
 Qed.
 
+Lemma drop_parallel_weak_inject:
+  forall f g m1 m2 b1 b2 delta lo hi p m1',
+  weak_inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo hi p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  exists m2',
+      drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
+   /\ weak_inject f g m1' m2'.
+Proof.
+  intros. inversion H. 
+  exploit drop_mapped_inj; eauto.
+  eapply range_perm_inj; eauto with mem.
+  intros (m2' & DPERM & MEMINJ).
+  exists m2'. split. auto. constructor.
+(* inj *)
+  auto.
+(* mappedblocks *)
+  eauto with mem.
+(* no overlap *)
+  red; intros. eauto with mem.
+(* representable *)
+  intros. exploit mwi_representable; try eassumption.
+  intros [A B]; split; eauto. intros ofs0 P. eapply B.
+  destruct P; eauto with mem.
+(* perm inv *)
+  intros. exploit mwi_perm_inv0; eauto using perm_drop_4. 
+  intuition eauto using perm_drop_4.
+  destruct (eq_block b0 b1). subst b0.
+  destruct (zle lo ofs). destruct (zlt ofs hi). 
+  rewrite H2 in H3. inv H3.
+  assert (perm_order p p0). eapply perm_drop_2; eauto. omega.
+  assert (perm m1' b1 ofs k p). eapply perm_drop_1; eauto.
+  left. eauto with mem.
+  left. eapply perm_drop_3; eauto. right. right. omega.
+  left. eapply perm_drop_3; eauto. right. left. omega.
+  left. eapply perm_drop_3; eauto. 
+Qed.
+
 Lemma drop_extended_parallel_inject:
   forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
   inject f g m1 m2 ->
@@ -6355,6 +6499,58 @@ Proof.
   left. eapply perm_drop_3; eauto. right. left. omega.
   left. eapply perm_drop_3; eauto.
 Qed.
+
+Lemma drop_extended_parallel_weak_inject:
+  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
+  weak_inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  lo2 <= lo1 -> hi1 <= hi2 ->
+  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
+  (* no source memory location with non-empty permision 
+     injects into the following region in b2 in the target memory: 
+     [lo2, lo1)
+     and
+     [hi1, hi2)
+  *)
+  (forall b' delta' ofs' k p,
+    f b' = Some(b2, delta') ->
+    perm m1 b' ofs' k p ->
+    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
+     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
+  exists m2',
+      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
+   /\ weak_inject f g m1' m2'.
+Proof.
+  intros. inversion H. 
+  exploit drop_partial_mapped_inj; eauto.
+  intros (m2' & DPERM & MEMINJ).
+  exists m2'. split. auto. constructor.
+(* inj *)
+  auto.
+(* mappedblocks *)
+  eauto with mem.
+(* no overlap *)
+  red; intros. eauto with mem.
+(* representable *)
+  intros. exploit mwi_representable; try eassumption.
+  intros [A B]; split; eauto. intros ofs0 P. eapply B.
+  destruct P; eauto with mem.
+(* perm inv *)
+  intros. exploit mwi_perm_inv0; eauto using perm_drop_4. 
+  intuition eauto using perm_drop_4.
+  destruct (eq_block b0 b1). subst b0.
+  destruct (zle lo1 ofs). destruct (zlt ofs hi1). 
+  rewrite H2 in H7. inv H7.
+  assert (perm_order p p0). eapply perm_drop_2; eauto. omega.
+  assert (perm m1' b1 ofs k p). eapply perm_drop_1; eauto.
+  left. eauto with mem.
+  left. eapply perm_drop_3; eauto. right. right. omega.
+  left. eapply perm_drop_3; eauto. right. left. omega.
+  left. eapply perm_drop_3; eauto.
+Qed.
+
 
 Lemma drop_outside_inject: forall f g m1 m2 b lo hi p m2',
   inject f g m1 m2 ->
@@ -9411,6 +9607,7 @@ Proof.
   intros; eapply loadv_inject; eauto.
   intros; eapply loadbytes_inject; eauto.
   intros; eapply store_mapped_inject; eauto.
+  intros; eapply store_mapped_weak_inject; eauto.
   intros; eapply store_unmapped_inject; eauto.
   intros; eapply store_outside_inject; eauto.
   intros; eapply store_right_inject; eauto.
@@ -9422,6 +9619,7 @@ Proof.
   intros; eapply alloc_right_inject; eauto.
   intros; eapply alloc_left_unmapped_inject; eauto.
   intros; eapply alloc_left_mapped_inject; eauto.
+  intros; eapply alloc_left_mapped_weak_inject; eauto.
   intros; eapply alloc_parallel_inject; eauto.
   intros; eapply free_inject; eauto.
   intros; eapply free_left_inject; eauto.
@@ -9429,7 +9627,9 @@ Proof.
   intros; eapply free_right_inject; eauto.
   intros; eapply free_parallel_inject; eauto.
   intros; eapply drop_parallel_inject; eauto.
+  intros; eapply drop_parallel_weak_inject; eauto.
   intros; eapply drop_extended_parallel_inject; eauto.
+  intros; eapply drop_extended_parallel_weak_inject; eauto.
   intros; eapply drop_outside_inject; eauto.
   intros; eapply drop_right_inject; eauto.
   intros; eapply self_inject; eauto.
