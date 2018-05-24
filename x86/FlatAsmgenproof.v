@@ -2368,6 +2368,10 @@ Lemma store_zeros_mapped_inject:
     store_zeros m1 b1 ofs n = Some n1 ->
     f b1 = Some (b2, delta) ->
     exists n2 : mem, store_zeros m2  b2 (ofs+delta) n = Some n2 /\ Mem.weak_inject f g n1 n2.
+Proof.
+  (* intros f g m1 b1 ofs n n1 m2 b2 delta MINJ STOREZEROS F. *)
+  (* functional induction (store_zeros m1 b1 ofs n); intros. *)
+  (* destruct (store_zeros_terminate m1 b1 ofs n) eqn:STOREZEROS'. *)
 Admitted.
 
 Lemma store_zeros_pres_def_frame_inj : forall m1 b lo hi m1',
@@ -2431,14 +2435,6 @@ Lemma alloc_globals_inject :
        Genv.find_symbol ge id = Some b ->
        Mem.perm m1 b ofs k p ->
        Genv.find_symbol (partial_genv defs) id = Some b),
-    (* (OFSBOUND: forall id b def ofs k p,  *)
-    (*     Genv.find_symbol ge id = Some b ->  *)
-    (*     In (id, (Some def)) defs -> Mem.perm m1 b ofs k p -> *)
-    (*     ofs < def_size def) *)
-    (* (VALIDDEFS: forall id b ofs k p, *)
-    (*   Genv.find_symbol ge id = Some b ->  *)
-    (*   Mem.perm m1 b ofs k p -> *)
-    (*   exists def, In (id, (Some def)) defs), *)
     exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
            /\ Mem.weak_inject (globs_meminj gmap) (def_frame_inj m2) m2 m2'.
 Proof.
@@ -3120,6 +3116,8 @@ Proof.
   exploit Mem.nextblock_alloc; eauto. intros NEXTBLOCK. 
   rewrite Mem.nextblock_empty in NEXTBLOCK. simpl in NEXTBLOCK.
   exploit alloc_segments_weak_inject; eauto.
+  erewrite Mem.alloc_stack_blocks; eauto. 
+  erewrite Mem.empty_stack; eauto.
   intros SINJ.
   set (m1 := alloc_segments m0 (list_of_segments tprog)) in *.
   generalize (alloc_all_globals_inject). intro AAGI.
