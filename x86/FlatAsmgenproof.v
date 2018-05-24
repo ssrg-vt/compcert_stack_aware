@@ -3435,11 +3435,55 @@ Proof.
   erewrite <- add_globals_pres_genv_next; eauto. simpl. congruence.
 Qed.
 
-Lemma init_meminj_genv_next_inv : forall gmap lmap dsize csize efsize b  delta,
-    make_maps prog = (gmap, lmap, dsize, csize, efsize) ->
-    init_meminj gmap b = Some (Genv.genv_next tge, delta) ->
+
+Definition advance_next {A:Type} (gl: list A) (x: positive) :=
+  List.fold_left (fun n g => Psucc n) gl x.
+
+Lemma advance_next_lt_succ : forall (A:Type) (l:list A) i,
+    Plt i  (advance_next l (Pos.succ i)).
+Proof.
+  induction l; intros.
+  -  simpl. apply Plt_succ.
+  - simpl. apply Plt_trans with (Pos.succ i).
+    apply Plt_succ. apply IHl.
+Qed.
+
+Lemma acc_segblocks_upper_bound : forall l i f,
+  (forall id, Plt (f id) i) ->
+  (forall id, Plt (acc_segblocks i l f id) (advance_next l i)).
+Proof.
+  induction l; intros.
+  - simpl in *. auto.
+  - simpl in *. destruct ident_eq. 
+    + subst. apply advance_next_lt_succ.
+    + apply IHl. intros. apply Plt_trans with i. apply H.
+      apply Plt_succ.
+Qed.
+
+Lemma gen_segblocks_upper_bound : forall p id,
+  Plt (gen_segblocks p id) (advance_next (list_of_segments p) init_block).
+Proof.
+  intros. unfold gen_segblocks.
+  eapply acc_segblocks_upper_bound; eauto. 
+  intros. unfold undef_seg_block, init_block. apply Plt_succ.
+Qed.
+
+Lemma init_meminj_genv_next_inv : forall gmap b delta
+    (MINJ: init_meminj gmap b = Some (Genv.genv_next tge, delta)),
     b = Globalenvs.Genv.genv_next ge.
-Admitted.
+Proof.
+  intros.
+  unfold init_meminj in MINJ. destruct eq_block; inv MINJ.
+  - unfold ge. auto.
+  - destr_match_in H0; inv H0.
+    destr_match_in H1; inv H1.
+    rewrite genv_gen_segblocks in H0. unfold tge in H0.
+    unfold globalenv in H0.
+    erewrite <- add_globals_pres_genv_next in H0; eauto. simpl in H0.
+    generalize (gen_segblocks_upper_bound tprog (fst s)). simpl.
+    rewrite H0. intros. apply Plt_strict in H. contradiction.
+Qed.
+
 
 Lemma genv_internal_codeblock_add_globals:
   forall l g,
