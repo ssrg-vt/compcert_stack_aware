@@ -2319,7 +2319,7 @@ Proof.
   rewrite Genv.add_globals_app. simpl. auto.
 Qed.
 
-Lemma defs_names_distinct_not_in : forall{F V:Type} (defs:list (ident * option (AST.globdef F V))) id def gdefs,
+Lemma defs_names_distinct_not_in : forall(F V:Type) (defs:list (ident * option (AST.globdef F V))) id def gdefs,
     list_norepet (map fst (defs ++ (id, def) :: gdefs)) -> ~In id (map fst defs).
 Proof.
   intros F V defs id def gdefs LNR.
@@ -2329,7 +2329,7 @@ Proof.
   exploit C. eauto. left; reflexivity. reflexivity. auto.
 Qed.
 
-Lemma defs_names_distinct_prefix_neq : forall {F V:Type} (defs1: list (ident * option (AST.globdef F V)))
+Lemma defs_names_distinct_prefix_neq : forall (F V:Type) (defs1: list (ident * option (AST.globdef F V)))
                                          id def defs2 id' def',
     list_norepet (map fst (defs1 ++ (id, def) :: defs2)) ->
     In (id', def') defs1 -> id <> id'.
@@ -2341,9 +2341,31 @@ Proof.
 Qed.
 
 
+Lemma find_symbol_add_globals_inversion : 
+  forall (F V:Type) (defs: list (ident * option (AST.globdef F V))) id r ge,
+    Genv.find_symbol (Genv.add_globals ge defs) id = r ->
+    (exists def, In (id, def) defs) \/ Genv.find_symbol ge id = r.
+Proof.
+  induction defs; intros.
+  - simpl in H. auto.
+  - simpl in H. exploit IHdefs; eauto.
+    intros [L | R].
+    + destruct L as [def' IN].
+      left. exists def'. apply in_cons. auto.
+    + destruct a. destruct (ident_eq id i).
+      subst. rewrite find_symbol_add_global_eq in R. left. eexists. simpl. left. eauto.
+      erewrite find_symbol_add_global_neq in R; eauto.
+Qed.
+
 Lemma find_symbol_inversion_1 : forall defs (x : ident) (b : block),
     Genv.find_symbol (partial_genv defs) x = Some b -> exists def, In (x, def) defs.
-Admitted.
+Proof.
+  unfold partial_genv. intros.
+  exploit find_symbol_add_globals_inversion; eauto.
+  intros [L | R]. auto.
+  exploit Genv.find_symbol_empty_genv_absurd; eauto. contradiction.
+Qed.
+
 
 Lemma store_zeros_mapped_inject:
   forall (f : meminj) (g : frameinj) (m1 : mem) (b1 : block) (ofs n : Z) 
@@ -2521,16 +2543,46 @@ Proof.
   auto.
 Qed.
 
-Lemma genv_invert_symbol_next : forall prog defs id def gdefs,
+Lemma defs_names_distinct_not_in_tail : forall(F V:Type) (defs:list (ident * option (AST.globdef F V))) id def gdefs,
+    list_norepet (map fst (defs ++ (id, def) :: gdefs)) -> ~In id (map fst gdefs).
+Proof.
+  intros F V defs id def gdefs LNR.
+  rewrite map_app, list_norepet_app in LNR.
+  destruct LNR as (A & B & C).
+  intro IN. simpl in B. inv B. congruence.
+Qed.
+
+Lemma genv_find_symbol_next : forall defs id def gdefs,
+    list_norepet (map fst (AST.prog_defs prog)) ->
+    AST.prog_defs prog = (defs ++ (id, def) :: gdefs) ->
+    Genv.find_symbol (Genv.globalenv prog) id = Some (Globalenvs.Genv.genv_next (partial_genv defs)).
+Proof.
+  intros defs id def gdefs NORPT H. unfold Genv.globalenv. rewrite H.
+  rewrite Genv.add_globals_app. simpl.
+  match goal with
+  | [ |- Genv.find_symbol (Genv.add_globals ?ge' ?defs') ?id' = _ ] =>
+    exploit (find_symbol_add_globals_inversion Asm.fundef unit defs' id' 
+                                               (Genv.find_symbol (Genv.add_globals ge' defs') id')); eauto
+  end.
+  intros [L | R].
+  - destruct L as [def' IN].
+    rewrite H in NORPT. 
+    assert (~In id (map fst gdefs)). eapply defs_names_distinct_not_in_tail; eauto.
+    assert (In (fst (id, def')) (map fst gdefs)). apply in_map. auto.
+    simpl in H1. congruence.
+  - rewrite <- R.
+    erewrite find_symbol_add_global_eq; eauto.
+Qed.
+
+
+Lemma genv_invert_symbol_next : forall defs id def gdefs,
+    list_norepet (map fst (AST.prog_defs prog)) ->
     AST.prog_defs prog = (defs ++ (id, def) :: gdefs) ->
     Genv.invert_symbol (Genv.globalenv prog) (Globalenvs.Genv.genv_next (partial_genv defs)) = Some id.
 Proof.
-  (*   intros defs id def. unfold partial_genv. *)
-  (*   rewrite Genv.add_globals_app. simpl. *)
-  (*   apply invert_add_global_genv_next. *)
-  (* Qed. *)
-Admitted.
-
+  intros defs id def gdefs NORPT H. 
+  apply Genv.find_invert_symbol. eapply genv_find_symbol_next; eauto.
+Qed.
 
 Lemma alloc_globals_inject : 
   forall gdefs tgdefs defs m1 m2 m1' gmap lmap  code dsize csize efsize
@@ -3241,16 +3293,120 @@ Proof.
   erewrite Mem.push_new_stage_stack. simpl. auto.
 Qed.
 
+Lemma store_init_data_stack : forall v ge (m m' : mem) (b : block) (ofs : Z),
+       store_init_data ge m b ofs v = Some m' -> Mem.stack m' = Mem.stack m.
+Proof.
+  intros v ge0 m m' b ofs H. destruct v; simpl in *; try (now eapply Mem.store_stack_blocks; eauto).
+  inv H. auto.
+Qed.
+
+Lemma store_init_data_list_stack : forall l ge (m m' : mem) (b : block) (ofs : Z),
+       store_init_data_list ge m b ofs l = Some m' -> Mem.stack m' = Mem.stack m.
+Proof.
+  induction l; intros.
+  - simpl in H. inv H. auto.
+  - simpl in H. destr_match_in H; inv H.
+    exploit store_init_data_stack; eauto.
+    exploit IHl; eauto.
+    intros. congruence.
+Qed.
+
+Lemma alloc_global_stack : forall ge smap m def m',
+    alloc_global ge smap m def = Some m' ->
+    Mem.stack m' = Mem.stack m.
+Proof.
+  intros ge0 smap m def m' H. 
+  destruct def. destruct p. destruct o. destruct g. destruct f.
+  - simpl in H. exploit Mem.drop_perm_stack; eauto.
+  - simpl in H. exploit Mem.drop_perm_stack; eauto.
+  - simpl in H. destr_match_in H; inv H. destr_match_in H1; inv H1.
+    exploit Genv.store_zeros_stack; eauto.
+    exploit store_init_data_list_stack; eauto.
+    exploit Mem.drop_perm_stack; eauto. intros. congruence.
+  - simpl in H. inv H. auto.
+Qed.
+
+Lemma alloc_globals_stack : forall l ge smap m m',
+    alloc_globals ge smap m l = Some m' ->
+    Mem.stack m' = Mem.stack m.
+Proof. 
+  induction l; intros.
+  - simpl in H. inv H. auto.
+  - simpl in H. destr_match_in H; inv H.
+    exploit alloc_global_stack; eauto. intros.
+    exploit IHl; eauto. intros. congruence.
+Qed.
+
 Lemma init_mem_stack:
   forall (p: program) m,
     init_mem p = Some m ->
     Mem.stack m = nil.
 Proof.
-Admitted.
+  intros. unfold init_mem in H.
+  destruct (Mem.alloc Mem.empty 0 0) eqn:ALLOC.
+  exploit Mem.alloc_stack_blocks; eauto. intros.
+  exploit alloc_globals_stack; eauto. intros.
+  rewrite H1. erewrite alloc_segments_stack; eauto. 
+  rewrite Mem.empty_stack in H0. auto.
+Qed.
+
+
+(* Remark alloc_global_nextblock: *)
+(*   forall g m m', *)
+(*   alloc_global m g = Some m' -> *)
+(*   Mem.nextblock m' = Psucc(Mem.nextblock m). *)
+(* Proof. *)
+(*   unfold alloc_global. intros. *)
+(*   destruct g as [id [[f|v]|]]. *)
+(*   (* function *) *)
+(*   destruct (Mem.alloc m 0 1) as [m1 b] eqn:?. *)
+(*   erewrite Mem.nextblock_drop; eauto. erewrite Mem.nextblock_alloc; eauto. *)
+(*   (* variable *) *)
+(*   set (init := gvar_init v) in *. *)
+(*   set (sz := init_data_list_size init) in *. *)
+(*   destruct (Mem.alloc m 0 sz) as [m1 b] eqn:?. *)
+(*   destruct (store_zeros m1 b 0 sz) as [m2|] eqn:?; try discriminate. *)
+(*   destruct (store_init_data_list m2 b 0 init) as [m3|] eqn:?; try discriminate. *)
+(*   erewrite Mem.nextblock_drop; eauto. *)
+(*   erewrite store_init_data_list_nextblock; eauto. *)
+(*   erewrite store_zeros_nextblock; eauto. *)
+(*   erewrite Mem.nextblock_alloc; eauto. *)
+(*   (* none *) *)
+(*   destruct (Mem.alloc m 0 0) as [m1 b] eqn:? . *)
+(*   inv H. *)
+(*   eapply Mem.nextblock_alloc. *)
+(*   eassumption. *)
+(* Qed. *)
+
+(* Remark alloc_globals_nextblock: *)
+(*   forall gl m m', *)
+(*   alloc_globals m gl = Some m' -> *)
+(*   Mem.nextblock m' = advance_next gl (Mem.nextblock m). *)
+(* Proof. *)
+(*   induction gl; simpl; intros. *)
+(*   congruence. *)
+(*   destruct (alloc_global m a) as [m1|] eqn:?; try discriminate. *)
+(*   erewrite IHgl; eauto. erewrite alloc_global_nextblock; eauto. *)
+(* Qed. *)
+
+(* Remark genv_next_add_globals: *)
+(*   forall gl ge, *)
+(*   genv_next (add_globals ge gl) = advance_next gl (genv_next ge). *)
+(* Proof. *)
+(*   induction gl; simpl; intros. *)
+(*   auto. *)
+(*   rewrite IHgl. auto. *)
+(* Qed. *)
 
 Lemma init_mem_genv_next: forall p m,
   init_mem p = Some m ->
   Genv.genv_next (globalenv p) = Mem.nextblock m.
+Proof.
+(*   unfold init_mem; intros. *)
+(*   exploit alloc_globals_nextblock; eauto. rewrite Mem.nextblock_empty. intro. *)
+(*   generalize (genv_next_add_globals (prog_defs p) (empty_genv F V (prog_public p))). *)
+(*   fold (globalenv p). simpl genv_next. intros. congruence. *)
+(* Qed. *)
 Admitted.
 
 Lemma init_meminj_genv_next_inv : forall gmap lmap dsize csize efsize b  delta,
