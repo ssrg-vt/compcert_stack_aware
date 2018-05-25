@@ -2144,14 +2144,73 @@ Proof.
   apply IHl. intuition.
 Qed.
 
+
 Lemma invert_symbol_add_global_none : forall (F V: Type) (ge:Globalenvs.Genv.t F V) id def b,
     Genv.invert_symbol (Genv.add_global ge (id, def)) b = None ->
     Genv.invert_symbol ge b = None.
 Proof.
-  intros.
-  destruct (Genv.invert_symbol ge0 b) eqn:IS; auto.
-  exfalso.
-  apply Genv.invert_find_symbol in IS.
+  intros F V ge0 id def b INVSYM.
+  generalize (find_symbol_add_global_eq F V ge0 id def). intros FINDSYM.
+  destruct (eq_block b (Globalenvs.Genv.genv_next ge0)). subst.
+  apply Genv.find_invert_symbol in FINDSYM. rewrite FINDSYM in INVSYM. inv INVSYM.
+  unfold Genv.add_global in INVSYM. 
+  unfold Genv.add_global, Genv.invert_symbol in INVSYM. simpl in INVSYM. 
+  unfold Genv.invert_symbol. rewrite PTree.fold_spec in *.
+  apply fold_left_none_not_in in INVSYM.
+  apply not_in_fold_left_none. intros IN. apply INVSYM.
+ 
+  assert ((PTree.set id (Globalenvs.Genv.genv_next ge0) (Genv.genv_symb ge0)) ! id = Some (Globalenvs.Genv.genv_next ge0)) as ELEM
+      by (apply PTree.gss).
+
+  (* Lemma ptree_elements_set : forall (A:Type) x i (v:A) m, *)
+  (*     In x (PTree.elements (PTree.set i v m)) -> x = (i, v) \/ In x (PTree.elements m). *)
+  (* Proof. *)
+  (*   intros. destruct x.  *)
+  (*   intros. apply PTree.elements_complete in H. *)
+  (*   destruct (ident_eq p i).  *)
+  (*   - subst. rewrite PTree.gss in H. inv H. auto. *)
+  (*   - erewrite PTree.gso in H; eauto. right. apply PTree.elements_correct. auto. *)
+  (* Qed. *)
+
+  apply PTree.elements_remove in ELEM. destruct ELEM as (l1 & l2 & ELEM & RMV).
+  setoid_rewrite ELEM in INVSYM. 
+
+
+  Lemma rm_set_ptree : forall (A:Type) id (v:A) t i' v', 
+      (PTree.remove id (PTree.set id v t)) ! i' = Some v' -> t ! i' = Some v'.
+  Proof.
+    intros. destruct (ident_eq id i'). subst.
+    rewrite PTree.grs in H. inv H.
+    erewrite PTree.gro in H; eauto. erewrite PTree.gso in H; eauto.
+  Qed.
+      
+
+  Lemma rm_set_ptree_elems : forall (A:Type) x id (v:A) t,
+    In x (PTree.elements (PTree.remove id (PTree.set id v t))) ->
+    In x (PTree.elements t).
+  Proof.
+    intros. destruct x. 
+    apply PTree.elements_correct. 
+    eapply rm_set_ptree; eauto.
+    apply PTree.elements_complete. eauto.
+  Qed.
+
+  
+      
+    
+      
+
+  (* intros. *)
+  (* destruct (Genv.invert_symbol ge0 b) eqn:IS; auto. *)
+  (* apply Genv.invert_find_symbol in IS. *)
+  (* destruct (ident_eq i id).  *)
+  (* - subst. *)
+  (*   generalize (find_symbol_add_global_eq F V ge0 id def). intros FINDSYM. *)
+  (*   apply Genv.find_invert_symbol in FINDSYM. *)
+  (*   exploit Genv.find_symbol_inversion; eauto. *)
+  (* - erewrite <- find_symbol_add_global_neq in IS; eauto. *)
+  (*   apply Genv.find_invert_symbol in IS. rewrite H in IS. inv IS. *)
+
   (* destruct (Genv.find_symbol (Genv.add_global ge0 (id,def)) i) eqn:FS. *)
 
   (* unfold Genv.find_symbol in IS, FS. unfold Genv.add_global in FS. simpl in *. *)
@@ -2247,7 +2306,7 @@ Proof.
   eapply Genv.add_globals_preserves.
   - intros.
     destruct (peq x id). subst.
-    rewrite find_symbol_add_global_eq in H1. inv H1. apply in_map with (f:= fst) in H0; auto.
+s    rewrite find_symbol_add_global_eq in H1. inv H1. apply in_map with (f:= fst) in H0; auto.
     rewrite find_symbol_add_global_neq in H1 by auto. eauto.
   - setoid_rewrite PTree.gempty. congruence.
 Qed.
