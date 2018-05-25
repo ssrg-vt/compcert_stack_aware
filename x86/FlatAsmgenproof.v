@@ -2144,129 +2144,6 @@ Proof.
   apply IHl. intuition.
 Qed.
 
-
-Lemma invert_symbol_add_global_none : forall (F V: Type) (ge:Globalenvs.Genv.t F V) id def b,
-    Genv.invert_symbol (Genv.add_global ge (id, def)) b = None ->
-    Genv.invert_symbol ge b = None.
-Proof.
-  intros F V ge0 id def b INVSYM.
-  generalize (find_symbol_add_global_eq F V ge0 id def). intros FINDSYM.
-  destruct (eq_block b (Globalenvs.Genv.genv_next ge0)). subst.
-  apply Genv.find_invert_symbol in FINDSYM. rewrite FINDSYM in INVSYM. inv INVSYM.
-  unfold Genv.add_global in INVSYM. 
-  unfold Genv.add_global, Genv.invert_symbol in INVSYM. simpl in INVSYM. 
-  unfold Genv.invert_symbol. rewrite PTree.fold_spec in *.
-  apply fold_left_none_not_in in INVSYM.
-  apply not_in_fold_left_none. intros IN. apply INVSYM.
- 
-  assert ((PTree.set id (Globalenvs.Genv.genv_next ge0) (Genv.genv_symb ge0)) ! id = Some (Globalenvs.Genv.genv_next ge0)) as ELEM
-      by (apply PTree.gss).
-
-  (* Lemma ptree_elements_set : forall (A:Type) x i (v:A) m, *)
-  (*     In x (PTree.elements (PTree.set i v m)) -> x = (i, v) \/ In x (PTree.elements m). *)
-  (* Proof. *)
-  (*   intros. destruct x.  *)
-  (*   intros. apply PTree.elements_complete in H. *)
-  (*   destruct (ident_eq p i).  *)
-  (*   - subst. rewrite PTree.gss in H. inv H. auto. *)
-  (*   - erewrite PTree.gso in H; eauto. right. apply PTree.elements_correct. auto. *)
-  (* Qed. *)
-
-  apply PTree.elements_remove in ELEM. destruct ELEM as (l1 & l2 & ELEM & RMV).
-  setoid_rewrite ELEM in INVSYM. 
-
-
-  Lemma rm_set_ptree : forall (A:Type) id (v:A) t i' v', 
-      (PTree.remove id (PTree.set id v t)) ! i' = Some v' -> t ! i' = Some v'.
-  Proof.
-    intros. destruct (ident_eq id i'). subst.
-    rewrite PTree.grs in H. inv H.
-    erewrite PTree.gro in H; eauto. erewrite PTree.gso in H; eauto.
-  Qed.
-      
-
-  Lemma rm_set_ptree_elems : forall (A:Type) x id (v:A) t,
-    In x (PTree.elements (PTree.remove id (PTree.set id v t))) ->
-    In x (PTree.elements t).
-  Proof.
-    intros. destruct x. 
-    apply PTree.elements_correct. 
-    eapply rm_set_ptree; eauto.
-    apply PTree.elements_complete. eauto.
-  Qed.
-
-  
-      
-    
-      
-
-  (* intros. *)
-  (* destruct (Genv.invert_symbol ge0 b) eqn:IS; auto. *)
-  (* apply Genv.invert_find_symbol in IS. *)
-  (* destruct (ident_eq i id).  *)
-  (* - subst. *)
-  (*   generalize (find_symbol_add_global_eq F V ge0 id def). intros FINDSYM. *)
-  (*   apply Genv.find_invert_symbol in FINDSYM. *)
-  (*   exploit Genv.find_symbol_inversion; eauto. *)
-  (* - erewrite <- find_symbol_add_global_neq in IS; eauto. *)
-  (*   apply Genv.find_invert_symbol in IS. rewrite H in IS. inv IS. *)
-
-  (* destruct (Genv.find_symbol (Genv.add_global ge0 (id,def)) i) eqn:FS. *)
-
-  (* unfold Genv.find_symbol in IS, FS. unfold Genv.add_global in FS. simpl in *. *)
-  (* rewrite PTree.gsspec in FS. destr_in FS.  *)
-  (* destruct (ident_eq id i); subst. *)
-  (* rewrite find_symbol_add_global_eq in FS.  inv FS. *)
-  (* unfold Genv.add_global. *)
-
-
-  (* unfold Genv.invert_symbol, Genv.add_global. *)
-  (* intros. simpl in H. *)
-  (* rewrite PTree.fold_spec in H |- *. *)
-  (* apply fold_left_none_not_in in H. *)
-  (* apply not_in_fold_left_none. *)
-  (* intro IN; apply H. clear H. *)
-  (* rewrite in_map_iff. *)
-  (* rewrite in_map_iff in IN. *)
-  (* destruct IN as ((i,bb) & EQ & IN). simpl in *; subst. *)
-  (* apply PTree.elements_complete in IN. *)
-  (* destruct (peq i id). *)
-  (* subst. *)
-  (* exists (id, b). split. reflexivity. apply PTree.elements_correct. rewrite PTree.gss. *)
-
-
-
-  (* destruct (Genv.invert_symbol ge0 b) eqn:IS; auto. *)
-  (* exfalso. *)
-  (* apply Genv.invert_find_symbol in IS. *)
-  (* destruct (Genv.find_symbol (Genv.add_global ge0 (id,def)) i) eqn:FS. *)
-
-  (* unfold Genv.find_symbol in IS, FS. unfold Genv.add_global in FS. simpl in *. *)
-  (* rewrite PTree.gsspec in FS. destr_in FS.  *)
-  (* destruct (ident_eq id i); subst. *)
-  (* rewrite find_symbol_add_global_eq in FS.  inv FS. *)
-  (* unfold Genv.add_global. *)
-  
-  (* unfold Genv.invert_symbol. *)
-  (* intros. rewrite PTree.fold_spec. rewrite PTree.fold_spec in H. *)
-
-Admitted.  
-
-
-Lemma update_map_gmap_none :
-  forall (prog : Asm.program) (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
-    (DEFSNAMES: list_norepet (map fst (AST.prog_defs prog)))
-    (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
-    (IN: In (id, None) (AST.prog_defs prog)),
-    gmap id = None.
-Proof.
-  intros. unfold make_maps in UPDATE.
-  eapply umind with (P := fun g l s c e => g id = None). eauto. reflexivity.
-  intros.
-  erewrite update_gmap. 2: eauto. destr. subst.
-  exploit @norepet_unique. apply DEFSNAMES. apply IN. apply H1. reflexivity. intro A; inv A. auto.
-Qed.
-
 Lemma invert_add_global_genv_next : forall (F V: Type) (ge:Globalenvs.Genv.t F V) id def,
     Genv.invert_symbol (Genv.add_global ge (id, def)) (Globalenvs.Genv.genv_next ge) = Some id.
 Proof.
@@ -2306,10 +2183,44 @@ Proof.
   eapply Genv.add_globals_preserves.
   - intros.
     destruct (peq x id). subst.
-s    rewrite find_symbol_add_global_eq in H1. inv H1. apply in_map with (f:= fst) in H0; auto.
+    rewrite find_symbol_add_global_eq in H1. inv H1. apply in_map with (f:= fst) in H0; auto.
     rewrite find_symbol_add_global_neq in H1 by auto. eauto.
   - setoid_rewrite PTree.gempty. congruence.
 Qed.
+
+Lemma invert_symbol_add_global_none : forall defs id def b,
+    ~In id (map fst defs) ->
+    Genv.invert_symbol (Genv.add_global (partial_genv defs) (id, def)) b = None ->
+    Genv.invert_symbol (partial_genv defs) b = None.
+Proof.
+  intros defs id def b NOTIN INVSYM.
+  destruct (Genv.invert_symbol (partial_genv defs) b) eqn:INVSYM'; auto.
+  apply Genv.invert_find_symbol in INVSYM'.
+  assert (id <> i) as FINDSYM. 
+  {
+    exploit partial_genv_find_symbol_inversion; eauto. 
+    intros IN EQ. subst. congruence.
+  }
+  eapply find_symbol_add_global_neq in FINDSYM; eauto.
+  rewrite INVSYM' in FINDSYM.
+  apply Genv.find_invert_symbol in FINDSYM. 
+  rewrite INVSYM in FINDSYM. inv FINDSYM.
+Qed.
+
+Lemma update_map_gmap_none :
+  forall (prog : Asm.program) (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
+    (DEFSNAMES: list_norepet (map fst (AST.prog_defs prog)))
+    (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
+    (IN: In (id, None) (AST.prog_defs prog)),
+    gmap id = None.
+Proof.
+  intros. unfold make_maps in UPDATE.
+  eapply umind with (P := fun g l s c e => g id = None). eauto. reflexivity.
+  intros.
+  erewrite update_gmap. 2: eauto. destr. subst.
+  exploit @norepet_unique. apply DEFSNAMES. apply IN. apply H1. reflexivity. intro A; inv A. auto.
+Qed.
+
 
 
 Definition fun_non_empty (def: AST.globdef Asm.fundef unit) : Prop :=
@@ -2351,10 +2262,11 @@ Proof.
 Qed.
 
 Lemma partial_genv_invert_symbol_pres : forall defs id def b,
+    ~ In id (map fst defs) ->
     b <> Globalenvs.Genv.genv_next (partial_genv defs) ->
     Genv.invert_symbol (partial_genv (defs ++ (id, def) :: nil)) b = Genv.invert_symbol (partial_genv defs) b.
 Proof.
-  intros defs id def b H.
+  intros defs id def b NOTIN H.
   unfold partial_genv. rewrite Genv.add_globals_app. simpl.
   match goal with
   | [ |- ?a = _ ] =>
