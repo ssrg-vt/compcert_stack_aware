@@ -2721,6 +2721,77 @@ Proof.
   apply Genv.find_invert_symbol. eapply genv_find_symbol_next; eauto.
 Qed.
 
+Definition aligned (ofs:Z) := forall chunk, (align_chunk chunk | ofs).
+
+Lemma chunk_divides_alignw: forall chunk,
+  (align_chunk chunk | alignw).
+Proof.
+  intros. unfold alignw. destruct chunk; simpl; red.
+  - exists 8; omega.
+  - exists 8; omega.
+  - exists 4; omega.
+  - exists 4; omega.
+  - exists 2; omega.
+  - exists 1; omega.
+  - exists 2; omega.
+  - exists 2; omega.
+  - exists 2; omega.
+  - exists 2; omega.
+Qed.
+
+Lemma alignw_aligned : forall i,
+  (alignw | i) -> aligned i.
+Proof.
+  unfold aligned. intros.
+  apply Zdivides_trans with alignw; auto.
+  apply chunk_divides_alignw.
+Qed.
+
+
+Lemma update_map_gmap_aligned : 
+  forall defs gmap lmap dsize csize efsize
+    gmap1 lmap1 dsize1 csize1 efsize1 slbl i
+    (UPDATE: (gmap,lmap,dsize, csize, efsize) = update_maps gmap1 lmap1 dsize1 csize1 efsize1 defs)
+    (CSZALN: (alignw | csize1))
+    (CSZBOUND: csize <= Ptrofs.max_unsigned)
+    (GMAPALN: forall i' slbl', gmap1 i' = Some slbl' -> aligned (Ptrofs.unsigned (snd slbl')))
+    (GMAP: gmap i = Some slbl),
+    aligned (Ptrofs.unsigned (snd slbl)).
+Proof.
+  induction defs; intros.
+  assert (csize1 <= csize). eapply csize_mono; eauto.
+  - inv UPDATE. eauto.
+  - destruct a. destruct o. destruct g. destruct f.
+    + cbn in UPDATE. 
+      destruct (update_instrs lmap1 csize1 i0 (Asm.fn_code f)) as [lmap' csize'] eqn:UPDATEINSTRS.
+      eapply IHdefs; eauto. 
+      apply align_divides. unfold alignw. omega.
+      intros i' slbl' GMAP'.
+      unfold update_gid_map in GMAP'. destruct peq. 
+      subst. inv GMAP'. unfold code_label. simpl. 
+      rewrite Ptrofs.unsigned_repr. apply alignw_aligned. auto. admit.
+      eauto.
+    + admit.
+    + admit.
+    + admit.
+Admitted.
+
+Lemma make_maps_sizes_pos : 
+  forall prog gmap lmap dsize csize efsize,
+    make_maps prog = (gmap, lmap, dsize, csize, efsize) ->
+    dsize >= 0 /\ csize >= 0 /\ efsize >= 0.
+Proof.
+  intros prog0 gmap lmap dsize csize efsize H.
+  unfold make_maps in H.
+  assert (0 <= csize).  
+  { eapply csize_mono; eauto. unfold alignw. red. exists 0. omega. }
+  assert (0 <= dsize).  
+  { eapply dsize_mono; eauto. }
+  assert (0 <= efsize).  
+  { eapply efsize_mono; eauto. }
+  omega.
+Qed.
+
 Lemma alloc_globals_inject : 
   forall gdefs tgdefs defs m1 m2 m1' gmap lmap  code dsize csize efsize
     (DEFNAMES: list_norepet (map fst (AST.prog_defs prog)))
@@ -2784,7 +2855,11 @@ Proof.
         (* preservation of permission *)
         admit.
         (* correct alignment *)
-        admit.
+        red. intros.
+        eapply update_map_gmap_aligned; eauto.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        unfold default_gid_map. intros. congruence.
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
         unfold globs_meminj in GINJ.
@@ -2916,15 +2991,22 @@ Proof.
                    b (gen_segblocks tprog (fst slbl)) (Ptrofs.unsigned (snd slbl))
                    BINJ MINJ ALLOCF); eauto.
         (* valid block *)
-        admit.
+        exploit AGREE_SMINJ_INSTR.update_map_gmap_range; eauto. intros.
+        exploit (gen_segblocks_in_valid tprog); eauto. intros SEGBVALID.
+        red in SEGBVALID. destruct SEGBVALID. red.
+        rewrite BLOCKEQ'. auto.
         (* valid offset *)
-        admit.
+        apply Ptrofs.unsigned_range_2.
         (* the offset of a location with permission is valid *)
         admit.
         (* preservation of permission *)
         admit.
         (* correct alignment *)
-        admit.
+        red. intros.
+        eapply update_map_gmap_aligned; eauto.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        unfold default_gid_map. intros. congruence.
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
         unfold globs_meminj in GINJ.
@@ -2997,7 +3079,7 @@ Proof.
         exploit Mem.perm_alloc_inv; eauto using ALLOCF. 
         rewrite dec_eq_true. intros.
         simpl. assert (ofs = 0). omega. subst.
-        admit.
+        omega.
 
         inv H0.
         (* findvalidsym *)
@@ -3056,15 +3138,22 @@ Proof.
                    b (gen_segblocks tprog (fst slbl)) (Ptrofs.unsigned (snd slbl))
                    BINJ MINJ ALLOCINIT); eauto.
         (* valid block *)
-        admit.
+        exploit AGREE_SMINJ_INSTR.update_map_gmap_range; eauto. intros.
+        exploit (gen_segblocks_in_valid tprog); eauto. intros SEGBVALID.
+        red in SEGBVALID. destruct SEGBVALID. red.
+        rewrite BLOCKEQ'. auto.
         (* valid offset *)
-        admit.
+        apply Ptrofs.unsigned_range_2.
         (* the offset of a location with permission is valid *)
         admit.
         (* preservation of permission *)
         admit.
         (* correct alignment *)
-        admit.
+        red. intros.
+        eapply update_map_gmap_aligned; eauto.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        unfold default_gid_map. intros. congruence.
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
         unfold globs_meminj in GINJ.
