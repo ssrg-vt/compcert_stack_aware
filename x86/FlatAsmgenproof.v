@@ -148,6 +148,14 @@ Proof.
   apply align_divides. auto.
 Qed.
 
+Lemma alignw_divides:
+  forall z,
+    (alignw | align z alignw).
+Proof.
+  intros. apply align_divides. unfold alignw; omega.
+Qed.
+
+
 (** Lemmas about FlatAsmgen that are useful for proving invariants *)
 
 Lemma transl_fun_exists : forall gmap lmap defs gdefs code f id,
@@ -1092,13 +1100,6 @@ Proof.
     generalize (si_size_non_zero s). intros H0.
     repeat destr_in H. omega.
     eapply IHinstrs in H2. omega.
-Qed.
-
-Lemma alignw_divides:
-  forall z,
-    (alignw | align z alignw).
-Proof.
-  intros. apply align_divides. unfold alignw; omega.
 Qed.
 
 Lemma size_fun_pos:
@@ -2754,6 +2755,13 @@ Lemma update_map_gmap_aligned :
     (UPDATE: (gmap,lmap,dsize, csize, efsize) = update_maps gmap1 lmap1 dsize1 csize1 efsize1 defs)
     (CSZALN: (alignw | csize1))
     (CSZBOUND: csize <= Ptrofs.max_unsigned)
+    (CSZPOS: 0 <= csize1)
+    (EFSZALN: (alignw | efsize1))
+    (EFSZBOUND: efsize <= Ptrofs.max_unsigned)
+    (EFSZPOS: 0 <= efsize1)
+    (DSZALN: (alignw | dsize1))
+    (DSZBOUND: dsize <= Ptrofs.max_unsigned)
+    (DSZPOS: 0 <= dsize1)
     (GMAPALN: forall i' slbl', gmap1 i' = Some slbl' -> aligned (Ptrofs.unsigned (snd slbl')))
     (GMAP: gmap i = Some slbl),
     aligned (Ptrofs.unsigned (snd slbl)).
@@ -2766,15 +2774,58 @@ Proof.
       destruct (update_instrs lmap1 csize1 i0 (Asm.fn_code f)) as [lmap' csize'] eqn:UPDATEINSTRS.
       eapply IHdefs; eauto. 
       apply align_divides. unfold alignw. omega.
+      apply Zle_trans with csize'; try apply alignw_le.
+      exploit update_instrs_code_size; eauto. intros.
+      generalize (code_size_non_neg (Asm.fn_code f)). intros.
+      omega.
       intros i' slbl' GMAP'.
       unfold update_gid_map in GMAP'. destruct peq. 
       subst. inv GMAP'. unfold code_label. simpl. 
-      rewrite Ptrofs.unsigned_repr. apply alignw_aligned. auto. admit.
+      rewrite Ptrofs.unsigned_repr. apply alignw_aligned. auto.
+      assert (align csize' alignw <= csize).
+      { eapply csize_mono; eauto. apply align_divides. unfold alignw. omega. }
+      generalize (alignw_le csize'). intros.
+      exploit update_instrs_code_size; eauto. intros.
+      generalize (code_size_non_neg (Asm.fn_code f)). intros.
+      omega.
       eauto.
-    + admit.
-    + admit.
-    + admit.
-Admitted.
+    + cbn in UPDATE. 
+      eapply IHdefs; eauto.
+      red in EFSZALN. destruct EFSZALN.
+      red. exists (x+1). rewrite H. rewrite Z.mul_add_distr_r. omega.
+      unfold alignw. omega.
+      intros i' slbl' GMAP'.
+      unfold update_gid_map in GMAP'. destruct peq. 
+      subst. inv GMAP'. unfold extfun_label. simpl. 
+      rewrite Ptrofs.unsigned_repr. apply alignw_aligned. auto.
+      assert (efsize1 + alignw <= efsize).
+      { eapply efsize_mono; eauto. }
+      unfold alignw in H. omega.
+      eauto.
+    + cbn in UPDATE. 
+      eapply IHdefs; eauto.
+      apply Z.divide_add_r; auto.
+      apply align_divides. 
+      unfold alignw. omega.
+      generalize (alignw_le (init_data_list_size (gvar_init v))). intros.
+      generalize (init_data_list_size_pos (gvar_init v)). intros. omega.
+      intros i' slbl' GMAP'.
+      unfold update_gid_map in GMAP'. destruct peq. 
+      subst. inv GMAP'. unfold data_label. simpl. 
+      rewrite Ptrofs.unsigned_repr. apply alignw_aligned. auto.
+      assert (dsize1 + align (init_data_list_size (gvar_init v)) alignw <= dsize).
+      { eapply dsize_mono; eauto. }
+      assert (0 <= align (init_data_list_size (gvar_init v)) alignw).
+      { 
+        apply Zle_trans with (init_data_list_size (gvar_init v)).
+        generalize (init_data_list_size_pos (gvar_init v)). omega.
+        apply alignw_le.
+      }
+      omega.
+      eauto.
+    + cbn in UPDATE.
+      eapply IHdefs; eauto.
+Qed.      
 
 Lemma make_maps_sizes_pos : 
   forall prog gmap lmap dsize csize efsize,
@@ -2859,6 +2910,13 @@ Proof.
         eapply update_map_gmap_aligned; eauto.
         unfold alignw. red. exists 0. omega.
         exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
         unfold default_gid_map. intros. congruence.
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
@@ -3006,6 +3064,13 @@ Proof.
         eapply update_map_gmap_aligned; eauto.
         unfold alignw. red. exists 0. omega.
         exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
         unfold default_gid_map. intros. congruence.
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
@@ -3153,6 +3218,13 @@ Proof.
         eapply update_map_gmap_aligned; eauto.
         unfold alignw. red. exists 0. omega.
         exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
+        unfold alignw. red. exists 0. omega.
+        exploit make_maps_sizes_pos; eauto. intros (DPOS & CPOS & EFPOS). omega.
+        omega.
         unfold default_gid_map. intros. congruence.
         (* alloced memory has not been injected before *)
         intros b0 delta' ofs k p GINJ PERM' OFSABSURD.
