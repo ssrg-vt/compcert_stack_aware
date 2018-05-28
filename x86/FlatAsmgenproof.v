@@ -1202,6 +1202,24 @@ Context `{memory_model: Mem.MemoryModel }.
 Existing Instance inject_perm_all.
 
 
+Lemma store_init_data_perm : forall ge m m' b b' p i q k prm,
+  store_init_data ge m b p i = Some m' -> Mem.perm m' b' q k prm <-> Mem.perm m b' q k prm.
+Proof.
+  intros ge m m' b b' p i q k prm H.
+  unfold store_init_data in H. destruct i; try now (eapply store_perm; eauto).
+  inv H. split; auto.
+Qed.
+
+Lemma store_init_data_list_perm : forall idl ge m m' b p  b' q k prm,
+  store_init_data_list ge m b p idl = Some m' -> Mem.perm m b' q k prm <-> Mem.perm m' b' q k prm.
+Proof.
+  induction idl; intros.
+  - inv H. split; auto.
+  - inv H. destr_match_in H1.
+    + erewrite <- store_init_data_perm; eauto.
+    + inv H1.
+Qed.
+
 Lemma store_init_data_stack : forall v ge (m m' : mem) (b : block) (ofs : Z),
        store_init_data ge m b ofs v = Some m' -> Mem.stack m' = Mem.stack m.
 Proof.
@@ -1244,6 +1262,23 @@ Proof.
   - simpl in H. destr_match_in H; inv H.
     exploit alloc_global_stack; eauto. intros.
     exploit IHl; eauto. intros. congruence.
+Qed.
+
+Lemma alloc_segments_perm_ofs : forall segs m1 m2
+                                  (ALLOCSEGS : alloc_segments m1 segs = m2)
+                                  (PERMOFS : forall b ofs k p, Mem.perm m1 b ofs k p -> 0 <= ofs < Ptrofs.max_unsigned),
+    (forall b ofs k p, Mem.perm m2 b ofs k p -> 0 <= ofs < Ptrofs.max_unsigned).
+Proof.
+  induction segs. intros.
+  - subst. simpl in H. eauto.
+  - intros. simpl in ALLOCSEGS.
+    destruct (Mem.alloc m1 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC.
+    eapply IHsegs; eauto. 
+    intros b1 ofs0 k0 p0 PERM.
+    erewrite alloc_perm in PERM; eauto.
+    destruct peq. 
+    generalize (Ptrofs.unsigned_range_2 (segsize a)). omega.
+    eauto.
 Qed.
 
 Lemma alloc_segments_stack: forall l m m',
@@ -2866,6 +2901,7 @@ Lemma alloc_globals_inject :
     (BLOCKEQ : Mem.nextblock m1 = Globalenvs.Genv.genv_next (partial_genv defs))
     (BLOCKEQ' : Mem.nextblock m1' = (pos_advance_N init_block (length (list_of_segments tprog))))
     (STK' : Mem.stack m1' = nil)
+    (PERMOFS : forall b ofs k p, Mem.perm m1' b ofs k p -> 0 <= ofs < Ptrofs.max_unsigned)
     (OFSBOUND: forall id b def ofs k p, 
         Genv.find_symbol (partial_genv defs) id = Some b -> 
         In (id, (Some def)) defs -> Mem.perm m1 b ofs k p ->
@@ -2912,8 +2948,6 @@ Proof.
         rewrite BLOCKEQ'. auto.
         (* valid offset *)
         apply Ptrofs.unsigned_range_2.
-        (* the offset of a location with permission is valid *)
-        admit.
         (* preservation of permission *)
         admit.
         (* correct alignment *)
@@ -2980,6 +3014,9 @@ Proof.
         erewrite Mem.nextblock_drop; eauto.
         (* stack *)
         erewrite Mem.drop_perm_stack; eauto.
+        (* perm ofs *)
+        intros b0 ofs k p PERM.
+        exploit Mem.perm_drop_4; eauto.
         (* ofsbound *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
@@ -3071,8 +3108,6 @@ Proof.
         rewrite BLOCKEQ'. auto.
         (* valid offset *)
         apply Ptrofs.unsigned_range_2.
-        (* the offset of a location with permission is valid *)
-        admit.
         (* preservation of permission *)
         admit.
         (* correct alignment *)
@@ -3139,6 +3174,9 @@ Proof.
         erewrite Mem.nextblock_drop; eauto.
         (* stack *)
         erewrite Mem.drop_perm_stack; eauto.
+        (* perm ofs *)
+        intros b0 ofs k p PERM.
+        exploit Mem.perm_drop_4; eauto.
         (* ofsbound *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
@@ -3230,8 +3268,6 @@ Proof.
         rewrite BLOCKEQ'. auto.
         (* valid offset *)
         apply Ptrofs.unsigned_range_2.
-        (* the offset of a location with permission is valid *)
-        admit.
         (* preservation of permission *)
         admit.
         (* correct alignment *)
@@ -3313,6 +3349,11 @@ Proof.
         erewrite (Mem.drop_perm_stack m3'); eauto.
         erewrite (store_init_data_list_stack _ _ m2'); eauto.
         erewrite (Genv.store_zeros_stack m1'); eauto.
+        (* perm ofs *)
+        intros b0 ofs k p PERM.
+        exploit Mem.perm_drop_4; eauto. intros PERM'.
+        erewrite <- (store_init_data_list_perm _ _ m2') in PERM'; eauto.
+        erewrite <- (Genv.store_zeros_perm _ _ _ _ m1') in PERM'; eauto. 
         (* perm *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
@@ -3470,6 +3511,7 @@ Lemma alloc_all_globals_inject :
     (MINJ: Mem.weak_inject (globs_meminj gmap) (def_frame_inj Mem.empty) Mem.empty m1')
     (BLOCKEQ: Mem.nextblock m1' = (pos_advance_N init_block (length (list_of_segments tprog))))
     (STK: Mem.stack m1' = nil)
+    (PERMOFS : forall b ofs k p, Mem.perm m1' b ofs k p -> 0 <= ofs < Ptrofs.max_unsigned)
     (ALLOCG: Genv.alloc_globals ge Mem.empty (AST.prog_defs prog) = Some m2),
     exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
            /\ Mem.inject (globs_meminj gmap) (def_frame_inj m2) m2 m2'.
@@ -3572,12 +3614,18 @@ Proof.
   unfold m1. erewrite alloc_segments_stack; eauto.
   erewrite Mem.alloc_stack_blocks; eauto.
   erewrite Mem.empty_stack; eauto.
+  eapply alloc_segments_perm_ofs; eauto. unfold m1; auto.
+  intros b0 ofs k p PERM. erewrite alloc_perm in PERM; eauto.
+  destruct peq. omega. apply Mem.perm_empty in PERM. contradiction.
   simpl. intros (m1' & ALLOC' & MINJ).
   exploit alloc_segments_nextblock; eauto. intros.
   unfold m1. rewrite H. simpl. rewrite NEXTBLOCK. auto.
   unfold m1. erewrite alloc_segments_stack; eauto.
   erewrite Mem.alloc_stack_blocks; eauto.
   erewrite Mem.empty_stack; eauto.
+  eapply alloc_segments_perm_ofs; eauto. unfold m1; auto.
+  intros b0 ofs k p PERM. erewrite alloc_perm in PERM; eauto.
+  destruct peq. omega. apply Mem.perm_empty in PERM. contradiction.
   simpl. intros (m1' & ALLOC' & MINJ).
   exists m1'. split.
   erewrite alloc_globals_ext; eauto.
