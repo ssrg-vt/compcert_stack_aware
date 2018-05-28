@@ -2843,6 +2843,16 @@ Proof.
   omega.
 Qed.
 
+Lemma one_le_ptrofs_max_unsigned : 1 <= Ptrofs.max_unsigned.
+Proof.
+  unfold Ptrofs.max_unsigned. unfold Ptrofs.modulus.
+  unfold Ptrofs.wordsize.
+  generalize Wordsize_Ptrofs.wordsize_not_zero. intros.
+  destruct Wordsize_Ptrofs.wordsize. congruence.
+  rewrite two_power_nat_S. 
+  generalize (two_power_nat_pos n). intros. omega.
+Qed.
+
 Lemma alloc_globals_inject : 
   forall gdefs tgdefs defs m1 m2 m1' gmap lmap  code dsize csize efsize
     (DEFNAMES: list_norepet (map fst (AST.prog_defs prog)))
@@ -3027,7 +3037,8 @@ Proof.
         intros (slbl' & GMAP' & FRANGE).
         rewrite GMAP in GMAP'. inv GMAP'. rewrite FRANGE. simpl.
         unfold tge. rewrite genv_gen_segblocks. setoid_rewrite Ptrofs.unsigned_repr.
-        rewrite Z.add_comm. setoid_rewrite DROP. auto. admit.
+        rewrite Z.add_comm. setoid_rewrite DROP. auto. 
+        generalize one_le_ptrofs_max_unsigned. omega.
 
       * (** the head of gdefs is an external function **)
         monadInv TRANSG. destruct (gmap i) eqn:ILBL; try now inversion EQ.
@@ -3178,7 +3189,8 @@ Proof.
         exists m3'. split; auto. simpl.
         rewrite GMAP in ILBL. inv ILBL.
         unfold tge. rewrite genv_gen_segblocks. setoid_rewrite Ptrofs.unsigned_repr.
-        rewrite Z.add_comm. setoid_rewrite DROP. auto. admit.
+        rewrite Z.add_comm. setoid_rewrite DROP. auto. 
+        generalize one_le_ptrofs_max_unsigned. omega.
  
       * (** the head of gdefs is a global variable **)
         monadInv TRANSG. destruct (gmap i) eqn:ILBL; try now inversion EQ.
