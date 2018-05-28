@@ -2025,8 +2025,7 @@ Lemma update_map_gmap_some :
            /\ (forall id' def' slbl', In (id', def') defs -> (gmap id' = Some slbl') ->
                                  fst slbl' = fst slbl -> Ptrofs.unsigned (snd slbl') + odef_size def' <= Ptrofs.unsigned (snd slbl))
            /\ (forall id' def' slbl', In (id', def') gdefs -> (gmap id' = Some slbl') ->
-                           fst slbl' = fst slbl -> Ptrofs.unsigned (snd slbl) + def_size def <= Ptrofs.unsigned (snd slbl')).
-     
+                           fst slbl' = fst slbl -> Ptrofs.unsigned (snd slbl) + def_size def <= Ptrofs.unsigned (snd slbl')).     
 Proof.
   clear. unfold make_maps.
   intros prog gmap lmap dsize csize efsize id defs gdefs def UPDATE BOUND LNR DEFS.
@@ -2122,6 +2121,7 @@ Proof.
       intros. eapply Z.le_trans. 2: apply H12.
       generalize (alignw_le (init_data_list_size (gvar_init v))); omega.
 Qed.
+
 
 Lemma make_maps_gmap_inj':
   forall prog0 g' l' d' c' e'
@@ -3715,6 +3715,24 @@ Proof.
     destr_match. erewrite IHdefs; eauto. auto.
 Qed.
 
+Definition find_segsize (segs: list segment) id : option ptrofs :=
+  match (List.find (fun s => ident_eq (segid s) id) segs) with
+  | None => None
+  | Some s => Some (segsize s)
+  end.
+
+Lemma make_maps_gmap_ofs_le_segsize :
+  forall (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
+    def slbl
+    (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
+    (IN: In (id, Some def) (AST.prog_defs prog))
+    (GMAP: gmap id = Some slbl),
+    exists sz, find_segsize (list_of_segments tprog) (fst slbl) = Some sz /\
+          (Ptrofs.unsigned (snd slbl)) + (def_size def) <= Ptrofs.unsigned sz.
+Proof.
+  clear.
+  Admitted.
+
 Lemma init_mem_pres_inject : forall m gmap lmap dsize csize efsize
     (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
     (TRANSPROG: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog)
@@ -3748,7 +3766,17 @@ Proof.
     intros b0 ofs k p PERM. erewrite alloc_perm in PERM; eauto.
     destruct peq. omega. apply Mem.perm_empty in PERM. contradiction.
   - intros id odef slbl b' delta IN GMAP SYMOFS ofs k p OFS.
-    admit.
+    destruct odef as [def|].
+    + exploit make_maps_gmap_ofs_le_segsize; eauto.
+      intros (sz & FINDSEGSZ & BND). simpl in OFS.
+      unfold Genv.symbol_block_offset in SYMOFS.
+      unfold Genv.label_to_block_offset in SYMOFS. inversion SYMOFS.
+      subst delta b'. unfold tge. rewrite H0.
+      rewrite genv_gen_segblocks.
+      unfold m1. rewrite H0.
+      (* WIP *)
+      admit.
+    + simpl in OFS. omega.
   - intros (m1' & ALLOC' & MINJ).
     exists m1'. split. subst. simpl.
     erewrite (alloc_globals_ext _ _ (Genv.genv_segblocks tge)); eauto. 
