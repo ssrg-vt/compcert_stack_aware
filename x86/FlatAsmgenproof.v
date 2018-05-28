@@ -2855,6 +2855,7 @@ Lemma alloc_globals_inject :
     (ALLOCG: Genv.alloc_globals ge m1 gdefs = Some m2)
     (BLOCKEQ : Mem.nextblock m1 = Globalenvs.Genv.genv_next (partial_genv defs))
     (BLOCKEQ' : Mem.nextblock m1' = (pos_advance_N init_block (length (list_of_segments tprog))))
+    (STK' : Mem.stack m1' = nil)
     (OFSBOUND: forall id b def ofs k p, 
         Genv.find_symbol (partial_genv defs) id = Some b -> 
         In (id, (Some def)) defs -> Mem.perm m1 b ofs k p ->
@@ -2944,8 +2945,10 @@ Proof.
         assert (In (i0, None) (AST.prog_defs prog)).
         { rewrite <- DEFSTAIL. rewrite in_app. auto. }
         exploit update_map_gmap_none; eauto. congruence.
-        (* allocated memory is public *)
-        admit.
+        (* stack frame is public *)
+        intros fi INSTK o k pp PERM INJPERM.
+        rewrite STK' in INSTK. inv INSTK.
+        (* get the new weak injection *)
         intros MINJ'.
         erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
 
@@ -2965,6 +2968,8 @@ Proof.
         rewrite partial_genv_next. auto.
         (* nextblock' *)
         erewrite Mem.nextblock_drop; eauto.
+        (* stack *)
+        erewrite Mem.drop_perm_stack; eauto.
         (* ofsbound *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
@@ -3098,8 +3103,10 @@ Proof.
         assert (In (i1, None) (AST.prog_defs prog)).
         { rewrite <- DEFSTAIL. rewrite in_app. auto. }
         exploit update_map_gmap_none; eauto. congruence.
-        (* allocated memory is public *)
-        admit.
+        (* stack frame is public *)
+        intros fi INSTK o k pp PERM INJPERM.
+        rewrite STK' in INSTK. inv INSTK.
+        (* get the new weak injection *)
         intros MINJ'.
         erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
 
@@ -3119,6 +3126,8 @@ Proof.
         rewrite partial_genv_next. auto.
         (* nextblock' *)
         erewrite Mem.nextblock_drop; eauto.
+        (* stack *)
+        erewrite Mem.drop_perm_stack; eauto.
         (* ofsbound *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
@@ -3251,9 +3260,10 @@ Proof.
         assert (In (i1, None) (AST.prog_defs prog)).
         { rewrite <- DEFSTAIL. rewrite in_app. auto. }
         exploit update_map_gmap_none; eauto. congruence.
-
-        (* allocated memory is public *)
-        admit.
+        (* stack frame is public *)
+        intros fi INSTK o k pp PERM INJPERM.
+        rewrite STK' in INSTK. inv INSTK.
+        (* get the new weak injection *)
         intros MINJ'.
         erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
 
@@ -3287,6 +3297,10 @@ Proof.
         erewrite (Mem.nextblock_drop m3'); eauto.
         erewrite (store_init_data_list_nextblock _ _ m2'); eauto.
         erewrite Genv.store_zeros_nextblock; eauto.
+        (* stack *)
+        erewrite (Mem.drop_perm_stack m3'); eauto.
+        erewrite (store_init_data_list_stack _ _ m2'); eauto.
+        erewrite (Genv.store_zeros_stack m1'); eauto.
         (* perm *)
         intros id b0 def ofs k p FINDSYM IN PERM'.
         rewrite in_app in IN. destruct IN as [IN | IN].
@@ -3443,6 +3457,7 @@ Lemma alloc_all_globals_inject :
     (BOUND: dsize + csize + efsize <= Ptrofs.max_unsigned)
     (MINJ: Mem.weak_inject (globs_meminj gmap) (def_frame_inj Mem.empty) Mem.empty m1')
     (BLOCKEQ: Mem.nextblock m1' = (pos_advance_N init_block (length (list_of_segments tprog))))
+    (STK: Mem.stack m1' = nil)
     (ALLOCG: Genv.alloc_globals ge Mem.empty (AST.prog_defs prog) = Some m2),
     exists m2', alloc_globals tge (Genv.genv_segblocks tge) m1' tgdefs = Some m2'
            /\ Mem.inject (globs_meminj gmap) (def_frame_inj m2) m2 m2'.
@@ -3542,9 +3557,15 @@ Proof.
   clear H0. inv w. auto.
   exploit alloc_segments_nextblock; eauto. intros.
   unfold m1. rewrite H. simpl. rewrite NEXTBLOCK. auto.
+  unfold m1. erewrite alloc_segments_stack; eauto.
+  erewrite Mem.alloc_stack_blocks; eauto.
+  erewrite Mem.empty_stack; eauto.
   simpl. intros (m1' & ALLOC' & MINJ).
   exploit alloc_segments_nextblock; eauto. intros.
   unfold m1. rewrite H. simpl. rewrite NEXTBLOCK. auto.
+  unfold m1. erewrite alloc_segments_stack; eauto.
+  erewrite Mem.alloc_stack_blocks; eauto.
+  erewrite Mem.empty_stack; eauto.
   simpl. intros (m1' & ALLOC' & MINJ).
   exists m1'. split.
   erewrite alloc_globals_ext; eauto.
