@@ -3731,7 +3731,53 @@ Lemma make_maps_gmap_ofs_le_segsize :
           (Ptrofs.unsigned (snd slbl)) + (def_size def) <= Ptrofs.unsigned sz.
 Proof.
   clear.
+  (* intros.  *)
+  (* unfold match_prog, transf_program in TRANSF.  *)
+  (* repeat destr_in TRANSF. *)
+  (* inv UPDATE. *)
+  (* unfold make_maps in Heqp. *)
   Admitted.
+
+Lemma alloc_segments_perm: forall segs m b m' ofs k p
+  (ALLOCSEGS: m' = alloc_segments m segs)
+  (PERM: Mem.perm m b ofs k p),
+  Mem.perm m' b ofs k p.
+Proof.
+  induction segs; intros.
+  - inv ALLOCSEGS. simpl. auto.
+  - inv ALLOCSEGS. simpl.
+    destruct (Mem.alloc m 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC.
+    eapply IHsegs; eauto.
+    eapply Mem.perm_alloc_1; eauto.
+Qed.    
+      
+
+Lemma alloc_segments_acc_segblocks_perm : forall segs m m' sid sz k p ofs smap
+    (ALLOCSEGS: m' = alloc_segments m segs)
+    (FINDSZ: find_segsize segs sid = Some sz)
+    (SMAP: smap = acc_segblocks (Mem.nextblock m) (map segid segs) (fun id => undef_seg_block))
+    (OFSBND: 0 <= ofs < Ptrofs.unsigned sz),
+    Mem.perm m' (smap sid) ofs k p.
+Proof.
+  induction segs; intros.
+  - inv FINDSZ.
+  - simpl in ALLOCSEGS.
+    destruct (Mem.alloc m 0 (Ptrofs.unsigned (segsize a))) eqn:ALLOC.
+    rewrite map_cons in SMAP. simpl in SMAP. subst.
+    destruct ident_eq.
+    + unfold find_segsize in FINDSZ.
+      simpl in FINDSZ.  subst. setoid_rewrite peq_true in FINDSZ.
+      inv FINDSZ. exploit Mem.nextblock_alloc; eauto. intros NB.
+      exploit Mem.alloc_result; eauto. intros. subst.
+      eapply alloc_segments_perm; eauto.
+      apply Mem.perm_implies with (p1:=Freeable); auto.
+      eapply Mem.perm_alloc_2; eauto.
+      constructor.
+    + unfold find_segsize in FINDSZ.
+      simpl in FINDSZ.  setoid_rewrite peq_false in FINDSZ; auto.
+      eapply IHsegs; eauto.
+      erewrite <- Mem.nextblock_alloc; eauto.
+Qed.      
 
 Lemma init_mem_pres_inject : forall m gmap lmap dsize csize efsize
     (UPDATE: make_maps prog = (gmap, lmap, dsize, csize, efsize))
@@ -3773,16 +3819,18 @@ Proof.
       unfold Genv.label_to_block_offset in SYMOFS. inversion SYMOFS.
       subst delta b'. unfold tge. rewrite H0.
       rewrite genv_gen_segblocks.
-      unfold m1. rewrite H0.
-      (* WIP *)
-      admit.
+      unfold m1. rewrite H0.      
+      eapply alloc_segments_acc_segblocks_perm; eauto.
+      unfold gen_segblocks. rewrite NEXTBLOCK. reflexivity.
+      generalize (Ptrofs.unsigned_range_2 (snd slbl)); eauto. intros.
+      omega.
     + simpl in OFS. omega.
   - intros (m1' & ALLOC' & MINJ).
     exists m1'. split. subst. simpl.
     erewrite (alloc_globals_ext _ _ (Genv.genv_segblocks tge)); eauto. 
     intros x1. subst tge. rewrite genv_gen_segblocks. rewrite H0. auto.
     auto.
-Admitted.
+Qed.
 
 Lemma find_funct_ptr_next :
   Genv.find_funct_ptr ge (Globalenvs.Genv.genv_next ge) = None.
