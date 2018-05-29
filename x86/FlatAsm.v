@@ -258,6 +258,7 @@ Record program : Type := {
   data_seg: segment;  (* The data segment *)
   code_seg : segment * code; (* The code segment *)
   extfuns_seg : segment; (* The segment for external functions *)
+  prog_senv : Globalenvs.Senv.t;
 }.
 
 
@@ -800,8 +801,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
     => Stuck
   end.
 
-(** Symbol environments are not used to describe the semantics of FlatAsm. However, we need to provide a dummy one to match the semantics framework of CompCert *)
-Definition dummy_senv := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit nil).
+(* (** Symbol environments are not used to describe the semantics of FlatAsm. However, we need to provide a dummy one to match the semantics framework of CompCert *) *)
+(* Definition dummy_senv (ge:genv) := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit (Genv.genv_public ge)). *)
 
 Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} 
   (ge: genv) : state -> trace -> state -> Prop :=
@@ -818,7 +819,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
       Genv.genv_internal_codeblock ge b = true ->
       Genv.find_instr ge (Vptr b ofs) = Some (Pbuiltin ef args res, blk) ->
       eval_builtin_args _ _ preg ge rs (rs RSP) m args vargs ->
-        external_call ef dummy_senv vargs m t vres m' ->
+        external_call ef (Genv.genv_senv ge) vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         rs' = nextinstr_nf
                 (set_res res vres
@@ -842,7 +843,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
         (RA_NOT_VUNDEF: rs RA <> Vundef)
       ,      (* CompCertX: END additional conditions for calling convention *)
-        external_call ef dummy_senv args m t res m' ->
+        external_call ef (Genv.genv_senv ge) args m t res m' ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
         step ge (State rs m) t (State rs' m').
 
@@ -857,11 +858,13 @@ Definition add_global (ge:genv) (idg: ident * option gdef * segblock) : genv :=
   | Some (Gvar _) => ge
   | Some (Gfun f) =>
     (Genv.mkgenv
+       (Genv.genv_public ge)
        (fun b ofs => if Val.eq (Vptr b ofs) ptr then Some f else (Genv.genv_defs ge b ofs))
        (Genv.genv_instrs ge)
        (Genv.genv_internal_codeblock ge)
        (Genv.genv_segblocks ge)
-       (Genv.genv_next ge))
+       (Genv.genv_next ge)
+       (Genv.genv_senv ge))
   end.
 
 Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * segblock)) : genv :=
@@ -1257,14 +1260,14 @@ Qed.
 
 
 Definition empty_genv (p:program): genv :=
-  Genv.mkgenv (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p) 1%positive.
+  Genv.mkgenv (prog_public p) (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p) 1%positive (prog_senv p).
 
 Definition globalenv (p: program) : genv :=
   let smap := gen_segblocks p in
   let imap := gen_instrs_map smap p in
   let cbmap := gen_internal_codeblock smap p in
   let nextblock := Pos.of_nat ((Pos.to_nat init_block) + length (list_of_segments p)) in
-  let genv := Genv.mkgenv (fun b ofs => None) imap cbmap smap nextblock in
+  let genv := Genv.mkgenv (prog_public p) (fun b ofs => None) imap cbmap smap nextblock (prog_senv p) in
   add_globals genv p.(prog_defs).
   
 (* (** Initialization of the memory *) *)
@@ -1402,7 +1405,7 @@ Inductive final_state: state -> int -> Prop :=
 Local Existing Instance mem_accessors_default.
 
 Definition semantics (p: program) (rs: regset) :=
-  Semantics_gen step (initial_state p rs) final_state (globalenv p) dummy_senv.
+  Semantics_gen step (initial_state p rs) final_state (globalenv p) (Genv.genv_senv (globalenv p)).
 
 (* (** Determinacy of the [Asm] semantics. *) *)
 

@@ -4565,6 +4565,7 @@ Qed.
 
 Lemma main_ptr_inject:
   forall gmap lmap dsize csize efsize prog,
+    match_sminj gmap lmap (init_meminj gmap) ->
     make_maps prog = (gmap, lmap, dsize, csize, efsize) ->
     transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
     Val.inject (init_meminj gmap)
@@ -4573,7 +4574,10 @@ Lemma main_ptr_inject:
                   (AST.prog_main prog) Ptrofs.zero)
                (get_main_fun_ptr (globalenv tprog) tprog).
 Proof.
-
+  intros gmap lmap dsize csize efsize prog0 MATCH_SMINJ MAKEMAPS TRANSL.
+  unfold Globalenvs.Genv.symbol_address. destr_match; auto.
+  unfold get_main_fun_ptr. 
+  unfold init_meminj. inv MATCH_SMINJ.
 Admitted.
 
 
@@ -4871,12 +4875,12 @@ Proof.
   eapply extcall_arguments_inject_aux; eauto.
 Qed.
 
-Axiom external_call_inject : forall j vargs1 vargs2 m1 m2 m1' vres1 t ef,
+Axiom external_call_inject : forall ge j vargs1 vargs2 m1 m2 m1' vres1 t ef ge',
     Val.inject_list j vargs1 vargs2 ->
     Mem.inject j (def_frame_inj m1) m1 m2 ->
     external_call ef ge vargs1 m1 t vres1 m1' ->
     exists j' vres2 m2',
-      external_call ef dummy_senv vargs2 m2 t vres2 m2' /\ 
+      external_call ef ge' vargs2 m2 t vres2 m2' /\ 
       Val.inject j' vres1 vres2 /\ Mem.inject j' (def_frame_inj m1') m1' m2' /\
       inject_incr j j' /\
       inject_separated j j' m1 m2.
@@ -6424,7 +6428,7 @@ Proof.
     set (pbseg := {| segblock_id := sid; segblock_start := Ptrofs.repr ofs1; segblock_size := Ptrofs.repr (si_size sz) |}) in *.
     exploit (eval_builtin_args_inject gm lm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
     intros (vargs' & EBARGS & ARGSINJ).
-    generalize (external_call_inject j vargs vargs' m m'0 m' vres t ef ARGSINJ MINJ H3).
+    generalize (external_call_inject ge j vargs vargs' m m'0 m' vres t ef (Genv.genv_senv tge) ARGSINJ MINJ H3).
     intros (j' & vres2 & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     set (rs' := nextinstr_nf (set_res res vres2 (undef_regs (map preg_of (Machregs.destroyed_by_builtin ef)) rs'0)) (segblock_size pbseg)).
     exploit (fun b ofs => FlatAsm.exec_step_builtin tge b ofs
@@ -6460,7 +6464,7 @@ Proof.
     (* exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst. *)
     generalize (extcall_arguments_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
     intros (args2 & ARGSINJ & EXTCALLARGS).
-    exploit (external_call_inject j args args2 m m'0 m' res t ef); eauto.
+    exploit (external_call_inject ge j args args2 m m'0 m' res t ef); eauto.
     intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     exploit (fun ofs => FlatAsm.exec_step_external tge b2 ofs ef args2 res'); eauto.
     + generalize (RSINJ Asm.RSP). intros. 
@@ -6507,13 +6511,35 @@ Proof.
   - red in RSINJ. generalize (RSINJ RAX). rewrite H0.
     inversion 1. auto.
 Qed.
+
+Lemma add_globals_pres_senv : 
+  forall (defs : list (ident * option gdef * segblock)) (ge : genv),
+  Genv.genv_senv (add_globals ge defs) = Genv.genv_senv ge.
+Proof.
+  induction defs; intros.
+  - simpl. auto.
+  - simpl. erewrite IHdefs; eauto.
+    unfold add_global. destruct a. destruct p. destruct o; auto.
+    destruct g; auto.
+Qed.
   
+Lemma transl_prog_pres_senv : forall gmap lmap dsize csize efsize tprog prog,
+    transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
+    (Genv.genv_senv (globalenv tprog)) = (Globalenvs.Genv.globalenv prog).
+Proof.
+  intros gmap lmap dsize csize efsize tprog0 prog0 H.
+  monadInv H. unfold globalenv. simpl.
+  rewrite add_globals_pres_senv; eauto.
+Qed.
 
 Theorem transf_program_correct:
   forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef)) (FlatAsm.semantics tprog (Pregmap.init Vundef)).
 Proof.
   eapply forward_simulation_step with match_states.
-  - simpl. admit.
+  - simpl. intros. 
+    unfold match_prog in TRANSF. unfold transf_program in TRANSF.
+    repeat destr_in TRANSF.    
+    erewrite transl_prog_pres_senv; eauto. auto.
   - simpl. intros s1 IS. 
     exploit transf_initial_states; eauto.
     intros.
@@ -6521,7 +6547,7 @@ Proof.
   - simpl. intros s1 s2 r MS FS. eapply transf_final_states; eauto.
   - simpl. intros s1 t s1' STEP s2 MS. 
     edestruct step_simulation as (STEP' & MS'); eauto.
-Admitted.
+Qed.
 
 End PRESERVATION.
 

@@ -529,7 +529,8 @@ Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): 
         (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *)
         (mkSegment data_segid (Ptrofs.repr data_sz))
         (mkSegment code_segid (Ptrofs.repr code_sz), code)
-        (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))
+        (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz))
+        (Globalenvs.Genv.to_senv (Globalenvs.Genv.globalenv p)))
       .
 
 (* Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program :=  *)

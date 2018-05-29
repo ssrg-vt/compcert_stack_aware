@@ -38,7 +38,7 @@ Require Import Zwf.
 Require Import Axioms Coqlib Errors Maps AST Linking.
 Require Import Integers Floats Values Memory.
 Require Import Segment.
-Require Import FlatAsmGlobdef.
+Require Import FlatAsmGlobdef Globalenvs.
 
 Notation "s #1" := (fst s) (at level 9, format "s '#1'") : pair_scope.
 Notation "s #2" := (snd s) (at level 9, format "s '#2'") : pair_scope.
@@ -64,11 +64,13 @@ Variable I: Type.  (**r The type of instructions *)
 (** The type of global environments. *)
 
 Record t: Type := mkgenv {
+  genv_public: list ident;
   genv_defs: block -> ptrofs -> option F;                 (**r mapping offsets -> function defintions *)
   genv_instrs: block -> ptrofs -> option I;           (**r mapping offset -> instructions *)
   genv_internal_codeblock : block -> bool;
   genv_segblocks: segid_type -> block;
   genv_next : block;
+  genv_senv : Globalenvs.Senv.t;
 }.
 
 (** ** Lookup functions *)
