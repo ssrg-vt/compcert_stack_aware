@@ -3721,6 +3721,89 @@ Definition find_segsize (segs: list segment) id : option ptrofs :=
   | Some s => Some (segsize s)
   end.
 
+Definition gen_segs dsize csize efsize : list segment :=
+  (mkSegment data_segid (Ptrofs.repr dsize)) 
+    :: (mkSegment code_segid (Ptrofs.repr csize))
+    :: (mkSegment extfuns_segid (Ptrofs.repr efsize)) :: nil.
+
+Lemma update_maps_gmap_ofs_le_segsize :
+  forall defs (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
+    def slbl
+    gmap1 lmap1 dsize1 csize1 efsize1
+    (DZLBND: dsize1 >= 0)
+    (DZUBND: dsize <= Ptrofs.max_unsigned)
+    (CZALNG: (alignw | csize1))
+    (CZLBND: csize1 >= 0)
+    (CZUBND: csize <= Ptrofs.max_unsigned)
+    (EFZLBND: efsize1 >= 0)
+    (EFZUBND: efsize <= Ptrofs.max_unsigned)
+    (UPDATE: update_maps gmap1 lmap1 dsize1 csize1 efsize1 defs = (gmap, lmap, dsize, csize, efsize))
+    (NORPT: list_norepet (map fst defs))
+    (IN: In (id, Some def) defs)
+    (GMAP: gmap id = Some slbl),
+    exists sz, find_segsize (gen_segs dsize csize efsize) (fst slbl) = Some sz /\
+          (Ptrofs.unsigned (snd slbl)) + (def_size def) <= Ptrofs.unsigned sz.
+Proof.
+  induction defs. intros.
+  - inv IN.
+  - intros. 
+    assert (dsize1 <= dsize) as DSZLE. eapply dsize_mono; eauto.
+    assert (csize1 <= csize) as CSZLE. eapply csize_mono; eauto.
+    assert (efsize1 <= efsize) as EFSZLE. eapply efsize_mono; eauto.
+    inv IN. 
+    + destruct def. destruct f.
+      * unfold update_maps in UPDATE. simpl in UPDATE.
+        destruct (update_instrs lmap1 csize1 id (Asm.fn_code f)) eqn:UPDINSTRS.
+        exploit update_instrs_code_size; eauto. intros. subst. simpl. 
+        inv NORPT. exploit update_gmap_not_in; eauto.
+        intros GMAP'. rewrite GMAP in GMAP'.
+        unfold update_gid_map in GMAP'. rewrite peq_true in GMAP'. inv GMAP'.
+        unfold code_label. simpl. 
+        exists (Ptrofs.repr csize). split; auto.
+        repeat rewrite Ptrofs.unsigned_repr.
+        apply Zle_trans with (align (csize1 + code_size (Asm.fn_code f)) alignw).
+        apply alignw_le. eapply csize_mono; eauto. apply alignw_divides.
+        split; auto. omega. omega.
+      * unfold update_maps in UPDATE. simpl in UPDATE.
+        simpl. 
+        inv NORPT. exploit update_gmap_not_in; eauto.
+        intros GMAP'. rewrite GMAP in GMAP'.
+        unfold update_gid_map in GMAP'. rewrite peq_true in GMAP'. inv GMAP'.
+        unfold extfun_label. simpl. 
+        exists (Ptrofs.repr efsize). split; auto.
+        repeat rewrite Ptrofs.unsigned_repr.
+        apply Zle_trans with (efsize1 + alignw). unfold alignw. omega.
+        eapply efsize_mono; eauto. omega. omega.
+      * unfold update_maps in UPDATE. simpl in UPDATE.
+        simpl. 
+        inv NORPT. exploit update_gmap_not_in; eauto.
+        intros GMAP'. rewrite GMAP in GMAP'.
+        unfold update_gid_map in GMAP'. rewrite peq_true in GMAP'. inv GMAP'.
+        unfold data_label. simpl. 
+        exists (Ptrofs.repr dsize). split; auto.
+        repeat rewrite Ptrofs.unsigned_repr.
+        apply Zle_trans with (dsize1 + align (init_data_list_size (gvar_init v)) alignw).
+        generalize (alignw_le (init_data_list_size (gvar_init v))). omega. 
+        eapply dsize_mono; eauto. omega. omega.
+    + inv NORPT. unfold update_maps in UPDATE. simpl in UPDATE. 
+      destruct a. 
+      destruct (update_maps_def gmap1 lmap1 dsize1 csize1 efsize1 i o) eqn:UPDDEF.
+      destruct p. destruct p. destruct p. 
+      eapply (IHdefs _ _ _ _ _ id def slbl g l z1 z0 z); eauto.
+      assert (dsize1 <= z1). eapply update_dsize_mono; eauto. omega.
+      eapply update_csize_div; eauto.
+      assert (csize1 <= z0). eapply update_csize_mono; eauto. omega.
+      assert (efsize1 <= z). eapply update_efsize_mono; eauto. omega.
+Qed.
+
+Lemma transl_prog_segs : forall gmap lmap prog dsize csize efsize tprog,
+    transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
+    list_of_segments tprog = gen_segs dsize csize efsize.
+Proof.
+  intros. monadInv H. unfold list_of_segments.
+  simpl. unfold gen_segs. auto.
+Qed.
+ 
 Lemma make_maps_gmap_ofs_le_segsize :
   forall (gmap : GID_MAP_TYPE) (lmap : LABEL_MAP_TYPE) (dsize csize efsize : Z) (id : ident)
     def slbl
@@ -3730,13 +3813,20 @@ Lemma make_maps_gmap_ofs_le_segsize :
     exists sz, find_segsize (list_of_segments tprog) (fst slbl) = Some sz /\
           (Ptrofs.unsigned (snd slbl)) + (def_size def) <= Ptrofs.unsigned sz.
 Proof.
-  clear.
-  (* intros.  *)
-  (* unfold match_prog, transf_program in TRANSF.  *)
-  (* repeat destr_in TRANSF. *)
-  (* inv UPDATE. *)
-  (* unfold make_maps in Heqp. *)
-  Admitted.
+  intros.
+  generalize TRANSF. intros TRANSF'.
+  unfold match_prog, transf_program in TRANSF'.
+  repeat destr_in TRANSF'.
+  inv UPDATE.
+  unfold make_maps in Heqp.
+  assert (0 <= dsize). eapply dsize_mono; eauto.
+  assert (0 <= csize). eapply csize_mono; eauto. apply Z.divide_0_r.
+  assert (0 <= efsize). eapply efsize_mono; eauto.
+  erewrite transl_prog_segs; eauto.
+  eapply update_maps_gmap_ofs_le_segsize; eauto; try omega.
+  apply Z.divide_0_r.
+  destruct w. auto.
+Qed.
 
 Lemma alloc_segments_perm: forall segs m b m' ofs k p
   (ALLOCSEGS: m' = alloc_segments m segs)
