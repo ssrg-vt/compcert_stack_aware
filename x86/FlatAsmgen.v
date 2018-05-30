@@ -470,7 +470,7 @@ Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
     let ofs' := Ptrofs.unsigned ofs in
     do (fofs, code') <- transl_instrs fid sid ofs' (Asm.fn_code f);
       if zle fofs Ptrofs.max_unsigned then
-        (let sz := 1 in
+        (let sz := (Asm.code_size (Asm.fn_code f))  in
          let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
          OK (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk))
       else

@@ -2457,7 +2457,7 @@ Qed.
 
 Lemma transl_fun_inversion : forall gmap lmap id f f',
     transl_fun gmap lmap id f = OK f' ->
-    exists slbl, gmap id = Some slbl /\ fn_range f' = mkSegBlock (fst slbl) (snd slbl) Ptrofs.one.
+    exists slbl, gmap id = Some slbl /\ fn_range f' = mkSegBlock (fst slbl) (snd slbl) (Ptrofs.repr (Asm.code_size (Asm.fn_code f))).
 Proof.
   intros gmap lmap id f f' H. monadInvX H.
   destruct zle; monadInv EQ2. simpl. eexists. split; eauto.
@@ -2929,6 +2929,58 @@ Proof.
     erewrite in_app. right. eauto. intros. congruence.
 Qed.
 
+Lemma code_size_upper_bound': 
+  forall defs gmap lmap dsize csize efsize id f 
+    gmap1 lmap1 dsize1 csize1 efsize1
+    (CZPOS: 0 <= csize1)
+    (UPDATE: update_maps gmap1 lmap1 dsize1 csize1 efsize1 defs = (gmap, lmap, dsize, csize, efsize))
+    (IN: In (id, Some (Gfun (Internal f))) defs),
+    code_size (Asm.fn_code f) <= csize.
+Proof.
+  induction defs. intros. inv IN.
+  intros. inv IN.
+  - unfold update_maps in UPDATE. simpl in UPDATE.
+    destruct (update_instrs lmap1 csize1 id (Asm.fn_code f)) eqn:UPDATEINSTRS.
+    assert (align z alignw <= csize).
+    { eapply csize_mono; eauto. apply alignw_divides. }
+    generalize (alignw_le z). intros.
+    exploit update_instrs_code_size; eauto. intros. subst.
+    omega.
+  - unfold update_maps in UPDATE. simpl in UPDATE. destruct a.
+    destruct (update_maps_def gmap1 lmap1 dsize1 csize1 efsize1 i o) eqn:EQ.
+    destruct p. destruct p. destruct p.
+    eapply (IHdefs _ _ _ _ _ _ _ g l z1 z0 z); eauto.
+    assert (csize1 <= z0).
+    { eapply update_csize_mono; eauto. }
+    omega.
+Qed.
+
+Lemma code_size_upper_bound: 
+  forall defs prog gmap lmap dsize csize efsize id f gdefs
+    (MAKEMAPS: make_maps prog = (gmap, lmap, dsize, csize, efsize))
+    (PROG: defs ++ (id, Some (Gfun (Internal f))) :: gdefs = AST.prog_defs prog),
+    code_size (Asm.fn_code f) <= csize.
+Proof.
+  intros. unfold make_maps in MAKEMAPS.
+  eapply code_size_upper_bound'; eauto. omega.
+  rewrite <- PROG. rewrite in_app. right. apply in_eq.
+Qed.
+
+Lemma transf_prog_code_size_pos: forall prog tprog id f
+    (TRANSF: transf_program prog = OK tprog)
+    (IN: In (id, Some (Gfun (Internal f))) (AST.prog_defs prog)),
+    0 < Asm.code_size (Asm.fn_code f).
+Proof.
+  intros. unfold transf_program in TRANSF0.
+  repeat destr_in TRANSF0. destruct w.
+  red in wf_prog_not_empty. 
+  erewrite Forall_forall in wf_prog_not_empty; eauto.
+  generalize (in_map snd (AST.prog_defs prog0) (id, Some (Gfun (Internal f))) IN).
+  simpl. intros IN'. 
+  exploit wf_prog_not_empty; eauto.
+Qed.
+
+
 Lemma alloc_globals_inject : 
   forall gdefs tgdefs defs m1 m2 m1' gmap lmap  code dsize csize efsize
     (DEFNAMES: list_norepet (map fst (AST.prog_defs prog)))
@@ -3051,8 +3103,54 @@ Proof.
         erewrite alloc_pres_def_frame_inj in MINJ'; eauto.
 
         (* drop_perm injection *)
-        exploit Mem.drop_parallel_weak_inject; eauto using MINJ'. 
-        red. simpl. auto. 
+        exploit transf_prog_code_size_pos; eauto.
+        rewrite <- DEFSTAIL. rewrite in_app. right. apply in_eq. intros.
+        exploit (fun j g m1 m2 b1 b2 delta =>
+                   Mem.drop_extended_parallel_weak_inject j g m1 m2 b1 b2 delta 
+                                                          0 1 0 (Asm.code_size (Asm.fn_code f))); eauto using MINJ'. 
+        (* inject perm *)
+        red. simpl. auto. omega.
+        (* hi *)
+        omega.
+        (* range perm *)
+        simpl. red. intros ofs OFS.
+        replace ofs with (Ptrofs.unsigned (snd slbl) + (ofs - (Ptrofs.unsigned (snd slbl)))) by omega.
+        eapply DEFSPERM with (ofs:= ofs-Ptrofs.unsigned(snd slbl)); eauto. apply in_eq.
+        unfold Genv.symbol_block_offset. unfold Genv.label_to_block_offset.
+        unfold tge. erewrite genv_gen_segblocks; eauto.
+        simpl. omega.
+        (* source memory have no permission on extended regions *)
+        intros b' delta' ofs' k p BINJ' PERM' OFS. destruct OFS. omega.
+        unfold globs_meminj in BINJ'. destr_match_in BINJ'; inv BINJ'.
+        destr_match_in H3; inv H3. erewrite genv_gen_segblocks in H2.
+        generalize (gen_segblocks_injective tprog). intros SEGSINJ.
+        red in SEGSINJ. 
+        assert (fst s = fst slbl) as LBLEQ.
+        { 
+          eapply SEGSINJ; eauto.
+          eapply gen_segblocks_in_valid; eauto.
+          eapply AGREE_SMINJ_INSTR.update_map_gmap_range; eauto.
+        }
+        exploit Mem.perm_alloc_inv; eauto.
+        destruct eq_block. 
+        (** b' = Mem.nextblock m1 **)
+        subst.
+        rewrite BLOCKEQ in EQ2.
+        erewrite genv_invert_symbol_next in EQ2; eauto. inv EQ2.
+        rewrite GMAP in EQ3. inv EQ3. intros. omega.
+        (** b' <> Mem.nextblock m1 **)
+        intros PERM''.
+        exploit FINDVALIDSYM; eauto. apply Genv.invert_find_symbol. exact EQ2. 
+        intros FINDSYM'.
+        exploit find_symbol_inversion_1; eauto. intros (def' & IN). destruct def'.
+        exploit OFSBOUND; eauto. intros OFS'. 
+        assert (Ptrofs.unsigned (snd s) + odef_size (Some g) <= Ptrofs.unsigned (snd slbl)) as SZBND.
+        { eapply OFSRANGE; eauto. }
+        simpl in SZBND. omega.
+        exploit update_map_gmap_none; eauto.
+        rewrite <- DEFSTAIL. rewrite in_app. left. apply IN.
+        intros. congruence.
+        (* introduce the weak injection *)
         intros (m2' & DROP & MINJ'').
         erewrite drop_perm_pres_def_frame_inj in MINJ''; eauto.
 
@@ -3089,7 +3187,7 @@ Proof.
         exploit Mem.perm_alloc_inv; eauto using ALLOCF. 
         rewrite dec_eq_false; auto. intros. eapply OFSBOUND; eauto.
 
-        inv IN. inv H0. 
+        inv IN. inv H1. 
         rewrite partial_genv_find_symbol_eq in FINDSYM. inv FINDSYM.
         rewrite <- BLOCKEQ in PERM'.
         erewrite (drop_perm_perm _ _ _ _ _ _ EQ) in PERM'. destruct PERM' as [PERM' PIN].
@@ -3098,7 +3196,7 @@ Proof.
         simpl. assert (ofs = 0). omega. subst.
         eapply (prog_odef_size_pos defs id (Some (Gfun (Internal f)))); eauto.
 
-        inv H0.
+        inv H1.
         (* findvalidsym *)
         intros id b0 ofs k p FINDSYM PERM.
         erewrite drop_perm_perm in PERM; eauto. destruct PERM as [PERM COND].
@@ -3121,7 +3219,7 @@ Proof.
         destruct (eq_block b' (gen_segblocks tprog (fst slbl))); auto.
         right. right.
         unfold Genv.symbol_block_offset in SYMOFS. unfold Genv.label_to_block_offset in SYMOFS. inv SYMOFS.
-        unfold tge in H1. rewrite genv_gen_segblocks in H1.
+        unfold tge in H2. rewrite genv_gen_segblocks in H2.
         assert (odef_size (Some (Gfun (Internal f))) + Ptrofs.unsigned (snd slbl) <= Ptrofs.unsigned (snd slbl0)) as SZBND.
         { 
           eapply (make_maps_ofs_ordering prog (defs ++ (i, Some (Gfun (Internal f))) :: nil) gdefs
@@ -3144,7 +3242,11 @@ Proof.
         rewrite GMAP in GMAP'. inv GMAP'. rewrite FRANGE. simpl.
         unfold tge. rewrite genv_gen_segblocks. setoid_rewrite Ptrofs.unsigned_repr.
         rewrite Z.add_comm. setoid_rewrite DROP. auto. 
-        generalize one_le_ptrofs_max_unsigned. omega.
+        simpl. 
+        assert (code_size (Asm.fn_code f) <= csize). 
+        eapply code_size_upper_bound; eauto.
+        exploit make_maps_sizes_pos; eauto. intros (DSZPOS & CSZPOS & EFSZPOS).
+        omega.
 
       * (** the head of gdefs is an external function **)
         monadInv TRANSG. destruct (gmap i) eqn:ILBL; try now inversion EQ.
