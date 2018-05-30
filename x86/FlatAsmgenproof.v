@@ -4666,12 +4666,12 @@ Lemma main_ptr_inject:
                (get_main_fun_ptr (globalenv tprog) tprog).
 Proof.
   intros.
-  assert (exists def, In (AST.prog_main prog, Some def) (AST.prog_defs prog)).
-  admit.
-  destruct H as (def & IN).
-  exploit transl_prog_get_seg_block; eauto.
   unfold match_prog in TRANSF. unfold transf_program in TRANSF.
-  repeat destr_in TRANSF. inv w. auto.
+  repeat destr_in TRANSF.  inv MAKEMAPS. inv w. auto.
+  red in wf_prog_main_exists. rewrite Exists_exists in wf_prog_main_exists.
+  destruct wf_prog_main_exists as (def & IN & P). 
+  destruct def. destruct o; destruct P as [IDEQ P]; inv P.
+  exploit transl_prog_get_seg_block; eauto.
   intros (sb & GETSEGB & GMAP).
   inv MATCH_SMINJ. exploit agree_sminj_glob0; eauto.
   intros (ofs' & b0 & b' & FINDSYM & SYMADDR & INJ).
@@ -4682,7 +4682,7 @@ Proof.
   rewrite GETSEGB. fold tge. rewrite SYMADDR. 
   eapply Val.inject_ptr; eauto.
   rewrite Ptrofs.add_zero_l. rewrite Ptrofs.repr_unsigned. auto.
-Admitted.
+Qed.
 
 
 Lemma transf_initial_states : forall rs (SELF: forall j, forall r : PregEq.t, Val.inject j (rs r) (rs r)) st1,
