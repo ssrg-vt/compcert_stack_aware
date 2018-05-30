@@ -4563,21 +4563,125 @@ Proof.
   erewrite transl_prog_seg_data; eauto. unfold extfuns_segid, data_segid. congruence.
 Qed.
 
-Lemma main_ptr_inject:
-  forall gmap lmap dsize csize efsize prog,
-    match_sminj gmap lmap (init_meminj gmap) ->
-    make_maps prog = (gmap, lmap, dsize, csize, efsize) ->
+Lemma transl_globdefs_get_seg_block : 
+  forall defs id def gmap lmap tdefs code
+    (NORPT: list_norepet (map fst defs))
+    (IN: In (id, Some def) defs)
+    (TRANSL: transl_globdefs gmap lmap defs = OK (tdefs, code)),
+  exists sb, get_seg_block id tdefs = Some sb 
+        /\ gmap id = Some (segblock_to_label sb).
+Proof.
+  induction defs. intros.
+  - inv IN.
+  - intros. inv IN.
+    + monadInv TRANSL.
+      destruct x. 
+      * destruct p. inv EQ2. 
+        destruct def. destruct f.
+        (* Internal function *)
+        monadInv EQ. exists (fn_range x).
+        split. unfold get_seg_block. simpl. 
+        setoid_rewrite peq_true. auto.
+        monadInvX EQ0. destruct zle; monadInv EQ4. simpl.
+        unfold segblock_to_label. simpl. auto.
+        (* External function *)
+        destruct (gmap id) eqn:GMAP. destruct s.
+        inv EQ. eexists. split.
+        unfold get_seg_block. simpl. 
+        setoid_rewrite peq_true. auto.
+        unfold segblock_to_label. simpl. auto.
+        inv EQ.
+        (* Global variable *)
+        destruct (gmap id) eqn:GMAP. destruct s.
+        monadInv EQ. eexists. split.
+        unfold get_seg_block. simpl. 
+        setoid_rewrite peq_true. auto.
+        unfold segblock_to_label. simpl. auto.
+        inv EQ.
+      * inv EQ2.
+        destruct def. destruct f. monadInv EQ.
+        destruct (gmap id) eqn:GMAP. destruct s. monadInv EQ.
+        monadInv EQ.
+        destruct (gmap id) eqn:GMAP. destruct s. monadInv EQ.
+        monadInv EQ.
+    + monadInvX TRANSL. 
+      * inv NORPT.
+        exploit IHdefs; eauto. 
+        intros (sb & GSB & GMAP).
+        exists sb. split; auto.
+        destruct p0. destruct p. 
+        assert (i0 = i).
+        {
+          destruct g. destruct f. monadInv EQ0; auto.
+          destr_match_in EQ0. destruct s0; monadInv EQ0; auto.
+          monadInv EQ0.
+          destr_match_in EQ0. destruct s0; monadInv EQ0; auto.
+          monadInv EQ0.
+        }
+        subst.
+        unfold get_seg_block. simpl.
+        destruct ident_eq. subst.
+        assert (In (fst (i, Some def)) (map fst defs)).
+        { eapply in_map with (f:=fst); eauto. }
+        simpl in H0. congruence.
+        simpl. auto.
+      * destruct g. destruct f. monadInv EQ0.
+        destr_match_in EQ0. destruct s. monadInv EQ0.
+        monadInv EQ0.
+        destr_match_in EQ0. destruct s. monadInv EQ0.
+        monadInv EQ0.
+      * inv NORPT.
+        eapply IHdefs; eauto.
+Qed.
+
+Lemma transl_prog_get_seg_block : 
+  forall id def prog gmap lmap dsize csize efsize tprog
+    (NORPT: list_norepet (map fst (AST.prog_defs prog)))
+    (IN: In (id, Some def) (AST.prog_defs prog))
+    (TRANSL: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog),
+  exists sb, get_seg_block id (prog_defs tprog) = Some sb 
+        /\ gmap id = Some (segblock_to_label sb).
+Proof.
+  intros. monadInv TRANSL. simpl.
+  eapply transl_globdefs_get_seg_block; eauto.
+Qed.
+  
+
+Lemma transl_prog_pres_main_id : forall gmap lmap prog dsize csize efsize tprog,
     transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
+    AST.prog_main prog = prog_main tprog.
+Proof.
+  intros. monadInv H. simpl. auto.
+Qed.
+
+Lemma main_ptr_inject:
+  forall gmap lmap dsize csize efsize
+    (MATCH_SMINJ: match_sminj gmap lmap (init_meminj gmap))
+    (MAKEMAPS: make_maps prog = (gmap, lmap, dsize, csize, efsize))
+    (TRANSL: transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog),
     Val.inject (init_meminj gmap)
                (Globalenvs.Genv.symbol_address
                   (Genv.globalenv prog)
                   (AST.prog_main prog) Ptrofs.zero)
                (get_main_fun_ptr (globalenv tprog) tprog).
 Proof.
-  intros gmap lmap dsize csize efsize prog0 MATCH_SMINJ MAKEMAPS TRANSL.
+  intros.
+  assert (exists def, In (AST.prog_main prog, Some def) (AST.prog_defs prog)).
+  admit.
+  destruct H as (def & IN).
+  exploit transl_prog_get_seg_block; eauto.
+  unfold match_prog in TRANSF. unfold transf_program in TRANSF.
+  repeat destr_in TRANSF. inv w. auto.
+  intros (sb & GETSEGB & GMAP).
+  inv MATCH_SMINJ. exploit agree_sminj_glob0; eauto.
+  intros (ofs' & b0 & b' & FINDSYM & SYMADDR & INJ).
   unfold Globalenvs.Genv.symbol_address. destr_match; auto.
+  fold ge in EQ. rewrite EQ in FINDSYM. inv FINDSYM.
   unfold get_main_fun_ptr. 
-  unfold init_meminj. inv MATCH_SMINJ.
+  erewrite <- transl_prog_pres_main_id; eauto.
+  rewrite GETSEGB. fold tge. rewrite SYMADDR. 
+  eapply Val.inject_ptr; eauto.
+  rewrite Ptrofs.add_zero_l. rewrite Ptrofs.repr_unsigned. auto.
 Admitted.
 
 

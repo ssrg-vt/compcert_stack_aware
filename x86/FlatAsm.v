@@ -1359,16 +1359,14 @@ Definition init_mem (p: program) :=
   alloc_globals ge (gen_segblocks p) m p.(prog_defs).
 
 (** Execution of whole programs. *)
-Fixpoint get_main_block (main:ident) (l: list (ident * option gdef * segblock)) : option segblock :=
-  match l with
-  | nil => None
-  | (id,_,sb)::l' =>
-    if ident_eq main id then Some sb 
-    else get_main_block main l'
+Definition get_seg_block (id:ident) (l: list (ident * option gdef * segblock)) : option segblock :=
+  match (List.find (fun '(id',_,_) => ident_eq id id') l) with
+  | None => None
+  | Some (_,_,sb) => Some sb
   end.
 
 Definition get_main_fun_ptr (ge:genv) (p:program) : val :=
-  match get_main_block (prog_main p) (prog_defs p) with
+  match get_seg_block (prog_main p) (prog_defs p) with
   | None => Vundef
   | Some sb => (Genv.symbol_address ge (segblock_to_label sb) Ptrofs.zero)
   end.
