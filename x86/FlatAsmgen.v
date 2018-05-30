@@ -791,14 +791,20 @@ Proof.
 Qed.
 
 Definition def_not_empty def : Prop :=
-  0 < odef_size def.
+  match def with
+  | None => True
+  | Some def' => 0 < def_size def'
+  end.
+
 
 Definition defs_not_empty defs :=
   Forall def_not_empty defs.
 
 Definition defs_not_empty_dec defs : { defs_not_empty defs } + { ~ defs_not_empty defs }.
 Proof.
-  apply Forall_dec. intros. apply zlt.
+  apply Forall_dec. intros. destruct x. 
+  - simpl. apply zlt.
+  - simpl. left. auto.
 Defined.
 
 Definition main_exists main (defs: list (ident * option (AST.globdef Asm.fundef unit))) :=

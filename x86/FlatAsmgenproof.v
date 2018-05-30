@@ -2890,7 +2890,7 @@ Qed.
 
 Lemma prog_odef_size_pos : forall defs id odef gdefs,
     defs ++ (id, odef) :: gdefs = AST.prog_defs prog ->
-    0 < odef_size odef.
+    def_not_empty odef.
 Proof.
   intros defs id odef gdefs DEFSTAIL.
   unfold match_prog in TRANSF. unfold transf_program in TRANSF. repeat destr_in TRANSF.
