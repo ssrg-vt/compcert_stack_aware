@@ -4875,12 +4875,12 @@ Proof.
   eapply extcall_arguments_inject_aux; eauto.
 Qed.
 
-Axiom external_call_inject : forall ge j vargs1 vargs2 m1 m2 m1' vres1 t ef ge',
+Axiom external_call_inject : forall ge j vargs1 vargs2 m1 m2 m1' vres1 t ef,
     Val.inject_list j vargs1 vargs2 ->
     Mem.inject j (def_frame_inj m1) m1 m2 ->
     external_call ef ge vargs1 m1 t vres1 m1' ->
     exists j' vres2 m2',
-      external_call ef ge' vargs2 m2 t vres2 m2' /\ 
+      external_call ef ge vargs2 m2 t vres2 m2' /\ 
       Val.inject j' vres1 vres2 /\ Mem.inject j' (def_frame_inj m1') m1' m2' /\
       inject_incr j j' /\
       inject_separated j j' m1 m2.
@@ -6220,6 +6220,27 @@ Proof.
       exists rs2', l'. split. simpl. erewrite zeq_false; auto. split; auto.
 Qed.
 
+Lemma add_globals_pres_senv : 
+  forall (defs : list (ident * option gdef * segblock)) (ge : genv),
+  Genv.genv_senv (add_globals ge defs) = Genv.genv_senv ge.
+Proof.
+  induction defs; intros.
+  - simpl. auto.
+  - simpl. erewrite IHdefs; eauto.
+    unfold add_global. destruct a. destruct p. destruct o; auto.
+    destruct g; auto.
+Qed.
+
+Lemma transl_prog_pres_senv : forall gmap lmap dsize csize efsize tprog prog,
+    transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
+    (Genv.genv_senv (globalenv tprog)) = (Globalenvs.Genv.globalenv prog).
+Proof.
+  intros gmap lmap dsize csize efsize tprog0 prog0 H.
+  monadInv H. unfold globalenv. simpl.
+  rewrite add_globals_pres_senv; eauto.
+Qed.
+
+
 
 (** The internal step preserves the invariant *)
 Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id sid ofs ofs' f b
@@ -6428,7 +6449,14 @@ Proof.
     set (pbseg := {| segblock_id := sid; segblock_start := Ptrofs.repr ofs1; segblock_size := Ptrofs.repr (si_size sz) |}) in *.
     exploit (eval_builtin_args_inject gm lm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
     intros (vargs' & EBARGS & ARGSINJ).
-    generalize (external_call_inject ge j vargs vargs' m m'0 m' vres t ef (Genv.genv_senv tge) ARGSINJ MINJ H3).
+    assert (Globalenvs.Genv.to_senv ge = (Genv.genv_senv tge)) as SENVEQ. 
+    { 
+      unfold match_prog in TRANSF. unfold transf_program in TRANSF.
+      repeat destr_in TRANSF. 
+      symmetry. eapply transl_prog_pres_senv; eauto.
+    }
+    generalize (external_call_inject ge j vargs vargs' m m'0 m' vres t ef ARGSINJ MINJ H3).
+    rewrite SENVEQ.
     intros (j' & vres2 & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     set (rs' := nextinstr_nf (set_res res vres2 (undef_regs (map preg_of (Machregs.destroyed_by_builtin ef)) rs'0)) (segblock_size pbseg)).
     exploit (fun b ofs => FlatAsm.exec_step_builtin tge b ofs
@@ -6464,7 +6492,14 @@ Proof.
     (* exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst. *)
     generalize (extcall_arguments_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
     intros (args2 & ARGSINJ & EXTCALLARGS).
+    assert (Globalenvs.Genv.to_senv ge = (Genv.genv_senv tge)) as SENVEQ. 
+    { 
+      unfold match_prog in TRANSF. unfold transf_program in TRANSF.
+      repeat destr_in TRANSF. 
+      symmetry. eapply transl_prog_pres_senv; eauto.
+    }
     exploit (external_call_inject ge j args args2 m m'0 m' res t ef); eauto.
+    rewrite SENVEQ.
     intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     exploit (fun ofs => FlatAsm.exec_step_external tge b2 ofs ef args2 res'); eauto.
     + generalize (RSINJ Asm.RSP). intros. 
@@ -6511,27 +6546,7 @@ Proof.
   - red in RSINJ. generalize (RSINJ RAX). rewrite H0.
     inversion 1. auto.
 Qed.
-
-Lemma add_globals_pres_senv : 
-  forall (defs : list (ident * option gdef * segblock)) (ge : genv),
-  Genv.genv_senv (add_globals ge defs) = Genv.genv_senv ge.
-Proof.
-  induction defs; intros.
-  - simpl. auto.
-  - simpl. erewrite IHdefs; eauto.
-    unfold add_global. destruct a. destruct p. destruct o; auto.
-    destruct g; auto.
-Qed.
   
-Lemma transl_prog_pres_senv : forall gmap lmap dsize csize efsize tprog prog,
-    transl_prog_with_map gmap lmap prog dsize csize efsize = OK tprog ->
-    (Genv.genv_senv (globalenv tprog)) = (Globalenvs.Genv.globalenv prog).
-Proof.
-  intros gmap lmap dsize csize efsize tprog0 prog0 H.
-  monadInv H. unfold globalenv. simpl.
-  rewrite add_globals_pres_senv; eauto.
-Qed.
-
 Theorem transf_program_correct:
   forward_simulation (RawAsm.semantics prog (Pregmap.init Vundef)) (FlatAsm.semantics tprog (Pregmap.init Vundef)).
 Proof.
