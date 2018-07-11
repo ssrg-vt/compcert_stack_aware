@@ -92,6 +92,8 @@ Extract Constant Linearize.enumerate_aux => "Linearizeaux.enumerate_aux".
 Extract Constant SimplExpr.first_unused_ident => "Camlcoq.first_unused_ident".
 Extraction Inline SimplExpr.ret SimplExpr.error SimplExpr.bind SimplExpr.bind2.
 
+Extract Constant Asm.instr_size => "(fun _ -> Camlcoq.Z.of_uint 1)".
+
 (* Compopts *)
 Extract Constant Compopts.optim_for_size =>
   "fun _ -> !Clflags.option_Osize".
