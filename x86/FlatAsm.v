@@ -806,11 +806,10 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
                          (undef_regs (map preg_of (destroyed_by_builtin ef)) rs)) (segblock_size blk) ->
         step ge (State rs m) t (State rs' m')
 | exec_step_external:
-    forall b ofs ef args res rs m t rs' m',
+    forall b ofs ef args res rs m t m2 rs' m',
       rs PC = Vptr b ofs ->
       Genv.genv_internal_codeblock ge b = false ->
       Genv.find_funct ge (Vptr b ofs) = Some (External ef) ->
-      extcall_arguments rs m (ef_sig ef) args ->
       forall (* CompCertX: BEGIN additional conditions for calling convention *)
         (* (STACK: *)
         (*    exists m_, *)
@@ -822,8 +821,11 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         (RA_TYPE: Val.has_type (rs RA) Tptr)
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
         (RA_NOT_VUNDEF: rs RA <> Vundef)
+        (SZRA: Mem.storev Mptr m (Val.offset_ptr (rs RSP) (Ptrofs.neg (Ptrofs.repr (size_chunk Mptr))))
+                          (rs RA) = Some m2)
+        (ARGS: extcall_arguments rs m2 (ef_sig ef) args)
       ,      (* CompCertX: END additional conditions for calling convention *)
-        external_call ef (Genv.genv_senv ge) args m t res m' ->
+        external_call ef (Genv.genv_senv ge) args m2 t res m' ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
         step ge (State rs m) t (State rs' m').
 
@@ -1358,14 +1360,14 @@ Definition get_main_fun_ptr (ge:genv) (p:program) : val :=
 Inductive initial_state_gen (p: program) (rs: regset) m: state -> Prop :=
   | initial_state_gen_intro: 
       forall m1 m2 m3 bstack
-      (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit) = (m1,bstack))
-      (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit) Writable = Some m2)
+      (MALLOC: Mem.alloc (Mem.push_new_stage m) 0 (Mem.stack_limit + align (size_chunk Mptr) 8) = (m1,bstack))
+      (MDROP: Mem.drop_perm m1 bstack 0 (Mem.stack_limit + align (size_chunk Mptr) 8) Writable = Some m2)
       (MRSB: Mem.record_stack_blocks m2 (make_singleton_frame_adt' bstack frame_info_mono 0) = Some m3),
       let ge := (globalenv p) in
       let rs0 :=
         rs # PC <- (get_main_fun_ptr ge p)
            # RA <- Vnullptr
-           # RSP <- (Vptr bstack (Ptrofs.repr Mem.stack_limit)) in
+           # RSP <- (Vptr bstack (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8))) in
       initial_state_gen p rs m (State rs0 m3).
 
 Inductive initial_state (prog: program) (rs: regset) (s: state): Prop :=
@@ -1427,7 +1429,7 @@ Ltac Equalities :=
   exploit external_call_determ. eexact H5. eexact H11. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 + assert (args0 = args) by (eapply Asm.extcall_arguments_determ; eauto). subst args0.
-  exploit external_call_determ. eexact H5. eexact H11. intros [A B].
+  exploit external_call_determ. eexact H4. eexact H9. intros [A B].
   split. auto. intros. destruct B; auto. subst. auto.
 - (* trace length *)
   red; intros; inv H; simpl.

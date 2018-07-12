@@ -874,7 +874,7 @@ Proof.
   induction code; simpl; intros.
   - inv H. omega.
   - monadInv H. apply IHcode in EQ1. 
-    generalize (instr_size_positive a). unfold instr_size. omega.
+    generalize (instr_size_positive a). omega.
 Qed.
 
 Lemma find_instr_transl_instrs : forall code gmap lmap id sid i ofs ofs' fofs code',
@@ -893,31 +893,31 @@ Proof.
       eapply transl_instr_segblock; eauto. apply in_eq.
     + exploit (IHcode gmap lmap id sid i 
                       (Ptrofs.repr (Ptrofs.unsigned ofs - instr_size a))
-                      (Ptrofs.repr (Ptrofs.unsigned ofs' + si_size (snd a)))); eauto.
+                      (Ptrofs.repr (Ptrofs.unsigned ofs' + instr_size a))); eauto.
       rewrite Ptrofs.unsigned_repr. auto. 
       generalize (find_instr_ofs_non_negative code (Ptrofs.unsigned ofs - instr_size a) i H).
       generalize (instr_size_positive a).
       generalize (Ptrofs.unsigned_range_2 ofs). intros. omega.
       rewrite Ptrofs.unsigned_repr. eauto. 
       generalize (transl_instrs_ofs_bound code x1 gmap lmap id sid
-                                          (Ptrofs.unsigned ofs' + si_size (snd a)) fofs EQ1).
+                                          (Ptrofs.unsigned ofs' + instr_size a) fofs EQ1).
       generalize (Ptrofs.unsigned_range_2 ofs'). 
-      generalize (instr_size_positive a). unfold instr_size. omega.
+      generalize (instr_size_positive a). omega.
       intros (i' & ofs1 & TRANSI & SBEQ & IN).
       eexists; eexists; split. eauto. split.
       rewrite SBEQ. f_equal.
-      unfold instr_size.
+      
       rewrite Ptrofs.add_unsigned. repeat rewrite Ptrofs.unsigned_repr.
-      replace (Ptrofs.unsigned ofs - si_size (snd a) + (Ptrofs.unsigned ofs' + si_size (snd a))) with
+      replace (Ptrofs.unsigned ofs - instr_size a + (Ptrofs.unsigned ofs' + instr_size a)) with
               (Ptrofs.unsigned ofs + Ptrofs.unsigned ofs') by omega.
       rewrite <- Ptrofs.add_unsigned. auto.
       generalize (transl_instrs_ofs_bound code x1 gmap lmap id sid
-                                          (Ptrofs.unsigned ofs' + si_size (snd a)) fofs EQ1).
+                                          (Ptrofs.unsigned ofs' + instr_size a) fofs EQ1).
       generalize (Ptrofs.unsigned_range_2 ofs'). 
-      generalize (instr_size_positive a). unfold instr_size. omega.
+      generalize (instr_size_positive a). omega.
       generalize (find_instr_ofs_non_negative code (Ptrofs.unsigned ofs - instr_size a) i H).
       generalize (instr_size_positive a).
-      generalize (Ptrofs.unsigned_range_2 ofs). unfold instr_size. intros. omega.
+      generalize (Ptrofs.unsigned_range_2 ofs). intros. omega.
       apply in_cons. auto.
 Qed.
 
@@ -998,12 +998,12 @@ Ltac solve_label_pos_inv :=
 
 Lemma label_pos_inv : forall l ofs a instrs z,
     label_pos l ofs (a :: instrs) = Some z ->
-    (fst a = Asm.Plabel l /\ z = ofs + instr_size a) 
-    \/ (fst a <> Asm.Plabel l /\ label_pos l (ofs + instr_size a) instrs = Some z).
+    (a = Asm.Plabel l /\ z = ofs + instr_size a) 
+    \/ (a <> Asm.Plabel l /\ label_pos l (ofs + instr_size a) instrs = Some z).
 Proof.
   intros l ofs a instrs z H.
-  simpl in H. destruct a. unfold Asm.is_label in H; simpl in H.
-  destruct i; try now (right; solve_label_pos_inv).
+  simpl in H. unfold Asm.is_label in H; simpl in H.
+  destruct a; try now (right; solve_label_pos_inv).
   destruct peq.
   - subst. left. inv H. auto.
   - right. simpl. split. unfold not. inversion 1. congruence.
@@ -1011,14 +1011,14 @@ Proof.
 Qed.
 
 Lemma update_instrs_map_pres_lmap_2 : forall instrs l id lmap lmap' csize csize',
-    ~ In (Asm.Plabel l) (map fst instrs) ->
+    ~ In (Asm.Plabel l) (instrs) ->
     update_instrs lmap csize id instrs = (lmap',csize') ->
     lmap' id l = lmap id l.
 Proof.
   unfold update_instrs.
   induction instrs; simpl; intros; auto.
   - inv H0; auto. 
-  - assert (Asm.Plabel l <> fst a /\ ~ In (Asm.Plabel l) (map fst instrs)) as H1
+  - assert (Asm.Plabel l <> a /\ ~ In (Asm.Plabel l) (instrs)) as H1
         by (apply not_in_cons; auto). destruct H1.
     erewrite IHinstrs. 2: auto. 2: eauto.
     destr.
@@ -1067,17 +1067,17 @@ Proof.
   induction instrs; simpl; intros; auto.
   - inv LPOS.
   - apply label_pos_inv in LPOS. destruct LPOS as [[LAB EQ] | [NLAB LPOS]].
-    + subst. destruct a. simpl in *. subst. simpl in *.
+    + subst. simpl in *. subst. simpl in *.
       rewrite update_instrs_cons in UI. destr_in UI.
       erewrite update_instrs_other_label in LM. 3: eauto. 2: inv LNR; auto.
       unfold update_instr in Heqp. repeat destr_in Heqp.
-      unfold is_label in Heqo; repeat destr_in Heqo. simpl in Heqi. inv Heqi.
+      unfold is_label in Heqo; repeat destr_in Heqo.
       unfold update_label_map in LM.
       rewrite ! peq_true in LM. inv LM. unfold code_label.
       split.
       f_equal. f_equal. omega.
       rewrite (update_instrs_code_size _ _ _ _ _ _ UI) in MAXSIZE.
-      generalize (instr_size_positive (Asm.Plabel l1, s)).
+      generalize (instr_size_positive (Asm.Plabel l1)).
       generalize (code_size_non_neg instrs). omega.
       unfold is_label in Heqo;  simpl in Heqo; repeat destr_in Heqo.
     + rewrite update_instrs_cons in UI. destr_in UI.
@@ -1096,8 +1096,7 @@ Proof.
   induction instrs; intros.
   - simpl in *. inv H.
   - simpl in *. 
-    destruct a. unfold instr_size in *. simpl in *.
-    generalize (si_size_non_zero s). intros H0.
+    generalize (instr_size_positive a). intros H0.
     repeat destr_in H. omega.
     eapply IHinstrs in H2. omega.
 Qed.
@@ -1583,9 +1582,9 @@ Proof.
       generalize (instr_size_positive a) (code_size_non_neg c); omega.
       split. omega.
       generalize (AGREE_SMINJ_INSTR.transl_instrs_ofs_bound _ _ _ _ _ _ _ _ EQ1).
-      generalize (si_size_non_zero (snd a)); omega.
-    + generalize (si_size_non_zero (snd a)); intros.
-      eapply IHc in IN. 4: eauto. unfold instr_size. destruct IN; split; auto. omega. auto. omega.
+      generalize (instr_size_positive a); omega.
+    + generalize (instr_size_positive a); intros.
+      eapply IHc in IN. 4: eauto. destruct IN; split; auto. omega. auto. omega.
 Qed.
 
 
@@ -1616,12 +1615,12 @@ Proof.
     unfold segblock_to_label in IN. simpl in IN.
     eapply in_transl_instrs in IN. 4: eauto. 2: auto.
     rewrite Ptrofs.unsigned_repr in IN. 
-    generalize (si_size_non_zero (snd a)). omega. split. auto.
+    generalize (instr_size_positive a). omega. split. auto.
     generalize (AGREE_SMINJ_INSTR.transl_instrs_ofs_bound _ _ _ _ _ _ _ _ EQ1).
-    generalize (si_size_non_zero (snd a)); omega.
-    generalize (si_size_non_zero (snd a)); omega.
+    generalize (instr_size_positive a); omega.
+    generalize (instr_size_positive a); omega.
     eapply IHc. 3: eauto. auto.
-    generalize (si_size_non_zero (snd a)); omega.
+    generalize (instr_size_positive a); omega.
 Qed.
 
 
@@ -4808,7 +4807,8 @@ Proof.
   exploit Mem.push_new_stage_inject; eauto. intros NSTGINJ.
   exploit (Mem.alloc_parallel_inject (globs_meminj gmap) (1%nat :: def_frame_inj m)
           (Mem.push_new_stage m) (Mem.push_new_stage m')
-          0 Mem.stack_limit m1 bstack 0 Mem.stack_limit); eauto. omega. omega.
+          0 (Mem.stack_limit + align (size_chunk Mptr) 8) m1 bstack
+          0 (Mem.stack_limit + align (size_chunk Mptr) 8)); eauto. omega. omega.
   intros (j' & m1' & bstack' & MALLOC' & AINJ & INCR & FBSTACK & NOTBSTK).
   rewrite <- push_new_stage_def_frame_inj in AINJ.
   erewrite alloc_pres_def_frame_inj in AINJ; eauto.
@@ -4836,7 +4836,7 @@ Proof.
   }
   exploit Mem.inject_ext; eauto. intros MINJ'.
   exploit Mem.drop_parallel_inject; eauto. red. simpl. auto.
-  rewrite <- H5. rewrite FBSTACK. eauto.
+  unfold init_meminj. fold ge. rewrite <- H4. rewrite pred_dec_true. eauto. auto.
   intros (m2' & MDROP' & DMINJ). simpl in MDROP'. rewrite Z.add_0_r in MDROP'.
   erewrite (drop_perm_pres_def_frame_inj m1) in DMINJ; eauto.
   
@@ -4848,8 +4848,9 @@ Proof.
            (make_singleton_frame_adt' bstack frame_info_mono 0)); eauto.
     (* frame inject *)
     red. unfold make_singleton_frame_adt'. simpl. constructor. 
-    simpl. intros b2 delta FINJ. rewrite <- H5 in FINJ. 
-    rewrite FBSTACK in FINJ. inv FINJ.
+    simpl. intros b2 delta FINJ.
+    unfold init_meminj in FINJ. fold ge in FINJ. rewrite <- H4 in FINJ. 
+    rewrite pred_dec_true in FINJ; auto. inv FINJ.
     exists frame_info_mono. split. auto. apply inject_frame_info_id.
     constructor.
     (* in frame *)
@@ -4864,15 +4865,15 @@ Proof.
     (* frame_agree_perms *)
     red. unfold make_singleton_frame_adt'. simpl. 
     intros b fi o k p BEQ PERM. inv BEQ; try contradiction.
-    inv H6. unfold frame_info_mono. simpl.
+    inv H7. unfold frame_info_mono. simpl.
     erewrite drop_perm_perm in PERM; eauto. destruct PERM.
     eapply Mem.perm_alloc_3; eauto.
     (* in frame iff *)
     unfold make_singleton_frame_adt'. unfold in_frame. simpl.
     intros b1 b2 delta INJB. split.
     intros BEQ. destruct BEQ; try contradiction. subst b1. 
-    rewrite <- H5 in INJB.
-    rewrite INJB in FBSTACK; inv FBSTACK; auto.
+    unfold init_meminj in INJB. fold ge in INJB. rewrite <- H4 in INJB.
+    rewrite pred_dec_true in INJB; auto. inv INJB. left; auto.
     intros BEQ. destruct BEQ; try contradiction. subst b2. 
     assert (bstack' = Mem.nextblock (Mem.push_new_stage m')) as BEQ. 
     eapply Mem.alloc_result; eauto using MALLOC'.
@@ -4881,7 +4882,7 @@ Proof.
     subst bstack'.     
     destruct (eq_block bstack b1); auto.
     assert (b1 <> bstack) by congruence.
-    apply NOTBSTK in H4. rewrite H5 in H4. 
+    apply NOTBSTK in H5. rewrite H6 in H5. rewrite INJB in H5.
     left. symmetry. subst bstack. eapply init_meminj_genv_next_inv; eauto.
 
     (* top frame *)
@@ -4894,22 +4895,23 @@ Proof.
   destruct RCD as (m3' & RCDSB & RMINJ).
   set (rs0' := rs # PC <- (get_main_fun_ptr tge tprog)
                   # RA <- Vnullptr
-                  # RSP <- (Vptr bstack' (Ptrofs.repr Mem.stack_limit))) in *.
+                  # RSP <- (Vptr bstack' (Ptrofs.repr (Mem.stack_limit + align (size_chunk Mptr) 8)))) in *.
   exists (State rs0' m3'). split.
   - eapply initial_state_intro; eauto.
-    eapply initial_state_gen_intro; eauto.
+    eapply initial_state_gen_intro; eauto. subst. fold tge in MDROP'. auto.
   - eapply match_states_intro; eauto.
     + eapply valid_instr_offset_is_internal_init; eauto. inv w; auto.
     + eapply extfun_entry_is_external_init; eauto. inv w; auto.
     + red.
       intros. eapply extfun_transf; eauto. inv w; auto.
-      rewrite H5. eauto.
+      rewrite H6. eauto.
     + red. unfold rs0, rs0'.
       apply val_inject_set.
       apply val_inject_set.
       apply val_inject_set.
       auto.
-      eapply main_ptr_inject; eauto.
+      exploit (main_ptr_inject); eauto. unfold Globalenvs.Genv.symbol_address.
+      unfold ge, ge0 in *. rewrite H2. fold tge. auto.
       unfold Vnullptr. destr; auto.
       econstructor. unfold init_meminj. subst bstack. fold ge. rewrite peq_true. subst bstack'.  fold tge. eauto.
       rewrite Ptrofs.add_zero. auto.
@@ -4920,7 +4922,7 @@ Proof.
     + red.
       intros.
       erewrite update_gmap_not_in. 2: apply Heqp. reflexivity.
-      intro IN. destruct (Genv.find_symbol_exists_1 prog id). apply IN. fold ge in H7. congruence.  
+      intro IN. destruct (Genv.find_symbol_exists_1 prog id). apply IN. unfold ge, ge0 in *. congruence.  
 Qed.
 
 Context `{external_calls_ops : !ExternalCallsOps mem }.
@@ -6469,7 +6471,8 @@ Lemma exec_instr_step : forall j rs1 rs2 m1 m2 rs1' m1' gm lm i i' id sid ofs of
       FlatAsm.exec_instr tge i' rs2 m2 = Next rs2' m2' /\
       match_states (State rs1' m1') (State rs2' m2').
 Proof.
-  intros. destruct i. destruct i; inv H3; simpl in *; monadInvX H4;
+  intros.
+  destruct i; inv H3; simpl in *; monadInvX H4;
                         try first [solve_store_load |
                                    solve_match_states].
 
@@ -6541,9 +6544,16 @@ Proof.
     eapply agree_sminj_lbl; eauto.
 
   - (* Pjmp_s *)
+    repeat destr_in H6.
+    destruct ros; simpl in *; monadInvX EQ.
+    do 2 eexists; split; eauto.
+    econstructor; eauto.
+    apply regset_inject_expand; auto.
+    do 2 eexists; split; eauto.
+    econstructor; eauto.
     apply regset_inject_expand; auto.
     inversion MATCHSMINJ. 
-    exploit (agree_sminj_glob0 symb s0); eauto.
+    exploit (agree_sminj_glob0 i s); eauto.
     intros (ofs1 & b1 & b' & FSYM & LBLOFS & JB). 
     unfold Globalenvs.Genv.symbol_address. rewrite FSYM. 
     rewrite LBLOFS. econstructor; eauto.
@@ -6583,45 +6593,52 @@ Proof.
     assert (m1 = m1') by (eapply goto_label_pres_mem; eauto). subst. auto.
     
   - (* Pcall_s *)
-    generalize (RSINJ PC). intros. rewrite H in *. inv H3.
+    repeat destr_in H6.
+    generalize (RSINJ PC).
+    destruct ros; simpl in *; monadInvX EQ; do 2 eexists; split; eauto; econstructor; eauto.
     repeat apply regset_inject_expand; auto.
     + apply Val.offset_ptr_inject. eauto.
-    + exploit (inject_symbol_sectlabel gm lm j symb s0 Ptrofs.zero); eauto. 
+    + repeat apply regset_inject_expand; auto.
+      apply Val.offset_ptr_inject. eauto.
+      exploit (inject_symbol_sectlabel gm lm j i s Ptrofs.zero); eauto.
       
-  - (* Pallocframe *)
-    generalize (RSINJ RSP). intros RSPINJ.
-    destruct (Mem.storev Mptr m1
-                         (Val.offset_ptr
-                            (Val.offset_ptr (rs1 RSP)
-                                            (Ptrofs.neg (Ptrofs.repr (align (frame_size frame) 8))))
-                            ofs_ra) (rs1 RA)) eqn:STORERA; try inv H6.
-    exploit (fun a1 a2 =>
-               storev_mapped_inject' j Mptr m1 a1 (rs1 RA) m1' m2 a2 (rs2 RA)); eauto with inject_db.
-    intros (m2' & STORERA' & MINJ2).
-    destruct (rs1 RSP) eqn:RSP1; simpl in *; try congruence.
-    inv RSPINJ.
-    eexists; eexists.
-    (* Find the resulting state *)
-    rewrite <- H5 in STORERA'. rewrite STORERA'. split. eauto.
-    (* Solve match states *)
-    eapply match_states_intro; eauto.
-    eapply nextinstr_pres_inject; eauto.
-    repeat eapply regset_inject_expand; eauto.
-    eapply Val.inject_ptr; eauto.
-    repeat rewrite (Ptrofs.add_assoc i).
-    rewrite (Ptrofs.add_commut (Ptrofs.repr delta)). auto.
-    eapply store_pres_glob_block_valid; eauto.
+  (* - (* Pallocframe *) *)
+  (*   generalize (RSINJ RSP). intros RSPINJ. *)
+  (*   destruct (Mem.storev Mptr m1 *)
+  (*                        (Val.offset_ptr *)
+  (*                           (Val.offset_ptr (rs1 RSP) *)
+  (*                                           (Ptrofs.neg (Ptrofs.repr (align (frame_size frame) 8)))) *)
+  (*                           ofs_ra) (rs1 RA)) eqn:STORERA; try inv H6. *)
+  (*   exploit (fun a1 a2 => *)
+  (*              storev_mapped_inject' j Mptr m1 a1 (rs1 RA) m1' m2 a2 (rs2 RA)); eauto with inject_db. *)
+  (*   intros (m2' & STORERA' & MINJ2). *)
+  (*   destruct (rs1 RSP) eqn:RSP1; simpl in *; try congruence. *)
+  (*   inv RSPINJ. *)
+  (*   eexists; eexists. *)
+  (*   (* Find the resulting state *) *)
+  (*   rewrite <- H5 in STORERA'. rewrite STORERA'. split. eauto. *)
+  (*   (* Solve match states *) *)
+  (*   eapply match_states_intro; eauto. *)
+  (*   eapply nextinstr_pres_inject; eauto. *)
+  (*   repeat eapply regset_inject_expand; eauto. *)
+  (*   eapply Val.inject_ptr; eauto. *)
+  (*   repeat rewrite (Ptrofs.add_assoc i). *)
+  (*   rewrite (Ptrofs.add_commut (Ptrofs.repr delta)). auto. *)
+  (*   eapply store_pres_glob_block_valid; eauto. *)
 
-  - (* Pfreeframe *)
-    generalize (RSINJ RSP). intros.
-    destruct (Mem.loadv Mptr m1 (Val.offset_ptr (rs1 RSP) ofs_ra)) eqn:EQRA; try inv H6.
-    exploit (fun g a2 => Mem.loadv_inject j g m1' m2 Mptr (Val.offset_ptr (rs1 Asm.RSP) ofs_ra) a2 v); eauto.
-    apply Val.offset_ptr_inject. auto.
-    intros (v2 & MLOAD2 & VINJ2).
-    eexists; eexists. split. simpl.
-    setoid_rewrite MLOAD2. auto.
-    eapply match_states_intro; eauto with inject_db.
+  (* - (* Pfreeframe *) *)
+  (*   generalize (RSINJ RSP). intros. *)
+  (*   destruct (Mem.loadv Mptr m1 (Val.offset_ptr (rs1 RSP) ofs_ra)) eqn:EQRA; try inv H6. *)
+  (*   exploit (fun g a2 => Mem.loadv_inject j g m1' m2 Mptr (Val.offset_ptr (rs1 Asm.RSP) ofs_ra) a2 v); eauto. *)
+  (*   apply Val.offset_ptr_inject. auto. *)
+  (*   intros (v2 & MLOAD2 & VINJ2). *)
+  (*   eexists; eexists. split. simpl. *)
+  (*   setoid_rewrite MLOAD2. auto. *)
+  (*   eapply match_states_intro; eauto with inject_db. *)
 
+  - repeat destr_in H6. simpl. 
+    eexists _, _; split; eauto. econstructor; eauto.
+    repeat apply regset_inject_expand; auto.
 Qed.
 
 
@@ -6648,11 +6665,11 @@ Proof.
   - (* Builtin *)
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H.
     inversion 1; subst.
-    exploit (agree_sminj_instr gm lm j MATCHSMINJ b b2 f ofs delta (Asm.Pbuiltin ef args res, sz)); auto.
+    exploit (agree_sminj_instr gm lm j MATCHSMINJ b b2 f ofs delta (Asm.Pbuiltin ef args res)); auto.
     intros (id & i' & sid & ofs1 & FITARG & FSYMB & TRANSL).
     (* exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst. *)
     monadInv TRANSL. monadInv EQ.
-    set (pbseg := {| segblock_id := sid; segblock_start := Ptrofs.repr ofs1; segblock_size := Ptrofs.repr (si_size sz) |}) in *.
+    set (pbseg := {| segblock_id := sid; segblock_start := Ptrofs.repr ofs1; segblock_size := Ptrofs.repr (instr_size (Asm.Pbuiltin ef args res)) |}) in *.
     exploit (eval_builtin_args_inject gm lm j m m'0 rs rs'0 (rs Asm.RSP) (rs'0 Asm.RSP) args vargs x0); auto.
     intros (vargs' & EBARGS & ARGSINJ).
     assert (Globalenvs.Genv.to_senv ge = (Genv.genv_senv tge)) as SENVEQ. 
@@ -6696,17 +6713,18 @@ Proof.
     unfold regset_inject in RSINJ. generalize (RSINJ Asm.PC). rewrite H. 
     inversion 1; subst. rewrite Ptrofs.add_zero_l in H6.
     (* exploit (globs_to_funs_inj_into_flatmem j); eauto. inversion 1; subst. *)
-    generalize (extcall_arguments_inject rs rs'0 m m'0 ef args j H1 MINJ RSINJ).
-    intros (args2 & ARGSINJ & EXTCALLARGS).
+    edestruct storev_mapped_inject' as (m2' & SV & INJ2); eauto.
+    apply Val.offset_ptr_inject. eauto.
+    edestruct (extcall_arguments_inject) as (args2 & ARGSINJ & EXTCALLARGS); eauto.
     assert (Globalenvs.Genv.to_senv ge = (Genv.genv_senv tge)) as SENVEQ. 
     { 
       unfold match_prog in TRANSF. unfold transf_program in TRANSF.
       repeat destr_in TRANSF. 
       symmetry. eapply transl_prog_pres_senv; eauto.
     }
-    exploit (external_call_inject ge j args args2 m m'0 m' res t ef); eauto.
+    exploit (external_call_inject ge j args args2 ); eauto.
     rewrite SENVEQ.
-    intros (j' & res' & m2' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
+    intros (j' & res' & m2'' & EXTCALL & RESINJ & MINJ' & INJINCR & INJSEP).
     exploit (fun ofs => FlatAsm.exec_step_external tge b2 ofs ef args2 res'); eauto.
     + generalize (RSINJ Asm.RSP). intros. 
       eapply vinject_pres_has_type; eauto.
@@ -6719,10 +6737,22 @@ Proof.
     + intros FSTEP. eexists. split. apply FSTEP.
       eapply match_states_intro with (j := j'); eauto.
       * eapply (inject_pres_match_sminj j); eauto.
+        intros b1 b0 delta0 J1 J2.
+        generalize (INJSEP _ _ _ J1 J2).
+        unfold Mem.valid_block. rewnb. eauto.
       (* * eapply (inject_pres_globs_inj_into_flatmem j); eauto. *)
       * eapply (inject_pres_valid_instr_offset_is_internal j); eauto.
+        intros b1 b0 delta0 J1 J2.
+        generalize (INJSEP _ _ _ J1 J2).
+        unfold Mem.valid_block. rewnb. eauto.
       * eapply (inject_pres_extfun_entry_is_external j); eauto.
+        intros b1 b0 delta0 J1 J2.
+        generalize (INJSEP _ _ _ J1 J2).
+        unfold Mem.valid_block. rewnb. eauto.
       * eapply (inject_pres_match_find_funct j); eauto.
+        intros b1 b0 delta0 J1 J2.
+        generalize (INJSEP _ _ _ J1 J2).
+        unfold Mem.valid_block. rewnb. eauto.
       * assert (regset_inject j' rs rs'0) by 
             (eapply regset_inject_incr; eauto).
         set (dregs := (map Asm.preg_of Conventions1.destroyed_at_call)) in *.
@@ -6738,7 +6768,8 @@ Proof.
         intros.
         apply regset_inject_expand; auto.
         apply regset_inject_expand; auto.
-    * eapply extcall_pres_glob_block_valid; eauto.
+      * eapply extcall_pres_glob_block_valid; eauto.
+        red. red. rewnb. eauto.
 Qed.        
 
 Lemma transf_final_states:
