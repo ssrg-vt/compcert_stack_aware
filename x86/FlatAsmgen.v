@@ -353,12 +353,12 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
     | Some tl => OK (Pjmp_l tl)
     end
-  | Asm.Pjmp_s symb sg =>
+  | Asm.Pjmp (inr symb) sg =>
     match (gid_map symb) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown symbol" :: nil)
     | Some l => OK (Pjmp_s l sg)
     end
-  | Asm.Pjmp_r r sg => OK (Pjmp_r r sg)
+  | Asm.Pjmp (inl r) sg => OK (Pjmp_r r sg)
   | Asm.Pjcc c l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
@@ -371,12 +371,12 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     end
   | Asm.Pjmptbl r tbl =>
     do tbl' <- transl_tbl fid tbl; OK (Pjmptbl r tbl')
-  | Asm.Pcall_s symb sg => 
+  | Asm.Pcall (inr symb) sg => 
     match (gid_map symb) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown symbol" :: nil)
     | Some l => OK (Pcall_s l sg)
     end
-  | Asm.Pcall_r r sg => OK (Pcall_r r sg)
+  | Asm.Pcall (inl r) sg => OK (Pcall_r r sg)
   | Asm.Pret => OK (Pret)
   (** Saving and restoring registers *)
   | Asm.Pmov_rm_a rd a   =>
@@ -393,12 +393,9 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
     | Some tl => OK (Plabel tl)
     end
-  | Asm.Pallocframe fi ofs_ra =>
-    OK (Pallocframe fi ofs_ra)
-  | Asm.Pfreeframe sz ofs_ra =>
-    OK (Pfreeframe sz ofs_ra)
-  | Asm.Pload_parent_pointer rd z =>
-    OK (Pload_parent_pointer rd z)
+  | Asm.Pallocframe sz rng ofs_ra => Error (MSG "There should not be allocframe instructions anymore." :: nil)
+  | Asm.Pfreeframe sz ofs_ra => Error (MSG "There should not be freeframe instructions anymore." :: nil)
+  | Asm.Pload_parent_pointer rd z => Error (MSG "There should not be loadparentpointer instructions anymore." :: nil)
   | Asm.Pbuiltin ef args res =>
     do args' <- transl_builtin_args args;
     OK (Pbuiltin ef args' res)
@@ -444,18 +441,18 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     Error (MSG (Asm.instr_to_string i) :: MSG " not supported" :: nil)
   end.
 
-Definition transl_instr (ofs:Z) (fid: ident) (sid:segid_type) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
-    let sz := si_size (snd i) in
+Definition transl_instr (ofs:Z) (fid: ident) (sid:segid_type) (i:Asm.instruction) : res FlatAsm.instr_with_info :=
+    let sz := instr_size i in
     let sblk := mkSegBlock sid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
-    do instr <- transl_instr' fid (fst i);
+    do instr <- transl_instr' fid i;
     OK (instr, sblk).
 
 (** Translation of a sequence of instructions in a function *)
-Fixpoint transl_instrs (fid:ident) (sid:segid_type) (ofs:Z) (instrs: list Asm.instr_with_info) : res (Z * list instr_with_info) :=
+Fixpoint transl_instrs (fid:ident) (sid:segid_type) (ofs:Z) (instrs: list Asm.instruction) : res (Z * list instr_with_info) :=
   match instrs with
   | nil => OK (ofs, nil)
   | i::instrs' =>
-    let sz := si_size (snd i) in
+    let sz := instr_size i in
     let nofs := ofs+sz in
     do instr <- transl_instr ofs fid sid i;
     do (fofs, tinstrs') <- transl_instrs fid sid nofs instrs';
@@ -472,7 +469,7 @@ Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
       if zle fofs Ptrofs.max_unsigned then
         (let sz := 1 in
          let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
-         OK (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk))
+         OK (mkfunction (Asm.fn_sig f) code' sblk))
       else
         Error (MSG "The size of the function exceeds limit" ::nil)
   end.
@@ -662,13 +659,13 @@ End WITH_GID_MAP.
 (*     update_extfuns_map ei gdefs' *)
 (*   end. *)
 
-Definition is_label (i: Asm.instr_with_info) : option Asm.label :=
-  match fst i with
+Definition is_label (i: Asm.instruction) : option Asm.label :=
+  match i with
   | Asm.Plabel l => Some l
   | _ => None
   end.
 
-Definition update_instr (lmap: ident -> Asm.label -> option seglabel) (csize: Z) (fid: ident) (i: Asm.instr_with_info) :=
+Definition update_instr (lmap: ident -> Asm.label -> option seglabel) (csize: Z) (fid: ident) (i: Asm.instruction) :=
   let csize' := csize + instr_size i in
   let lmap' :=
       match is_label i with

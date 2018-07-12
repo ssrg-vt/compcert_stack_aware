@@ -4187,7 +4187,7 @@ Proof.
     rewrite Zpos_P_of_succ_nat in *. 
     assert (ofs' = ofs \/ ofs' > ofs) by omega. destruct H1.
     + subst ofs'. replace (ofs - ofs) with 0 by omega. simpl.
-      erewrite setN_outside; eauto. rewrite ZMap.gss. auto. omega.
+      erewrite setN_outside; eauto. destr. rewrite ZMap.gss. auto. omega.
     + rewrite nat_of_Z_succ; auto.
       replace (ofs' - ofs - 1) with (ofs' - (ofs+1)) by omega.
       apply IHlv. omega. 
