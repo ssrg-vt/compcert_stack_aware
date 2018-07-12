@@ -612,6 +612,12 @@ Proof.
   unfold nat_of_Z; intros. apply Z2Nat.inj_add; omega.
 Qed.
 
+Lemma nat_of_Z_succ: forall z, z > 0 -> nat_of_Z z = S (nat_of_Z (z-1)).
+Proof.
+  intros. unfold nat_of_Z. rewrite <- Z2Nat.inj_succ. unfold Z.succ.
+  replace (z - 1 + 1) with z. auto. omega. omega.
+Qed.
+
 
 (** Alignment: [align n amount] returns the smallest multiple of [amount]
   greater than or equal to [n]. *)
@@ -1211,6 +1217,25 @@ Proof.
 Qed.
 
 End FORALL2.
+
+Lemma list_forall2_in : forall {A:Type} (l1:list A) l2 p v,
+  list_forall2 p l1 l2 -> p v v -> 
+  forall ofs, ofs >= 0 -> ofs <= Zlength l1 -> 
+  p (nth (nat_of_Z ofs) l1 v) (nth (nat_of_Z ofs) l2 v).
+Proof.
+  induction 1; intros.
+  - simpl. rewrite Zlength_correct in H1. simpl in H1.
+    assert (ofs = 0). omega. subst ofs.
+    simpl. auto.
+  - intros. simpl. assert (ofs = 0 \/ ofs > 0). omega.
+    destruct H4.
+    + subst ofs.
+      simpl. auto.
+    + rewrite nat_of_Z_succ; auto.
+      apply IHlist_forall2; auto. omega. 
+      rewrite Zlength_correct in *. simpl in H3.
+      rewrite Zpos_P_of_succ_nat in H3. omega.
+Qed.      
 
 Lemma list_forall2_imply:
   forall (A B: Type) (P1: A -> B -> Prop) (l1: list A) (l2: list B),

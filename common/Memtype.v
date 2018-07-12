@@ -1405,6 +1405,27 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
   store chunk m2 b ofs v = Some m2' ->
   inject f g m1 m2';
 
+ store_right_inject {injperm: InjectPerm}:
+  forall f g m1 m2 chunk b ofs v m2',
+    inject f g m1 m2 ->
+    (forall b' delta ofs',
+        f b' = Some(b, delta) ->
+        ofs' + delta = ofs ->
+        exists vl, loadbytes m1 b' ofs' (size_chunk chunk) = Some vl /\
+              list_forall2 (memval_inject f) vl (encode_val chunk v)) ->
+    store chunk m2 b ofs v = Some m2' ->
+    inject f g m1 m2';
+
+ (* store_right_inject {injperm: InjectPerm}: *)
+ (*  forall f g m1 m2 chunk b ofs v m2', *)
+ (*    inject f g m1 m2 -> *)
+ (*    (forall b' delta ofs', *)
+ (*        f b' = Some(b, delta) -> *)
+ (*        ofs' + delta = ofs -> *)
+ (*        list_forall2 (memval_inject f) (getN (size_chunk_nat chunk) ofs' (PMap.get b' (m1.(mem_contents)))) (encode_val chunk v)) -> *)
+ (*    store chunk m2 b ofs v = Some m2' -> *)
+ (*    inject f g m1 m2'; *)
+
  storev_mapped_inject {injperm: InjectPerm}:
   forall f g chunk m1 a1 v1 n1 m2 a2 v2,
   inject f g m1 m2 ->
@@ -1538,6 +1559,39 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
      free m2 b' (lo + delta) (hi + delta) = Some m2'
   /\ inject f g m1' m2';
 
+ drop_parallel_inject {InjectPerm: InjectPerm}:
+  forall f g m1 m2 b1 b2 delta lo hi p m1',
+  inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo hi p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  exists m2',
+      drop_perm m2 b2 (lo + delta) (hi + delta) p = Some m2'
+   /\ inject f g m1' m2';
+
+ drop_extended_parallel_inject {InjectPerm: InjectPerm}:
+  forall f g m1 m2 b1 b2 delta lo1 hi1 lo2 hi2 p m1',
+  inject f g m1 m2 ->
+  inject_perm_condition Freeable ->
+  drop_perm m1 b1 lo1 hi1 p = Some m1' ->
+  f b1 = Some(b2, delta) ->
+  lo2 <= lo1 -> hi1 <= hi2 ->
+  range_perm m2 b2 (lo2 + delta) (hi2 + delta) Cur Freeable ->
+  (* no source memory location with non-empty permision 
+     injects into the following region in b2 in the target memory: 
+     [lo2, lo1)
+     and
+     [hi1, hi2)
+  *)
+  (forall b' delta' ofs' k p,
+    f b' = Some(b2, delta') ->
+    perm m1 b' ofs' k p ->
+    ((lo2 + delta <= ofs' + delta' < lo1 + delta )
+     \/ (hi1 + delta <= ofs' + delta' < hi2 + delta)) -> False) ->
+  exists m2',
+      drop_perm m2 b2 (lo2 + delta) (hi2 + delta) p = Some m2'
+   /\ inject f g m1' m2';
+
  drop_outside_inject {injperm: InjectPerm}:
   forall f g m1 m2 b lo hi p m2',
     inject f g m1 m2 ->
@@ -1546,6 +1600,17 @@ Class MemoryModel mem `{memory_model_ops: MemoryModelOps mem}
     f b' = Some(b, delta) ->
     perm m1 b' ofs k p -> lo <= ofs + delta < hi -> False) ->
   inject f g m1 m2';
+
+ drop_right_inject {injperm: InjectPerm}: 
+   forall f g m1 m2 b lo hi p m2',
+     inject f g m1 m2 ->
+     drop_perm m2 b lo hi p = Some m2' ->
+     (forall b' delta ofs' k p',
+         f b' = Some(b, delta) ->
+         perm m1 b' ofs' k p' ->
+         lo <= ofs' + delta < hi -> p' = p) ->
+     inject f g m1 m2';
+
 
 (** The following property is needed by ValueDomain, to prove mmatch_inj. *)
 

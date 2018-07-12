@@ -289,6 +289,109 @@ Qed.
 Definition globalenv (p: program F V) :=
   add_globals (empty_genv p.(prog_public)) p.(prog_defs).
 
+Lemma find_symbol_empty_genv_absurd : forall (p: program F V) ge id b,
+    ge = empty_genv p.(prog_public) ->
+    find_symbol ge id = Some b -> False.
+Proof.
+  intros p ge id b GE FSYM.
+  subst ge. unfold empty_genv, find_symbol in FSYM. simpl in FSYM.
+  rewrite PTree.gempty in FSYM. congruence.
+Qed.
+
+Lemma find_def_last : forall (ge:t) a d,
+    find_def (add_global ge a) (genv_next ge) = Some d -> a#2 = Some d.
+Proof.
+  intros ge a d H.
+  unfold find_def in H. unfold add_global in H. destruct a. simpl in H.
+  destruct o.
+  - rewrite PTree.gss in H. inv H. auto.
+  - exploit genv_defs_range; eauto. intros. 
+    generalize (Plt_strict (genv_next ge)). congruence.
+Qed.
+
+Lemma find_funct_ptr_last : forall (ge:t) a (f:F),
+    find_funct_ptr (add_global ge a) (genv_next ge) = Some f -> a#2 = Some (Gfun f).
+Proof.
+  intros ge a f H.
+  unfold find_funct_ptr in H. 
+  destruct (find_def (add_global ge a) (genv_next ge)) eqn:EQ; try inv H.
+  destruct g; try inv H1.
+  eapply find_def_last; eauto.
+Qed.
+
+Lemma find_def_not_last : forall (ge:t) id b a d,
+    (genv_symb ge) ! id = Some b -> 
+    find_def (add_global ge a) b = d ->
+    find_def ge b = d.
+Proof.
+  intros ge id b a d GSYM FDEF.
+  unfold find_def, add_global in FDEF. destruct a. simpl in FDEF.
+  destruct o.
+  - rewrite PTree.gso in FDEF.
+    unfold find_def. auto.
+    exploit genv_symb_range; eauto. intros. apply Plt_ne. auto.
+  - unfold find_def. auto.
+Qed.
+
+Lemma find_funct_ptr_not_last : forall (ge:t) id b a (f:F),
+    (genv_symb ge) ! id = Some b -> 
+    find_funct_ptr (add_global ge a) b = Some f ->
+    find_funct_ptr ge b = Some f.
+Proof.
+  intros ge id b a f GSYM FPTR.
+  unfold find_funct_ptr in FPTR. 
+  destruct (find_def (add_global ge a) b) eqn:EQ; try inv FPTR.
+  destruct g; try inv H0.
+  exploit find_def_not_last; eauto. intros. 
+  unfold find_funct_ptr. rewrite H. auto.
+Qed.
+
+Lemma  add_global_find_ptr_symbol : forall ge a b f id,
+    find_funct_ptr (add_global ge a) b = Some f ->
+    find_symbol (add_global ge a) id = Some b ->
+    a = (id, Some (Gfun f)) \/ 
+    (find_funct_ptr ge b = Some f /\ find_symbol ge id = Some b).
+Proof.
+  intros ge a b f id FPTR FSYM.
+  unfold add_global in FSYM. unfold find_symbol in FSYM. simpl in FSYM.
+  destruct (ident_eq (a#1) id); subst.
+  - rewrite PTree.gss in FSYM. inv FSYM.
+    apply find_funct_ptr_last in FPTR. destruct a. simpl in *. subst. auto.
+  - erewrite PTree.gso in FSYM; eauto.
+    exploit find_funct_ptr_not_last; eauto.
+Qed.
+
+Lemma find_symbol_funct_ptr_inversion' : 
+  forall gl (p: program F V) id b f ge,
+  ge = fold_right (fun d ge => add_global ge d) 
+                   (empty_genv p.(prog_public)) gl ->
+  find_symbol ge id = Some b ->
+  find_funct_ptr ge b = Some f ->
+  In (id, Some (Gfun f)) gl.
+Proof.
+  induction gl; simpl; intros.
+  - eapply (find_symbol_empty_genv_absurd p); eauto.     
+  - set (ge' := (fold_right (fun (d : ident * option (globdef F V)) (ge : t) => add_global ge d) (empty_genv (prog_public p)) gl)) in *.
+    subst ge.    
+    exploit add_global_find_ptr_symbol; eauto. 
+    intros [EQ | [FPTR FSYM]]. auto.
+    right. subst ge'. eapply IHgl; eauto. 
+Qed.
+
+Lemma find_symbol_funct_ptr_inversion : 
+  forall (p: program F V) id b f ge,
+  ge = globalenv p ->
+  find_symbol ge id = Some b ->
+  find_funct_ptr ge b = Some f ->
+  In (id, Some (Gfun f)) (AST.prog_defs p).
+Proof.
+  unfold globalenv. unfold add_globals.
+  intros p id b f ge H H0 H1.
+  rewrite <- fold_left_rev_right in H.
+  exploit find_symbol_funct_ptr_inversion'; eauto.
+  rewrite <- in_rev. auto.
+Qed.
+
 (** Proof principles *)
 
 Section GLOBALENV_PRINCIPLES.
@@ -534,6 +637,36 @@ Proof.
   intros. unfold find_symbol; simpl. rewrite PTree.gss. econstructor; eauto.
 Qed.
 
+Lemma map_fst_inversion : forall (A B:Type) (l:list (A*B)) a,
+  In a (map fst l) -> exists b, In (a, b) l.
+Proof.
+  induction l; simpl; intros.
+  - contradiction.
+  - destruct H. 
+    + destruct a. simpl in H. subst. eauto.
+    + exploit IHl; eauto. intros H0. destruct H0. eauto.
+Qed.
+
+Lemma find_symbol_exists_1:
+  forall (p : AST.program F V) (id : ident),
+    In id (prog_defs_names p) -> exists b : block, find_symbol (globalenv p) id = Some b.
+Proof.
+  intros p id H.
+  unfold prog_defs_names in H. apply map_fst_inversion in H. destruct H.
+  eapply find_symbol_exists; eauto.
+Qed.
+
+Lemma find_symbol_genv_next_absurd: forall id ge, 
+    find_symbol ge id = Some (genv_next ge) -> False.
+Proof. 
+  intros id ge FIND. 
+  unfold find_symbol in FIND. 
+  apply genv_symb_range in FIND.
+  generalize (Plt_strict (genv_next ge)). 
+  congruence.
+Qed.
+
+
 Theorem find_symbol_inversion : forall p x b,
   find_symbol (globalenv p) x = Some b ->
   In x (prog_defs_names p).
@@ -640,6 +773,15 @@ Proof.
   intros; exploit H; eauto. intros [id' A].
   assert (id = id'). eapply genv_vars_inj; eauto. apply invert_find_symbol; auto.
   congruence.
+Qed.
+
+Lemma invert_symbol_genv_next : forall ge:t,
+    invert_symbol ge (genv_next ge) = None.
+Proof.
+  intros ge.
+  destruct (invert_symbol ge (genv_next ge)) eqn:EQ; auto.
+  apply invert_find_symbol in EQ.
+  exfalso. eapply find_symbol_genv_next_absurd; eauto.
 Qed.
 
 Definition advance_next (gl: list (ident * option (globdef F V))) (x: positive) :=
@@ -1669,6 +1811,17 @@ Theorem init_mem_characterization_2:
 Proof.
   intros. rewrite find_funct_ptr_iff in H.
   exploit init_mem_characterization_gen; eauto.
+Qed.
+
+Lemma genv_next_find_funct_ptr_absurd : forall (p:AST.program F V) ge gdef,
+  ge = (globalenv p) -> find_funct_ptr ge (genv_next ge) = Some gdef -> False.
+Proof.
+  intros p ge gdef GE FINDPTR. subst ge.
+  unfold find_funct_ptr in FINDPTR. 
+  destruct (find_def (globalenv p) (genv_next (globalenv p))) eqn:EQ; inv FINDPTR.
+  destruct g; inv H0. unfold find_def in EQ.
+  apply genv_defs_range in EQ.
+  apply Plt_strict in EQ. contradiction.
 Qed.
 
 (** ** Compatibility with memory injections *)

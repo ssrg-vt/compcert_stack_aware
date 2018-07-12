@@ -4,7 +4,7 @@
 (* ******************* *)
 
 Require Import Coqlib Integers AST Maps.
-Require Import Asm FlatAsm Sect.
+Require Import Asm FlatAsm Segment.
 Require Import Errors.
 Require Import FlatAsmBuiltin FlatAsmGlobdef.
 Require Import Memtype.
@@ -15,28 +15,29 @@ Local Open Scope error_monad_scope.
 
 (** Translation from CompCert Assembly (RawAsm) to FlatAsm *)
 
+Definition alignw:Z := 8.
 
-Definition stack_sect_id: ident := 1%positive.
-Definition data_sect_id:  ident := 2%positive.
-Definition code_sect_id:  ident := 3%positive.
-Definition extfuns_sect_id: ident := 4%positive.
+Definition stack_segid: segid_type := 1%positive.
+Definition data_segid:  segid_type := 2%positive.
+Definition code_segid:  segid_type := 3%positive.
+Definition extfuns_segid: segid_type := 4%positive.
 
-Definition data_label (ofs:Z) : sect_label := (data_sect_id, Ptrofs.repr ofs).
-Definition code_label (ofs:Z) : sect_label := (code_sect_id, Ptrofs.repr ofs).
-Definition extfun_label (ofs:Z) : sect_label := (extfuns_sect_id, Ptrofs.repr ofs).
+Definition data_label (ofs:Z) : seglabel := (data_segid, Ptrofs.repr ofs).
+Definition code_label (ofs:Z) : seglabel := (code_segid, Ptrofs.repr ofs).
+Definition extfun_label (ofs:Z) : seglabel := (extfuns_segid, Ptrofs.repr ofs).
 
-Definition GID_MAP_TYPE := ident -> option sect_label.
-Definition LABEL_MAP_TYPE := ident -> Asm.label -> option Z.
+Definition GID_MAP_TYPE := ident -> option seglabel.
+Definition LABEL_MAP_TYPE := ident -> Asm.label -> option seglabel.
 
 Definition default_gid_map : GID_MAP_TYPE := fun id => None.
 Definition default_label_map : LABEL_MAP_TYPE :=
   fun id l => None.
 
-Definition update_gid_map (id:ident) (l:sect_label) (map:GID_MAP_TYPE) : GID_MAP_TYPE :=
+Definition update_gid_map (id:ident) (l:seglabel) (map:GID_MAP_TYPE) : GID_MAP_TYPE :=
   fun id' => if peq id id' then Some l else (map id').
 
-Definition update_label_map (id:ident) (l:Asm.label) (ofs:Z) (map:LABEL_MAP_TYPE) : LABEL_MAP_TYPE :=
-  fun id' l' => if peq id id' then (if peq l l' then Some ofs else (map id' l')) else (map id' l').
+Definition update_label_map (id:ident) (l:Asm.label) (tl:seglabel) (map:LABEL_MAP_TYPE) : LABEL_MAP_TYPE :=
+  fun id' l' => if peq id id' then (if peq l l' then Some tl else (map id' l')) else (map id' l').
 
 
 Section WITH_GID_MAP.
@@ -85,24 +86,42 @@ Definition transl_gvar {V:Type} (gvar : AST.globvar V) : res (globvar V) :=
         (AST.gvar_volatile gvar)).
 
 (** Translation of global variables *)
-Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * sect_block)) :=
+Fixpoint transl_globvars (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
+                         : res (list (ident * option FlatAsm.gdef * segblock)) :=
   match gdefs with
-  | nil => OK (ofs, nil)
+  | nil => OK nil
   | ((id, None) :: gdefs') =>
-    transl_globvars ofs gdefs'
+    transl_globvars gdefs'
   | ((_, Some (AST.Gfun _)) :: gdefs') =>
-    transl_globvars ofs gdefs'
+    transl_globvars gdefs'
   | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    let sz := AST.init_data_list_size (AST.gvar_init v) in
-    let sblk := mkSectBlock data_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
-    let nofs := ofs+sz in
-    do (fofs, tgdefs') <- transl_globvars nofs gdefs';
-    do v' <- transl_gvar v;
-    OK (fofs, ((id, Some (Gvar v'), sblk) :: tgdefs'))
+    match gid_map id with
+    | None => Error (MSG "Translation of a global variable fails: no address for the variable" :: nil)
+    | Some (sid,ofs) =>
+      let sz := AST.init_data_list_size (AST.gvar_init v) in
+      let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+      do tgdefs' <- transl_globvars gdefs';
+      do v' <- transl_gvar v;
+      OK ((id, Some (Gvar v'), sblk) :: tgdefs')
+    end
   end.
 
-
+(* Fixpoint transl_globvars (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit))) *)
+(*                          : res (Z * list (ident * option FlatAsm.gdef * segblock)) := *)
+(*   match gdefs with *)
+(*   | nil => OK (ofs, nil) *)
+(*   | ((id, None) :: gdefs') => *)
+(*     transl_globvars ofs gdefs' *)
+(*   | ((_, Some (AST.Gfun _)) :: gdefs') => *)
+(*     transl_globvars ofs gdefs' *)
+(*   | ((id, Some (AST.Gvar v)) :: gdefs') => *)
+(*     let sz := AST.init_data_list_size (AST.gvar_init v) in *)
+(*     let sblk := mkSegBlock data_segid (Ptrofs.repr ofs) (Ptrofs.repr sz) in *)
+(*     let nofs := ofs+sz in *)
+(*     do (fofs, tgdefs') <- transl_globvars nofs gdefs'; *)
+(*     do v' <- transl_gvar v; *)
+(*     OK (fofs, ((id, Some (Gvar v'), sblk) :: tgdefs')) *)
+(*   end. *)
 
 
 (** * Translation of instructions *)
@@ -163,15 +182,15 @@ Section WITH_LABEL_MAP.
 (** A mapping from labels in functions to their offsets in the code section *)
 Variable label_map : LABEL_MAP_TYPE.
 
-Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list sect_label) :=
+Fixpoint transl_tbl (fid:ident) (tbl: list Asm.label) : res (list seglabel) :=
   match tbl with
   | nil => OK nil
   | l::tbl' =>
     match (label_map fid l) with
     | None => Error (MSG "Unknown label in the jump table" :: nil)
-    | Some ofs => 
+    | Some tl => 
       do rtbl <- transl_tbl fid tbl';
-      OK (code_label ofs :: rtbl)
+      OK (tl :: rtbl)
     end
   end.
 
@@ -332,7 +351,7 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
   | Asm.Pjmp_l l        => 
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjmp_l (code_label ofs))
+    | Some tl => OK (Pjmp_l tl)
     end
   | Asm.Pjmp_s symb sg =>
     match (gid_map symb) with
@@ -343,12 +362,12 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
   | Asm.Pjcc c l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjcc c (code_label ofs))
+    | Some tl => OK (Pjcc c tl)
     end
   | Asm.Pjcc2 c1 c2 l =>
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Pjcc2 c1 c2 (code_label ofs))
+    | Some tl => OK (Pjcc2 c1 c2 tl)
     end
   | Asm.Pjmptbl r tbl =>
     do tbl' <- transl_tbl fid tbl; OK (Pjmptbl r tbl')
@@ -372,12 +391,14 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
   | Asm.Plabel l => 
     match (label_map fid l) with
     | None => Error (MSG (Asm.instr_to_string i) :: MSG " unknown label" :: nil)
-    | Some ofs => OK (Plabel (code_label ofs))
+    | Some tl => OK (Plabel tl)
     end
-  | Asm.Pallocframe fi ofs_ra ofs_link =>
-    OK (Pallocframe fi ofs_ra ofs_link)
-  | Asm.Pfreeframe sz ofs_ra ofs_link =>
-    OK (Pfreeframe sz ofs_ra ofs_link)
+  | Asm.Pallocframe fi ofs_ra =>
+    OK (Pallocframe fi ofs_ra)
+  | Asm.Pfreeframe sz ofs_ra =>
+    OK (Pfreeframe sz ofs_ra)
+  | Asm.Pload_parent_pointer rd z =>
+    OK (Pload_parent_pointer rd z)
   | Asm.Pbuiltin ef args res =>
     do args' <- transl_builtin_args args;
     OK (Pbuiltin ef args' res)
@@ -423,107 +444,107 @@ Definition transl_instr' (fid : ident) (i:Asm.instruction) : res FlatAsm.instruc
     Error (MSG (Asm.instr_to_string i) :: MSG " not supported" :: nil)
   end.
 
-Definition transl_instr (ofs:Z) (fid: ident) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
+Definition transl_instr (ofs:Z) (fid: ident) (sid:segid_type) (i:Asm.instr_with_info) : res FlatAsm.instr_with_info :=
     let sz := si_size (snd i) in
-    let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
+    let sblk := mkSegBlock sid (Ptrofs.repr ofs) (Ptrofs.repr sz) in
     do instr <- transl_instr' fid (fst i);
     OK (instr, sblk).
 
 (** Translation of a sequence of instructions in a function *)
-Fixpoint transl_instrs (fid:ident) (ofs:Z) (instrs: list Asm.instr_with_info) : res (Z * list instr_with_info) :=
+Fixpoint transl_instrs (fid:ident) (sid:segid_type) (ofs:Z) (instrs: list Asm.instr_with_info) : res (Z * list instr_with_info) :=
   match instrs with
   | nil => OK (ofs, nil)
   | i::instrs' =>
     let sz := si_size (snd i) in
     let nofs := ofs+sz in
-    do instr <- transl_instr ofs fid i;
-    do (fofs, tinstrs') <- transl_instrs fid nofs instrs';
+    do instr <- transl_instr ofs fid sid i;
+    do (fofs, tinstrs') <- transl_instrs fid sid nofs instrs';
     OK (fofs, instr :: tinstrs')
   end.
 
 (** Tranlsation of a function *)
-Definition transl_fun (fid: ident) (ofs:Z) (f:Asm.function) : res (Z* function) :=
-  do (fofs, code') <- transl_instrs fid ofs (Asm.fn_code f);
-  let sz := fofs - ofs in
-  let sblk := mkSectBlock code_sect_id (Ptrofs.repr ofs) (Ptrofs.repr sz) in
-  OK (fofs, (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk)).
-
-(** Translation of internal functions *)
-Fixpoint transl_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * sect_block) * code) :=
-  match gdefs with
-  | nil => OK (ofs, nil, nil)
-  | ((id, None) :: gdefs') =>
-    transl_funs ofs gdefs'
-  | ((id, Some (AST.Gfun f)) :: gdefs') =>
-    match f with
-    | External f => 
-      transl_funs ofs gdefs'
-    | Internal fd =>
-      do (nofs, fd') <- transl_fun id ofs fd;
-      do (h, code') <- transl_funs nofs gdefs';
-      let (fofs, tgdefs') := h in
-      OK (fofs, (id, Some (Gfun (Internal fd')), (fn_range fd'))::tgdefs', (fn_code fd')++code')
-    end
-  | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    transl_funs ofs gdefs'
-  end.
-
-(** Translation of external functions *)
-Fixpoint transl_ext_funs (ofs:Z) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : res (Z * list (ident * option FlatAsm.gdef * sect_block)) :=
-  match gdefs with
-  | nil => OK (ofs, nil)
-  | ((id, None) :: gdefs') =>
-    transl_ext_funs ofs gdefs'
-  | ((id, Some (AST.Gfun f)) :: gdefs') =>
-    match f with
-    | External f => 
-      (* We assume an external function only occupies one byte *)
-      let nofs := ofs+1 in
-      let sblk := mkSectBlock extfuns_sect_id (Ptrofs.repr nofs) Ptrofs.one in
-      do (fofs, tgdefs') <- transl_ext_funs nofs gdefs';
-      OK (fofs, (id, Some (Gfun (External f)), sblk)::tgdefs')
-    | Internal fd =>
-      transl_ext_funs ofs gdefs'
-    end
-  | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    transl_ext_funs ofs gdefs'
+Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
+  match gid_map fid with
+  | None => Error (MSG "Translation of function fails: no address for this function" :: nil)
+  | Some (sid, ofs) =>
+    let ofs' := Ptrofs.unsigned ofs in
+    do (fofs, code') <- transl_instrs fid sid ofs' (Asm.fn_code f);
+      if zle fofs Ptrofs.max_unsigned then
+        (let sz := 1 in
+         let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+         OK (mkfunction (Asm.fn_sig f) code' (Asm.fn_frame f) sblk))
+      else
+        Error (MSG "The size of the function exceeds limit" ::nil)
   end.
 
 
-Section WITHMEMORYMODELOPS.
-Context `{memory_model_ops: Mem.MemoryModelOps}.
+Definition transl_globdef (id:ident) (def: option (AST.globdef Asm.fundef unit)) 
+  : res (option ((ident * option FlatAsm.gdef * segblock) * code)) :=
+  match def with
+  | None => OK None
+  | Some (AST.Gvar v) =>
+    match gid_map id with
+    | None => Error (MSG "Translation of a global variable fails: no address for the variable" :: nil)
+    | Some (sid,ofs) =>
+      let sz := AST.init_data_list_size (AST.gvar_init v) in
+      let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
+      do v' <- transl_gvar v;
+        OK (Some ((id, Some (Gvar v'), sblk), nil))
+    end
+  | Some (AST.Gfun f) =>
+    match f with
+    | External f => 
+      match gid_map id with
+      | None => Error (MSG "Translation of an external function fails: no address for the function" :: nil)
+      | Some (sid, ofs) => 
+        let sblk := mkSegBlock sid ofs Ptrofs.one in
+        OK (Some ((id, Some (Gfun (External f)), sblk), nil))
+      end
+    | Internal fd =>
+      do fd' <- transl_fun id fd;
+        OK (Some ((id, Some (Gfun (Internal fd')), (fn_range fd')), (fn_code fd')))
+    end
+  end.
 
-Definition gen_smap (ds_size cs_size es_size: Z) : res section_map :=
-  if zle (ds_size + cs_size + es_size + Mem.stack_limit) Ptrofs.modulus then
-    let t1 := PTree.set data_sect_id Ptrofs.zero (PTree.empty _) in
-    let t2 := PTree.set code_sect_id (Ptrofs.repr ds_size) t1 in
-    let t3 := PTree.set extfuns_sect_id (Ptrofs.repr (ds_size + cs_size)) t2 in
-    let t4 := PTree.set stack_sect_id (Ptrofs.repr (Ptrofs.modulus - Mem.stack_limit)) t3 in
-    OK t4
-  else
-    Error (MSG "Sections are too large to fit into the memory" :: nil).
-
+Fixpoint transl_globdefs (defs : list (ident * option (AST.globdef Asm.fundef unit))) 
+  : res (list (ident * option gdef * segblock) * code) :=
+  match defs with
+  | nil => OK (nil, nil)
+  | (id, def)::defs' =>
+    do tdef_code <- transl_globdef id def;
+    do (tdefs', c') <- transl_globdefs defs';
+    match tdef_code with
+     | None => OK (tdefs', c')
+     | Some (tdef, c) => OK (tdef :: tdefs', c++c')
+     end
+  end.
+  
 (** Translation of a program *)
-Definition transl_prog_with_map (p:Asm.program) : res program := 
-  do (data_sz, data_defs) <- transl_globvars 0 (AST.prog_defs p);
-  do (h, code) <- transl_funs 0 (AST.prog_defs p);
-  let (code_sz, fun_defs) := h in
-  do (extfuns_sz, ext_fun_defs) <- transl_ext_funs 0 (AST.prog_defs p);
-  do smap <- gen_smap data_sz code_sz extfuns_sz;
+Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program := 
+  do (defs, code) <- transl_globdefs (AST.prog_defs p);
   OK (Build_program
-        (data_defs ++ fun_defs ++ ext_fun_defs)
+        defs
         (AST.prog_public p)
         (AST.prog_main p)
-        smap
-        (Build_section stack_sect_id (Ptrofs.repr Mem.stack_limit))
-        (Build_section data_sect_id (Ptrofs.repr data_sz))
-        (Build_section code_sect_id (Ptrofs.repr code_sz), code)
-        (Build_section extfuns_sect_id (Ptrofs.repr extfuns_sz)))
+        (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *)
+        (mkSegment data_segid (Ptrofs.repr data_sz))
+        (mkSegment code_segid (Ptrofs.repr code_sz), code)
+        (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))
       .
 
-End WITHMEMORYMODELOPS.
+(* Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program :=  *)
+(*   do data_defs <- transl_globvars (AST.prog_defs p); *)
+(*   do (fun_defs, code) <- transl_funs (AST.prog_defs p); *)
+(*   do ext_fun_defs <- transl_ext_funs (AST.prog_defs p); *)
+(*   OK (Build_program *)
+(*         (data_defs ++ fun_defs ++ ext_fun_defs) *)
+(*         (AST.prog_public p) *)
+(*         (AST.prog_main p) *)
+(*         (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *) *)
+(*         (mkSegment data_segid (Ptrofs.repr data_sz)) *)
+(*         (mkSegment code_segid (Ptrofs.repr code_sz), code) *)
+(*         (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz))) *)
+(*       . *)
 
 End WITH_LABEL_MAP.
 
@@ -532,130 +553,280 @@ End WITH_GID_MAP.
 
 (** * Compute mappings from global identifiers to section labels *)
 
-(** Information accumulated during the translation of global data *)
-Record dinfo : Type :=
-mkDinfo{
-  di_size : Z;           (**r The size of the data section traversed so far *)
-  di_map : GID_MAP_TYPE
-                          (**r The mapping from global identifiers to section labels *)
-}.
+(* (** Information accumulated during the translation of global data *) *)
+(* Record dinfo : Type := *)
+(* mkDinfo{ *)
+(*   di_size : Z;           (**r The size of the data section traversed so far *) *)
+(*   di_map : GID_MAP_TYPE *)
+(*                           (**r The mapping from global identifiers to section labels *) *)
+(* }. *)
 
 
-(** Update the gid mapping for a single variable *)
-Definition update_gvar_map {V:Type} (di: dinfo)
-           (id:ident) (gvar: AST.globvar V) : dinfo :=
-  let sz:= AST.init_data_list_size (AST.gvar_init gvar) in
-  mkDinfo (di_size di + sz) (update_gid_map id (data_label (di_size di)) (di_map di)).
+(* (** Update the gid mapping for a single variable *) *)
+(* Definition update_gvar_map {V:Type} (di: dinfo) *)
+(*            (id:ident) (gvar: AST.globvar V) : dinfo := *)
+(*   let sz:= AST.init_data_list_size (AST.gvar_init gvar) in *)
+(*   let ofs := align (di_size di) alignw in *)
+(*   mkDinfo (ofs + sz) (update_gid_map id (data_label ofs) (di_map di)). *)
 
 
-(** Update the gid mapping for all global variables *)
-Fixpoint update_gvars_map (di:dinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : dinfo :=
-  match gdefs with
-  | nil => di
-  | ((id, None) :: gdefs') =>
-    update_gvars_map di gdefs'
-  | ((_, Some (AST.Gfun _)) :: gdefs') =>
-    update_gvars_map di gdefs'
-  | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    let di' := update_gvar_map di id v in
-    update_gvars_map di' gdefs'
+(* (** Update the gid mapping for all global variables *) *)
+(* Fixpoint update_gvars_map (di:dinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit))) *)
+(*                          : dinfo := *)
+(*   match gdefs with *)
+(*   | nil => di *)
+(*   | ((id, None) :: gdefs') => *)
+(*     update_gvars_map di gdefs' *)
+(*   | ((_, Some (AST.Gfun _)) :: gdefs') => *)
+(*     update_gvars_map di gdefs' *)
+(*   | ((id, Some (AST.Gvar v)) :: gdefs') => *)
+(*     let di' := update_gvar_map di id v in *)
+(*     update_gvars_map di' gdefs' *)
+(*   end. *)
+
+
+(* (** Update the gid mapping for a single instruction *) *)
+(* Record cinfo : Type := *)
+(* mkCinfo{ *)
+(*   ci_size : Z;           (**r The size of the code section traversed so far *) *)
+(*   ci_map : GID_MAP_TYPE;  (**r The mapping from global identifiers to section labels *) *)
+(*   ci_lmap : LABEL_MAP_TYPE; (**r The mapping for labels in functions *) *)
+(* }. *)
+
+
+(* (** Update the gid mapping for a single instruction *) *)
+(* Definition update_instr_map (fid:ident) (ci:cinfo) (instr:Asm.instr_with_info) : cinfo := *)
+(*   let new_lmap := *)
+(*       match (fst instr) with *)
+(*       | Asm.Plabel l =>  *)
+(*         let ofs := ci_size ci in *)
+(*         update_label_map fid l (code_label (ofs + instr_size instr)) (ci_lmap ci) *)
+(*       | _ => ci_lmap ci *)
+(*       end *)
+(*   in *)
+(*   let sz := si_size (snd instr) in *)
+(*   mkCinfo (ci_size ci + sz) (ci_map ci) new_lmap. *)
+
+(* (** Update the gid mapping for a list of instructions *) *)
+(* Fixpoint update_instrs_map (fid:ident) (ci:cinfo) (instrs: list Asm.instr_with_info) : cinfo := *)
+(*   match instrs with *)
+(*   | nil => ci *)
+(*   | i::instrs' => *)
+(*     let ci' := update_instr_map fid ci i in *)
+(*     update_instrs_map fid ci' instrs' *)
+(*   end. *)
+
+(* (** Update the gid mapping for all internal functions *) *)
+(* Fixpoint update_funs_map (ci:cinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit))) *)
+(*                          : cinfo := *)
+(*   match gdefs with *)
+(*   | nil => ci *)
+(*   | ((id, None) :: gdefs') => *)
+(*     update_funs_map ci gdefs' *)
+(*   | ((id, Some (AST.Gfun f)) :: gdefs') => *)
+(*     match f with *)
+(*     | External _ => update_funs_map ci gdefs' *)
+(*     | Internal f => *)
+(*       let ofs := align (ci_size ci) alignw in *)
+(*       let ci' := mkCinfo ofs *)
+(*                          (update_gid_map id (code_label ofs) (ci_map ci)) *)
+(*                          (ci_lmap ci) *)
+(*       in *)
+(*       let ci'' := update_instrs_map id ci' (Asm.fn_code f) in *)
+(*       update_funs_map ci'' gdefs' *)
+(*     end *)
+(*   | ((id, Some (AST.Gvar v)) :: gdefs') => *)
+(*     update_funs_map ci gdefs' *)
+(*   end. *)
+
+
+(* (** Update the gid mapping for all external functions *) *)
+(* Fixpoint update_extfuns_map (ei: dinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit))) *)
+(*   : dinfo := *)
+(*   match gdefs with *)
+(*   | nil => ei *)
+(*   | ((id, None) :: gdefs') => *)
+(*     update_extfuns_map ei gdefs' *)
+(*   | ((id, Some (AST.Gfun f)) :: gdefs') => *)
+(*     match f with *)
+(*     | External _ =>  *)
+(*       let ofs := align (di_size ei) alignw in *)
+(*       let ei' := mkDinfo (ofs + alignw) *)
+(*                          (update_gid_map id (extfun_label ofs) (di_map ei)) *)
+(*       in *)
+(*       update_extfuns_map ei' gdefs' *)
+(*     | Internal f => *)
+(*       update_extfuns_map ei gdefs' *)
+(*     end *)
+(*   | ((id, Some (AST.Gvar v)) :: gdefs') => *)
+(*     update_extfuns_map ei gdefs' *)
+(*   end. *)
+
+Definition is_label (i: Asm.instr_with_info) : option Asm.label :=
+  match fst i with
+  | Asm.Plabel l => Some l
+  | _ => None
   end.
 
+Definition update_instr (lmap: ident -> Asm.label -> option seglabel) (csize: Z) (fid: ident) (i: Asm.instr_with_info) :=
+  let csize' := csize + instr_size i in
+  let lmap' :=
+      match is_label i with
+      | Some l => update_label_map fid l (code_label csize') lmap
+      | _ => lmap
+      end in
+  (lmap', csize').
 
-(** Update the gid mapping for a single instruction *)
-Record cinfo : Type :=
-mkCinfo{
-  ci_size : Z;           (**r The size of the code section traversed so far *)
-  ci_map : GID_MAP_TYPE;  (**r The mapping from global identifiers to section labels *)
-  ci_lmap : LABEL_MAP_TYPE; (**r The mapping for labels in functions *)
-}.
+Definition update_instrs lmap csize fid c : LABEL_MAP_TYPE * Z :=
+  fold_left (fun (ls : LABEL_MAP_TYPE * Z) i =>
+               let '(lmap, csize) := ls in
+               update_instr lmap csize fid i) c (lmap, csize).
 
-
-(** Update the gid mapping for a single instruction *)
-Definition update_instr_map (fid:ident) (ci:cinfo) (instr:Asm.instr_with_info) : cinfo :=
-  let new_lmap :=
-      match (fst instr) with
-      | Asm.Plabel l => 
-        let ofs := ci_size ci in
-        update_label_map fid l ofs (ci_lmap ci)
-      | _ => ci_lmap ci
-      end
-  in
-  let sz := si_size (snd instr) in
-  mkCinfo (ci_size ci + sz) (ci_map ci) new_lmap.
-
-(** Update the gid mapping for a list of instructions *)
-Fixpoint update_instrs_map (fid:ident) (ci:cinfo) (instrs: list Asm.instr_with_info) : cinfo :=
-  match instrs with
-  | nil => ci
-  | i::instrs' =>
-    let ci' := update_instr_map fid ci i in
-    update_instrs_map fid ci' instrs'
+Definition update_maps_def
+           (gmap: ident -> option seglabel)
+           (lmap: ident -> Asm.label -> option seglabel)
+           (dsize csize efsize: Z) (i: ident) (def: option (AST.globdef Asm.fundef unit)):
+  (GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * Z) :=
+  match def with
+  | None => (gmap, lmap, dsize, csize, efsize)
+  | Some (AST.Gvar gvar) =>
+    let sz:= AST.init_data_list_size (AST.gvar_init gvar) in
+    (update_gid_map i (data_label dsize) gmap, lmap, dsize + align sz alignw, csize, efsize)
+  | Some (AST.Gfun (External ef)) =>
+    (update_gid_map i (extfun_label efsize) gmap, lmap, dsize, csize, efsize + alignw)
+  | Some (AST.Gfun (Internal f)) =>
+    let (lmap', csize') := update_instrs lmap csize i (Asm.fn_code f) in
+    (update_gid_map i (code_label csize) gmap, lmap', dsize, align csize' alignw, efsize)
   end.
 
-(** Update the gid mapping for all internal functions *)
-Fixpoint update_funs_map (ci:cinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-                         : cinfo :=
-  match gdefs with
-  | nil => ci
-  | ((id, None) :: gdefs') =>
-    update_funs_map ci gdefs'
-  | ((id, Some (AST.Gfun f)) :: gdefs') =>
-    match f with
-    | External _ => update_funs_map ci gdefs'
-    | Internal f =>
-      let ci' := mkCinfo (ci_size ci)
-                         (update_gid_map id (code_label (ci_size ci)) (ci_map ci))
-                         (ci_lmap ci)
-      in
-      let ci'' := update_instrs_map id ci' (Asm.fn_code f) in
-      update_funs_map ci'' gdefs'
+Definition update_maps gmap lmap dsize csize efsize defs : (GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * Z) :=
+  fold_left (fun (acc : GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * Z)
+               (id: ident * option (AST.globdef Asm.fundef unit)) =>
+               let '(gmap, lmap, dsize, csize, efsize) := acc in
+               let '(i,def) := id in
+               update_maps_def gmap lmap dsize csize efsize i def)
+            defs (gmap, lmap, dsize, csize, efsize).
+
+Definition make_maps (p:Asm.program) : (GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * Z) :=
+  update_maps default_gid_map default_label_map 0 0 0 (AST.prog_defs p).
+
+(* (** Update the gid and label mappings by traversing an Asm program *) *)
+(* Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE * Z * Z * Z) := *)
+(*   let init_di := (mkDinfo 0 default_gid_map) in *)
+(*   let di := update_gvars_map init_di (AST.prog_defs p) in *)
+(*   let data_seg_size := align (di_size di) alignw in *)
+(*   let ei := mkDinfo 0 (di_map di) in *)
+(*   let ei' := update_extfuns_map ei (AST.prog_defs p) in *)
+(*   let extfuns_seg_size := align (di_size ei') alignw in *)
+(*   let init_ci := mkCinfo 0 (di_map ei') default_label_map in *)
+(*   let final_ci := update_funs_map init_ci (AST.prog_defs p) in *)
+(*   let code_seg_size := align (ci_size final_ci) alignw in *)
+(*   OK (ci_map final_ci, ci_lmap final_ci, data_seg_size, code_seg_size, extfuns_seg_size). *)
+
+
+(** Check if the source program is well-formed **)
+Definition no_duplicated_defs {F V: Type} (defs: list (ident * option (AST.globdef F V))) :=
+  list_norepet (map fst defs).
+
+Fixpoint labels (c: Asm.code) : list Asm.label :=
+  match c with
+  | [] => []
+  | i :: r =>
+    match is_label i with
+      Some l => l :: labels r
+    | None => labels r
     end
-  | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    update_funs_map ci gdefs'
   end.
 
+Definition no_duplicated_labels (c: Asm.code)  :=
+  list_norepet (labels c).
 
-(** Update the gid mapping for all external functions *)
-Fixpoint update_extfuns_map (ei: dinfo) (gdefs : list (ident * option (AST.globdef Asm.fundef unit)))
-  : dinfo :=
-  match gdefs with
-  | nil => ei
-  | ((id, None) :: gdefs') =>
-    update_extfuns_map ei gdefs'
-  | ((id, Some (AST.Gfun f)) :: gdefs') =>
-    match f with
-    | External _ => 
-      let ei' := mkDinfo (di_size ei + 1)
-                         (update_gid_map id (extfun_label (di_size ei)) (di_map ei))
-      in
-      update_extfuns_map ei' gdefs'
-    | Internal f =>
-      update_extfuns_map ei gdefs'
-    end
-  | ((id, Some (AST.Gvar v)) :: gdefs') =>
-    update_extfuns_map ei gdefs'
+Definition globdef_no_duplicated_labels (def: option (AST.globdef Asm.fundef unit)) :=
+  match def with
+  | Some (AST.Gfun (Internal f)) => no_duplicated_labels (Asm.fn_code f)
+  | _ => True
   end.
-  
 
-(** Update the gid and label mappings by traversing an Asm program *)
-Definition update_map (p:Asm.program) : res (GID_MAP_TYPE * LABEL_MAP_TYPE) :=
-  let init_di := (mkDinfo 0 default_gid_map) in
-  let di := update_gvars_map init_di (AST.prog_defs p) in
-  let ei := mkDinfo 0 (di_map di) in
-  let ei' := update_extfuns_map ei (AST.prog_defs p) in
-  let init_ci := mkCinfo 0 (di_map ei') default_label_map in
-  let final_ci := update_funs_map init_ci (AST.prog_defs p) in
-  OK (ci_map final_ci, ci_lmap final_ci).
+Definition globdef_no_duplicated_labels_dec def : { globdef_no_duplicated_labels def } + { ~ globdef_no_duplicated_labels def }.
+Proof.
+  unfold globdef_no_duplicated_labels.
+  repeat destr.
+  apply list_norepet_dec. apply ident_eq.
+Defined.
 
+Definition defs_no_duplicated_labels (defs: list (ident * _)) :=
+  Forall globdef_no_duplicated_labels (map snd defs).
 
-Section WITHMEMORYMODELOPS.
-Context `{memory_model_ops: Mem.MemoryModelOps}.
+Definition def_size (def: AST.globdef Asm.fundef unit) : Z :=
+  match def with
+  | AST.Gfun (External e) => 1
+  | AST.Gfun (Internal f) => Asm.code_size (Asm.fn_code f)
+  | AST.Gvar v => AST.init_data_list_size (AST.gvar_init v)
+  end.
+
+Definition odef_size (def: option (AST.globdef Asm.fundef unit)) : Z :=
+  match def with
+  | Some def => def_size def
+  | _ => 0
+  end.
+
+Lemma def_size_pos:
+  forall d,
+    0 <= def_size d.
+Proof.
+  unfold def_size. intros.
+  destr.
+  destr. generalize (code_size_non_neg (Asm.fn_code f0)); omega.
+  omega.
+  generalize (AST.init_data_list_size_pos (AST.gvar_init v)); omega.
+Qed.
+
+Lemma odef_size_pos:
+  forall d,
+    0 <= odef_size d.
+Proof.
+  unfold odef_size. intros.
+  destr. apply def_size_pos. omega.
+Qed.
+
+Definition def_not_empty def : Prop :=
+  0 < odef_size def.
+
+Definition defs_not_empty defs :=
+  Forall def_not_empty defs.
+
+Definition defs_not_empty_dec defs : { defs_not_empty defs } + { ~ defs_not_empty defs }.
+Proof.
+  apply Forall_dec. intros. apply zlt.
+Defined.
+
+Record wf_prog (p:Asm.program) : Prop :=
+  {
+    wf_prog_not_empty: defs_not_empty (map snd (AST.prog_defs p));
+    wf_prog_norepet_defs: list_norepet (map fst (AST.prog_defs p));
+    wf_prog_norepet_labels: defs_no_duplicated_labels (AST.prog_defs p);
+  }.
+
+Definition check_wellformedness p : { wf_prog p } + { ~ wf_prog p }.
+Proof.
+  destruct (defs_not_empty_dec (map snd (AST.prog_defs p))).
+  destruct (list_norepet_dec ident_eq (map fst (AST.prog_defs p))).
+  destruct (Forall_dec _ globdef_no_duplicated_labels_dec (map snd (AST.prog_defs p))).
+  left; constructor; auto.
+  right; inversion 1. apply n. apply wf_prog_norepet_labels0.
+  right; inversion 1. apply n. apply wf_prog_norepet_defs0.
+  right; inversion 1. apply n. apply wf_prog_not_empty0.
+Qed.
 
 (** The full translation *)
 Definition transf_program (p:Asm.program) : res program :=
-  do (gmap,lmap) <- update_map p;
-  transl_prog_with_map gmap lmap p.
+  if check_wellformedness p then
+    (let r := make_maps p in
+     let '(gmap,lmap,dsize,csize,efsize) := r in
+     if zle (dsize + csize + efsize) Ptrofs.max_unsigned then
+       transl_prog_with_map gmap lmap p dsize csize efsize
+     else
+       Error (MSG "Size of segments too big" :: nil))
+  else
+    Error (MSG "Program not well-formed. There exists duplicated labels or definitions" :: nil). 
 
-End WITHMEMORYMODELOPS.
