@@ -467,7 +467,7 @@ Definition transl_fun (fid: ident) (f:Asm.function) : res function :=
     let ofs' := Ptrofs.unsigned ofs in
     do (fofs, code') <- transl_instrs fid sid ofs' (Asm.fn_code f);
       if zle fofs Ptrofs.max_unsigned then
-        (let sz := 1 in
+        (let sz := (Asm.code_size (Asm.fn_code f))  in
          let sblk := mkSegBlock sid ofs (Ptrofs.repr sz) in
          OK (mkfunction (Asm.fn_sig f) code' sblk))
       else
@@ -526,7 +526,8 @@ Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): 
         (* (mkSegment stack_segid (Ptrofs.repr Mem.stack_limit)) *)
         (mkSegment data_segid (Ptrofs.repr data_sz))
         (mkSegment code_segid (Ptrofs.repr code_sz), code)
-        (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz)))
+        (mkSegment extfuns_segid (Ptrofs.repr extfuns_sz))
+        (Globalenvs.Genv.to_senv (Globalenvs.Genv.globalenv p)))
       .
 
 (* Definition transl_prog_with_map (p:Asm.program) (data_sz code_sz extfuns_sz:Z): res program :=  *)
@@ -787,21 +788,47 @@ Proof.
 Qed.
 
 Definition def_not_empty def : Prop :=
-  0 < odef_size def.
+  match def with
+  | None => True
+  | Some def' => 0 < def_size def'
+  end.
+
 
 Definition defs_not_empty defs :=
   Forall def_not_empty defs.
 
 Definition defs_not_empty_dec defs : { defs_not_empty defs } + { ~ defs_not_empty defs }.
 Proof.
-  apply Forall_dec. intros. apply zlt.
+  apply Forall_dec. intros. destruct x. 
+  - simpl. apply zlt.
+  - simpl. left. auto.
 Defined.
+
+Definition main_exists main (defs: list (ident * option (AST.globdef Asm.fundef unit))) :=
+  Exists (fun '(id, def) => 
+            main = id 
+            /\ match def with
+              | None => False
+              | Some _ => True
+              end) defs.
+
+Definition main_exists_dec main defs : {main_exists main defs } + {~ main_exists main defs}.
+Proof.
+  apply Exists_dec. intros. destruct x.
+  generalize (ident_eq main i). intros.
+  destruct o; inv H.
+  - left. auto.
+  - right. inversion 1. auto.
+  - right. inversion 1. auto.
+  - right. inversion 1. auto.
+Qed.
 
 Record wf_prog (p:Asm.program) : Prop :=
   {
     wf_prog_not_empty: defs_not_empty (map snd (AST.prog_defs p));
     wf_prog_norepet_defs: list_norepet (map fst (AST.prog_defs p));
     wf_prog_norepet_labels: defs_no_duplicated_labels (AST.prog_defs p);
+    wf_prog_main_exists: main_exists (AST.prog_main p) (AST.prog_defs p);
   }.
 
 Definition check_wellformedness p : { wf_prog p } + { ~ wf_prog p }.
@@ -809,7 +836,9 @@ Proof.
   destruct (defs_not_empty_dec (map snd (AST.prog_defs p))).
   destruct (list_norepet_dec ident_eq (map fst (AST.prog_defs p))).
   destruct (Forall_dec _ globdef_no_duplicated_labels_dec (map snd (AST.prog_defs p))).
+  destruct (main_exists_dec (AST.prog_main p) (AST.prog_defs p)).
   left; constructor; auto.
+  right. inversion 1. apply n. apply wf_prog_main_exists0.
   right; inversion 1. apply n. apply wf_prog_norepet_labels0.
   right; inversion 1. apply n. apply wf_prog_norepet_defs0.
   right; inversion 1. apply n. apply wf_prog_not_empty0.

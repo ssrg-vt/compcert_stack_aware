@@ -255,6 +255,7 @@ Record program : Type := {
   data_seg: segment;  (* The data segment *)
   code_seg : segment * code; (* The code segment *)
   extfuns_seg : segment; (* The segment for external functions *)
+  prog_senv : Globalenvs.Senv.t;
 }.
 
 
@@ -780,8 +781,8 @@ Definition exec_instr {exec_load exec_store} `{!MemAccessors exec_load exec_stor
     => Stuck
   end.
 
-(** Symbol environments are not used to describe the semantics of FlatAsm. However, we need to provide a dummy one to match the semantics framework of CompCert *)
-Definition dummy_senv := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit nil).
+(* (** Symbol environments are not used to describe the semantics of FlatAsm. However, we need to provide a dummy one to match the semantics framework of CompCert *) *)
+(* Definition dummy_senv (ge:genv) := Globalenvs.Genv.to_senv (Globalenvs.Genv.empty_genv unit unit (Genv.genv_public ge)). *)
 
 Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store} 
   (ge: genv) : state -> trace -> state -> Prop :=
@@ -798,7 +799,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
       Genv.genv_internal_codeblock ge b = true ->
       Genv.find_instr ge (Vptr b ofs) = Some (Pbuiltin ef args res, blk) ->
       eval_builtin_args _ _ preg ge rs (rs RSP) m args vargs ->
-        external_call ef dummy_senv vargs m t vres m' ->
+        external_call ef (Genv.genv_senv ge) vargs m t vres m' ->
       forall BUILTIN_ENABLED: builtin_enabled ef,
         rs' = nextinstr_nf
                 (set_res res vres
@@ -822,7 +823,7 @@ Inductive step {exec_load exec_store} `{!MemAccessors exec_load exec_store}
         (SP_NOT_VUNDEF: rs RSP <> Vundef)
         (RA_NOT_VUNDEF: rs RA <> Vundef)
       ,      (* CompCertX: END additional conditions for calling convention *)
-        external_call ef dummy_senv args m t res m' ->
+        external_call ef (Genv.genv_senv ge) args m t res m' ->
         rs' = (set_pair (loc_external_result (ef_sig ef)) res (undef_regs (CR ZF :: CR CF :: CR PF :: CR SF :: CR OF :: nil) (undef_regs (map preg_of destroyed_at_call) rs))) #PC <- (rs RA) #RA <- Vundef ->
         step ge (State rs m) t (State rs' m').
 
@@ -837,11 +838,13 @@ Definition add_global (ge:genv) (idg: ident * option gdef * segblock) : genv :=
   | Some (Gvar _) => ge
   | Some (Gfun f) =>
     (Genv.mkgenv
+       (Genv.genv_public ge)
        (fun b ofs => if Val.eq (Vptr b ofs) ptr then Some f else (Genv.genv_defs ge b ofs))
        (Genv.genv_instrs ge)
        (Genv.genv_internal_codeblock ge)
        (Genv.genv_segblocks ge)
-       (Genv.genv_next ge))
+       (Genv.genv_next ge)
+       (Genv.genv_senv ge))
   end.
 
 Fixpoint add_globals (ge:genv) (gl: list (ident * option gdef * segblock)) : genv :=
@@ -926,6 +929,31 @@ Definition code_labels_are_distinct (c: code) : Prop :=
   let labels := (map (fun i => segblock_to_label (snd i)) c) in
   list_norepet labels.
 
+Fixpoint pos_advance_N (p:positive) (n:nat) : positive :=
+  match n with
+  | O => p
+  | Datatypes.S n' => pos_advance_N (Psucc p) n'
+  end.
+
+Lemma psucc_advance_Nsucc_eq : forall n p,
+  pos_advance_N (Pos.succ p) n = Pos.succ (pos_advance_N p n).
+Proof.
+  induction n; intros.
+  - simpl. auto.
+  - simpl. rewrite IHn. auto.
+Qed.
+
+Lemma pos_advance_N_ple : forall p n,
+  Ple p (pos_advance_N p n).
+Proof.
+  induction n; intros.
+  - simpl. apply Ple_refl.
+  - simpl. 
+    rewrite psucc_advance_Nsucc_eq.
+    apply Ple_trans with (pos_advance_N p n); auto. apply Ple_succ.
+Qed.
+
+
 (* The following are definitions and properties for segment blocks
    and the mapping from segment ids to segment blocks. They are necessary
    for proving invariants of the transformation from RawAsm to FlatAsm.
@@ -935,20 +963,20 @@ Section WITHSEGSLENGTH.
 Variable init_block : block. (* The smallest segment block *)
 Variable segs_length : nat.   (* The number of segments in a program *)
 
+
 (* Definition of valid blocks for segments.  A segment block is valid if its id is 
    greater or equal to 'init_block' and less than 'init_block + segs_length' *)
 Definition segblock_is_valid (b:block) : Prop :=
-  Ple init_block b /\ Plt b (Pos.of_nat ((Pos.to_nat init_block) + segs_length)).
+  Ple init_block b /\ Plt b (pos_advance_N init_block segs_length).
 
 Lemma init_segblock_is_valid : 
   (segs_length <> 0)%nat -> segblock_is_valid init_block.
 Proof.
-  clear. red. split. apply Ple_refl. 
-  assert (((Pos.to_nat init_block) + segs_length)%nat = (Datatypes.S (Pos.to_nat init_block) + (segs_length - 1))%nat) by omega.
-  rewrite H0.
-  apply Plt_Ple_trans with (Pos.of_nat (Datatypes.S (Pos.to_nat init_block))).
-  rewrite pos_incr_comm. apply Plt_succ.
-  apply of_nat_le_mono. omega.
+  clear. red. split. apply Ple_refl.
+  destruct segs_length. congruence. simpl.
+  rewrite psucc_advance_Nsucc_eq.
+  apply Pos.le_lt_trans with (pos_advance_N init_block n).
+  apply pos_advance_N_ple. apply Plt_succ.
 Qed.
 
 (* With its range restricted to valid blocks, a mapping from 
@@ -1085,6 +1113,27 @@ Definition gen_segblocks (p:program) : (segid_type -> block) :=
   let ids := List.map segid (list_of_segments p) in
   acc_segblocks init_block ids initmap.
 
+Lemma acc_segblocks_upper_bound : forall l i f,
+  (forall id, Plt (f id) i) ->
+  (forall id, Plt (acc_segblocks i l f id) (pos_advance_N i (length l))).
+Proof.
+  induction l; intros.
+  - simpl in *. auto.
+  - simpl in *. destruct ident_eq. 
+    + rewrite psucc_advance_Nsucc_eq. apply Pos.le_lt_trans with (pos_advance_N i (Datatypes.length l)).
+      apply pos_advance_N_ple. apply Plt_succ.
+    + apply IHl. intros. apply Plt_trans with i. apply H.
+      apply Plt_succ.
+Qed.
+
+Lemma gen_segblocks_upper_bound : forall p id,
+  Plt (gen_segblocks p id) (pos_advance_N init_block (length (list_of_segments p))).
+Proof.
+  intros. unfold gen_segblocks.
+  eapply acc_segblocks_upper_bound; eauto. 
+  intros. unfold undef_seg_block, init_block. apply Plt_succ.
+Qed.
+
 (* The ids used to create a mapping from segment ids to blocks 
    are indeed mapped to valid blocks by the mapping*) 
 Lemma acc_segblocks_in_valid: forall ids id sbmap initb initmap,
@@ -1103,10 +1152,8 @@ Proof.
     exploit (IHids id (acc_segblocks (Pos.succ initb) ids initmap)); eauto.
     intros VALID. unfold segblock_is_valid in *.  destruct VALID.
     split. apply Ple_trans with (Pos.succ initb); auto. 
-    apply Ple_succ. 
-    apply Plt_Ple_trans with (Pos.of_nat (Pos.to_nat (Pos.succ initb) + Datatypes.length ids)); auto.
-    rewrite Pos2Nat.inj_succ. 
-    apply of_nat_le_mono. simpl. omega.
+    apply Ple_succ. simpl.
+    auto.
 Qed.
     
 Lemma gen_segblocks_in_valid : forall p id sbmap,
@@ -1130,18 +1177,14 @@ Proof.
   - auto.
   - destruct ident_eq; subst.
     + right. red. split. apply Ple_refl.
-      rewrite Nat.add_comm.
-      apply Plt_Ple_trans with (Pos.of_nat (Datatypes.S (Pos.to_nat initb))).
-      rewrite pos_incr_comm. apply Plt_succ.
-      apply of_nat_le_mono. omega.
+      simpl. rewrite psucc_advance_Nsucc_eq.
+      apply Pos.le_lt_trans with (pos_advance_N initb (Datatypes.length ids)).
+      apply pos_advance_N_ple. apply Plt_succ.
     + exploit (IHids (acc_segblocks (Pos.succ initb) ids initmap s)); eauto.
       intros [ACC | VALID].
       auto. right. unfold segblock_is_valid in *. destruct VALID.
       split. apply Ple_trans with (Pos.succ initb); auto. apply Ple_succ.
-      assert ((Pos.to_nat initb + Datatypes.S (Datatypes.length ids))%nat =
-              (Pos.to_nat (Pos.succ initb) + Datatypes.length ids)%nat).
-      rewrite Pos2Nat.inj_succ. rewrite Nat.add_comm. simpl. omega.
-      rewrite H1. auto.
+      simpl. auto.
 Qed.
 
 Lemma acc_segblocks_absurd : forall ids b initb initmap s,
@@ -1162,7 +1205,7 @@ Proof.
   induction ids; intros.
   - simpl in *. subst. red.
     intros s1 s2 EQ VALID.
-    red in VALID. rewrite Nat.add_0_r in VALID. rewrite Pos2Nat.id in VALID.
+    red in VALID. simpl in VALID.
     destruct VALID as [VALID1 VALID2]. exfalso.
     generalize (Plt_le_absurd (initmap s1) init_block0); eauto.
   - simpl in H0. subst. red. intros. repeat destruct ident_eq.
@@ -1197,14 +1240,14 @@ Qed.
 
 
 Definition empty_genv (p:program): genv :=
-  Genv.mkgenv (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p) 1%positive.
+  Genv.mkgenv (prog_public p) (fun b ofs => None) (fun b ofs => None) (fun b => false) (gen_segblocks p) 1%positive (prog_senv p).
 
 Definition globalenv (p: program) : genv :=
   let smap := gen_segblocks p in
   let imap := gen_instrs_map smap p in
   let cbmap := gen_internal_codeblock smap p in
   let nextblock := Pos.of_nat ((Pos.to_nat init_block) + length (list_of_segments p)) in
-  let genv := Genv.mkgenv (fun b ofs => None) imap cbmap smap nextblock in
+  let genv := Genv.mkgenv (prog_public p) (fun b ofs => None) imap cbmap smap nextblock (prog_senv p) in
   add_globals genv p.(prog_defs).
   
 (* (** Initialization of the memory *) *)
@@ -1296,16 +1339,14 @@ Definition init_mem (p: program) :=
   alloc_globals ge (gen_segblocks p) m p.(prog_defs).
 
 (** Execution of whole programs. *)
-Fixpoint get_main_block (main:ident) (l: list (ident * option gdef * segblock)) : option segblock :=
-  match l with
-  | nil => None
-  | (id,_,sb)::l' =>
-    if ident_eq main id then Some sb 
-    else get_main_block main l'
+Definition get_seg_block (id:ident) (l: list (ident * option gdef * segblock)) : option segblock :=
+  match (List.find (fun '(id',_,_) => ident_eq id id') l) with
+  | None => None
+  | Some (_,_,sb) => Some sb
   end.
 
 Definition get_main_fun_ptr (ge:genv) (p:program) : val :=
-  match get_main_block (prog_main p) (prog_defs p) with
+  match get_seg_block (prog_main p) (prog_defs p) with
   | None => Vundef
   | Some sb => (Genv.symbol_address ge (segblock_to_label sb) Ptrofs.zero)
   end.
@@ -1342,7 +1383,7 @@ Inductive final_state: state -> int -> Prop :=
 Local Existing Instance mem_accessors_default.
 
 Definition semantics (p: program) (rs: regset) :=
-  Semantics_gen step (initial_state p rs) final_state (globalenv p) dummy_senv.
+  Semantics_gen step (initial_state p rs) final_state (globalenv p) (Genv.genv_senv (globalenv p)).
 
 (* (** Determinacy of the [Asm] semantics. *) *)
 
