@@ -2,7 +2,10 @@ Require Import String Coqlib Maps.
 Require Import AST Integers Floats Values Memory Events Globalenvs Smallstep.
 Require Import Locations Stacklayout Conventions.
 
-(* https://www.kernel.org/doc/html//v6.4-rc3/bpf/instruction-set.html *)
+(* Documentation:
+    - https://www.kernel.org/doc/html//v6.4-rc3/bpf/instruction-set.html 
+    - https://man7.org/linux/man-pages/man8/bpfc.8.html *)
+
 (* Registers *)
 (* eBPF has 10 general purpose registers and R10 reserved for 
    read-only frame pointer register: size 64 bits*)
@@ -84,4 +87,22 @@ Inductive instruction : Type :=
     | Bcall (imm : int)                   (* call PC += offset : program local functions *)
     (* Return instruction *)
     | Bexit                               (* return : needs to store return value in register R0 *).
+
+Definition code := list instruction.
+Record function : Type := mkfunction { fn_sig: signature; fn_code: code; fn_stacksize: Z}.
+Definition fundef := AST.fundef function.
+Definition program := AST.program fundef unit.
+
+Module BregEq.
+  Definition t := breg.
+  Definition eq := breg_eq.
+End BregEq.
+
+Module BregMap := EMap(BregEq).
+
+Definition bregset := BregMap.t val.
+Definition genv := Genv.t fundef unit.
+
+
+
 
